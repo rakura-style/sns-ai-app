@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+// 🔥 修正: 相対パスではなく、推奨されるエイリアス(@/)を使用
 import { adminDb } from '@/lib/firebaseAdmin'; 
 import * as admin from 'firebase-admin';
 
@@ -33,13 +34,19 @@ export async function POST(req: Request) {
     // ---------------------------------------------------------
     // 3. ユーザー情報の取得 & 月次リセット判定
     // ---------------------------------------------------------
+    // 🔥 エラー回避: DB接続が確立されていない場合は処理を中断
+    if (!adminDb || typeof adminDb.collection !== 'function') {
+       console.error('Firebase Admin DB not initialized. Check FIREBASE_PRIVATE_KEY.');
+       return new NextResponse(JSON.stringify({ error: 'Service Unavailable: Database connection failed' }), { status: 503 });
+    }
+
     const userDocRef = adminDb.collection('users').doc(userId);
     const userDoc = await userDocRef.get();
     const userData = userDoc.exists ? userDoc.data() : {};
     
     const isSubscribed = userData?.isSubscribed === true; // 有料会員か？
 
-    // 月が変わったらリセットするロジック
+    // 月が変わっていたらリセットするロジック
     const now = new Date();
     const currentMonth = `${now.getFullYear()}-${now.getMonth() + 1}`; // 例: "2023-12"
     const lastUsageMonth = userData?.lastUsageMonth || "";
@@ -68,7 +75,7 @@ export async function POST(req: Request) {
     // ---------------------------------------------------------
     // 5. AI生成の実行 (エラーハンドリング強化)
     // ---------------------------------------------------------
-    // モデル名は適宜最新のものに変更してください (例: gemini-2.0-flash-lite-preview-02-05)
+    // 使用モデルを Gemini 2.5 Flash Lite に設定
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' }); 
     
     let text = '';
