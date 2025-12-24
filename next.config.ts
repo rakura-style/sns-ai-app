@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   /* ビルド時の型チェックをスキップ */
   typescript: {
     ignoreBuildErrors: true,
@@ -9,9 +8,7 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  /* サーバーサイド専用パッケージをバンドル対象から除外。
-    これによりビルド時のハングアップや依存関係のエラーを防止します。
-  */
+  /* サーバーサイド専用パッケージをバンドル対象から除外 */
   serverExternalPackages: ["stripe", "firebase-admin"],
 };
 
