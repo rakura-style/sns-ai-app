@@ -20,45 +20,50 @@ import {
   signInWithCustomToken,
   signInAnonymously
 } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, collection } from 'firebase/firestore';
 
 // ==========================================
 // 🔥 Firebase Initialization
 // ==========================================
-// 環境変数から設定を読み込み
-// 修正: TypeScriptエラー回避のため window オブジェクト経由でアクセス
-const firebaseConfig = JSON.parse(
-  typeof window !== 'undefined' && (window as any).__firebase_config 
-    ? (window as any).__firebase_config 
-    : '{}'
-);
+const getFirebaseConfig = () => {
+  try {
+    return JSON.parse((window as any).__firebase_config || '{}');
+  } catch (e) {
+    return {};
+  }
+};
 
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(getFirebaseConfig());
 const auth = getAuth(app);
 const db = getFirestore(app);
 
 // ==========================================
-// 🔥 Stripe設定 (ここに本番のリンクを貼ってください)
+// 🔥 Stripe設定
 // ==========================================
 const STRIPE_CHECKOUT_URL = 'https://buy.stripe.com/YOUR_ACTUAL_STRIPE_LINK_HERE';
 
-// グローバル定数: アプリID
+// アプリID取得
 const getAppId = () => {
-  // __app_id が未定義というエラーを防ぐため、windowオブジェクト経由で安全にアクセスします
   if (typeof window !== 'undefined' && (window as any).__app_id) {
     return (window as any).__app_id;
   }
-  return 'default-app-id';
+  return 'sns-generator-app';
 };
 
 const appId = getAppId();
 
-// --- Logic Functions (サーバー経由版) ---
+// ==========================================
+// 🔥 Gemini API Logic (Client Side Replacement)
+// ==========================================
+// Canvas環境ではサーバーサイドAPI(/api/generate)が使えないため、
+// Gemini APIをクライアントから直接叩く関数に置き換えます。
 
-const callSecureApi = async (prompt: string, token: string, actionType: 'post' | 'theme', userId: string) => {
-  // 🔥 1. 利用回数制限のチェック (1日100回)
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  // 厳格なパス指定ルールに従い、/artifacts/{appId}/users/{userId}/... を使用
+const callGeminiApi = async (prompt: string, userId: string): Promise<string> => {
+  const apiKey = ""; // 環境により実行時に提供されます
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+  // 1. 利用回数制限のチェック (Firestore)
+  const today = new Date().toISOString().split('T')[0];
   const usageRef = doc(db, 'artifacts', appId, 'users', userId, 'daily_usage', today);
   
   let currentCount = 0;
@@ -68,55 +73,65 @@ const callSecureApi = async (prompt: string, token: string, actionType: 'post' |
       currentCount = usageSnap.data().count || 0;
     }
   } catch (error) {
-    console.error("Usage check failed:", error);
-    // エラー時はチェックをスキップするか、安全側に倒すか。ここでは続行させる。
+    console.warn("Usage check skipped:", error);
   }
 
   if (currentCount >= 100) {
     throw new Error("本日の利用上限に達しました。\n明日以降ご利用ください。");
   }
 
-  // 🔥 2. API呼び出し (リトライ機能なし・1回のみ)
-  const response = await fetch('/api/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ prompt, actionType }),
-  });
+  // 2. API呼び出し (Retry Logic)
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }]
+  };
 
-  if (response.status === 403) throw new Error("無料枠の上限に達しました。");
+  let response;
+  let attempt = 0;
+  const maxRetries = 3;
   
-  if (!response.ok) {
-    let errorBody = "";
+  while (attempt < maxRetries) {
     try {
-      errorBody = await response.text();
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (response.status === 429) {
+        throw new Error("Rate limit exceeded");
+      }
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+      break; // Success
     } catch (e) {
-      errorBody = "Failed to read error body";
+      attempt++;
+      if (attempt >= maxRetries) throw e;
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
     }
-    console.error("API Error Detail:", errorBody);
-
-    if (response.status === 429) {
-        throw new Error("アクセスが集中しており制限がかかりました。\nしばらく時間を置いてから再試行してください。");
-    }
-
-    throw new Error(`API Error: ${response.status} - ${errorBody}`);
   }
-  
-  // 🔥 3. 成功時に利用回数を更新
+
+  if (!response) throw new Error("API call failed");
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!text) throw new Error("AIからの応答が空でした。");
+
+  // 3. 成功時に利用回数を更新
   try {
-    // 成功時のみカウントアップ
     await setDoc(usageRef, { count: currentCount + 1 }, { merge: true });
   } catch (error) {
     console.error("Failed to update usage count:", error);
   }
-  
-  const data = await response.json();
-  return data.text;
+
+  return text;
 };
 
-const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string) => {
+// --- Logic Functions ---
+
+const analyzeCsvAndGenerateThemes = async (csvData: string, userId: string) => {
   const prompt = `
     あなたはSNSコンサルタントです。以下の[過去の投稿CSVデータ]を分析してください。
 
@@ -130,7 +145,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     エンゲージメントが高い投稿の傾向（勝ちパターン）じっくり分析し、
     次回投稿すべき**「テーマ案を3つ」**作成してください。
 
-    出力は必ず以下の **JSON形式のみ** で返してください。
+    出力は必ず以下の **JSON形式のみ** で返してください。Markdownのコードブロックは不要です。
     {
       "settings": {
         "style": "...",
@@ -145,12 +160,10 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   `;
 
   try {
-    // userIdを渡す
-    const text = await callSecureApi(prompt, token, 'theme', userId);
+    const text = await callGeminiApi(prompt, userId);
     
-    // 🔥 JSON抽出ロジックの強化
+    // JSON抽出ロジック
     let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    // '{' から '}' までを確実に切り出す
     const firstBrace = cleanText.indexOf('{');
     const lastBrace = cleanText.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1) {
@@ -160,27 +173,23 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     return JSON.parse(cleanText);
   } catch (error: any) {
     console.error("Analysis failed:", error);
-    // 🔥 修正: 元のエラーメッセージ（利用上限など）を優先して表示する
     throw new Error(error.message || "分析に失敗しました。もう一度試してみてください。");
   }
 };
 
-const generateTrendThemes = async (token: string, userId: string) => {
+const generateTrendThemes = async (userId: string) => {
   const prompt = `
     あなたはトレンドマーケターです。
     **現在日時(${new Date().toLocaleDateString()})、季節、SNSでの一般的な流行**を考慮し、
     多くの反応が見込める**「おすすめテーマ案を3つ」**作成してください。
       
-    出力は必ず **純粋なJSON配列形式 (例: ["テーマA", "テーマB", "テーマC"])** で返してください。
+    出力は必ず **純粋なJSON配列形式 (例: ["テーマA", "テーマB", "テーマC"])** で返してください。Markdownコードブロックは不要です。
   `;
 
   try {
-    // userIdを渡す
-    const text = await callSecureApi(prompt, token, 'theme', userId);
+    const text = await callGeminiApi(prompt, userId);
     
-    // 🔥 JSON抽出ロジックの強化
     let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    // '[' から ']' までを確実に切り出す
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
     if (firstBracket !== -1 && lastBracket !== -1) {
@@ -190,12 +199,11 @@ const generateTrendThemes = async (token: string, userId: string) => {
     return JSON.parse(cleanText);
   } catch (error: any) {
     console.error("Trend generation failed:", error);
-    // 🔥 修正: 元のエラーメッセージ（利用上限など）を優先して表示する
     throw new Error(error.message || "トレンドの取得に失敗しました。もう一度試してみてください。");
   }
 };
 
-const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string) => {
+const generatePost = async (mode: string, topic: string, inputData: any, settings: any, userId: string) => {
   const personaInstruction = `
     【パーソナリティ設定】
     - 文体・口調: ${settings.style}
@@ -229,8 +237,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
   }
 
   try {
-    // userIdを渡す
-    return await callSecureApi(prompt, token, 'post', userId);
+    return await callGeminiApi(prompt, userId);
   } catch (error) {
     console.error(error);
     throw error;
@@ -367,17 +374,15 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div className="text-red-500 bg-red-50 p-6 rounded-xl text-sm flex flex-col gap-3 items-center max-w-sm text-center shadow-sm border border-red-100">
               <span className="text-3xl">⚠️</span> 
-              {/* 🔥 修正: whitespace-pre-wrap を追加して改行を有効化 */}
               <span className="font-bold text-base whitespace-pre-wrap">{error}</span>
-              {/* 🔥 アップグレード案内の強化 */}
-              {error.includes("無料枠") && (
+              {error.includes("上限") && (
                 <div className="flex flex-col items-center mt-2 w-full">
                   <div className="bg-white/60 p-3 rounded-lg mb-3 w-full border border-red-100">
                     <p className="text-slate-700 font-bold mb-1">Proプランに登録</p>
                     <p className="text-xs text-slate-500">月額980円でほぼ使い放題</p>
                   </div>
                   <a 
-                    href={STRIPE_CHECKOUT_URL} // 🔥 ここを定数に変更
+                    href={STRIPE_CHECKOUT_URL}
                     target="_blank" 
                     rel="noreferrer" 
                     className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-full text-sm font-bold hover:from-orange-600 hover:to-red-600 transition shadow-md flex items-center justify-center gap-2"
@@ -406,26 +411,27 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
   );
 };
 
-export default function SNSGeneratorApp() {
-  const [isClient, setIsClient] = useState(false); // 🔥 Hydrationエラー対策用ステート
+export default function Home() {
+  const [isClient, setIsClient] = useState(false);
   
-  // 🔥 Firebase Auth State Logic (Replaces react-firebase-hooks)
+  // 🔥 Firebase Auth State Logic
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // 1. Auth Initialization
     const initAuth = async () => {
-      // Custom Tokenがある場合は優先して使用
       if (typeof (window as any).__initial_auth_token !== 'undefined' && (window as any).__initial_auth_token) {
         try {
           await signInWithCustomToken(auth, (window as any).__initial_auth_token);
         } catch (e) {
           console.error("Custom token sign-in failed", e);
         }
+      } else {
+         // 自動ログイン（プレビュー用）
+         await signInAnonymously(auth);
       }
       
-      // 2. Auth State Listener
       const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser);
         setLoading(false);
@@ -433,33 +439,30 @@ export default function SNSGeneratorApp() {
       return unsubscribe;
     };
     
-    // Start init
     const cleanupPromise = initAuth();
     return () => { cleanupPromise.then(cleanup => cleanup && cleanup()); };
   }, []);
 
   const [activeMode, setActiveMode] = useState('trend'); 
   
-  // 🔥 入力管理: 手入力と選択テーマを分離
+  // 🔥 入力管理
   const [manualInput, setManualInput] = useState('');
   const [selectedTheme, setSelectedTheme] = useState('');
 
   // メールログイン用State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoginMode, setIsLoginMode] = useState(true); // true:ログイン, false:新規登録
+  const [isLoginMode, setIsLoginMode] = useState(true);
   
-  // 🔥 CSVデータ管理 (初期値はデモ用)
+  // 🔥 CSVデータ管理
   const [csvData, setCsvData] = useState('Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200');
   const [csvUploadDate, setCsvUploadDate] = useState<string | null>(null);
   
-  // 🔥 ファイル入力への参照
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 🔥 テーマ候補をモード別に保持 (API節約のため)
+  // 🔥 テーマ候補
   const [trendThemes, setTrendThemes] = useState<string[]>([]);
   const [myPostThemes, setMyPostThemes] = useState<string[]>([]);
-  // const [themeCandidates, setThemeCandidates] = useState<string[]>([]); // 削除
   
   const [isThemesLoading, setIsThemesLoading] = useState(false);
   
@@ -501,10 +504,9 @@ export default function SNSGeneratorApp() {
   const changeMode = (mode: string) => {
     setActiveMode(mode);
     setError('');
-    setManualInput(''); // 🔥 モード切替時にクリア
-    setSelectedTheme(''); // 🔥 モード切替時にクリア
+    setManualInput('');
+    setSelectedTheme('');
     setResult('');
-    // setThemeCandidates([]); // 🔥 削除: モード切替時に候補を消さない
   };
 
   const handleGoogleLogin = async () => {
@@ -512,7 +514,6 @@ export default function SNSGeneratorApp() {
     catch (e) { alert("ログイン失敗"); }
   };
 
-  // 🔥 メールログイン処理
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -530,12 +531,10 @@ export default function SNSGeneratorApp() {
 
   const handleLogout = () => signOut(auth);
 
-  // 🔥 CSVファイル選択トリガー
   const handleCsvImportClick = () => {
     fileInputRef.current?.click();
   };
 
-  // 🔥 CSVファイル読み込み処理 (Firestore保存対応)
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -544,14 +543,13 @@ export default function SNSGeneratorApp() {
     reader.onload = async (e) => {
       const text = e.target?.result as string;
       if (text) {
-        setCsvData(text); // データを更新
+        setCsvData(text);
         const now = new Date();
         const dateStr = now.toLocaleString('ja-JP', { 
           year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
         });
         setCsvUploadDate(dateStr);
         
-        // 🔥 Firestoreに保存
         if (user) {
             try {
                 await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'user_data'), {
@@ -560,7 +558,6 @@ export default function SNSGeneratorApp() {
                 }, { merge: true });
             } catch (err) {
                 console.error("CSV保存失敗:", err);
-                // 必要に応じてユーザーに通知
             }
         }
 
@@ -570,7 +567,6 @@ export default function SNSGeneratorApp() {
     reader.readAsText(file);
   };
 
-  // 🔥 ログイン時に保存されたCSVデータを読み込む
   useEffect(() => {
     if (!user) return;
     const loadUserData = async () => {
@@ -593,21 +589,17 @@ export default function SNSGeneratorApp() {
   const handleUpdateThemes = async (mode: string) => {
     if (!user) { setError("ログインが必要です"); return; }
     setIsThemesLoading(true);
-    // setThemeCandidates([]); // 削除
     setError('');
     
-    // 🔥 分析・更新時は入力をクリア
     setManualInput('');
     setSelectedTheme('');
     
     try {
-      const token = await user.getIdToken(); 
-      // 🔥 修正: user.uid を各関数に渡す
       const userId = user.uid;
 
       if (mode === 'mypost') {
-        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId);
-        setMyPostThemes(analysisResult.themes || []); // 🔥 モード別ステートにセット
+        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, userId);
+        setMyPostThemes(analysisResult.themes || []);
         
         if (analysisResult.settings) {
           setAllSettings(prev => ({
@@ -616,8 +608,8 @@ export default function SNSGeneratorApp() {
           }));
         }
       } else if (mode === 'trend') {
-        const themes = await generateTrendThemes(token, userId);
-        setTrendThemes(themes); // 🔥 モード別ステートにセット
+        const themes = await generateTrendThemes(userId);
+        setTrendThemes(themes);
       }
     } catch (err: any) {
       setError(err.message || "テーマの取得に失敗しました");
@@ -627,7 +619,6 @@ export default function SNSGeneratorApp() {
   };
 
   const handleGeneratePost = async () => {
-    // 🔥 テーマは選択中のものか手入力のどちらかを使用
     const topic = selectedTheme || manualInput;
 
     if (!user) { setError("ログインが必要です"); return; }
@@ -639,15 +630,11 @@ export default function SNSGeneratorApp() {
     setError('');
     
     try {
-      const token = await user.getIdToken(); 
-      // 🔥 修正: user.uid を各関数に渡す
       const userId = user.uid;
-
-      // リライトモード時は常に手入力(manualInput)を使用
       const inputSource = activeMode === 'rewrite' ? manualInput : topic;
       const inputData = { sourcePost: activeMode === 'rewrite' ? inputSource : undefined };
       
-      const post = await generatePost(activeMode, inputSource, inputData, currentSettings, token, userId);
+      const post = await generatePost(activeMode, inputSource, inputData, currentSettings, userId);
       setResult(post);
     } catch (err: any) {
       setError(err.message || "投稿の生成に失敗しました。");
@@ -656,29 +643,14 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // 🔥 修正箇所: ここで isThemeMode を定義します
   const isThemeMode = activeMode === 'mypost' || activeMode === 'trend';
-  
-  // 🔥 現在のモードに応じたテーマ候補を取得
   const currentThemeCandidates = activeMode === 'mypost' ? myPostThemes : trendThemes;
 
-  // 🔥 API節約のため自動更新用のEffectを削除
-  /*
-  useEffect(() => {
-    if (user && isThemeMode) {
-      handleUpdateThemes(activeMode);
-    }
-  }, [user, activeMode]);
-  */
-
-  // 🔥 Hydrationエラー対策: マウントされたことを検知
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // 🔥 Hydrationエラー対策: サーバー/クライアント不一致を防ぐため、マウント前はローディング表示
-  // また、Auth読み込み中も同様に待機
-  if (!isClient || loading) return <div className="p-10 text-center">読み込み中...</div>;
+  if (!isClient || loading) return <div className="p-10 text-center flex flex-col items-center justify-center min-h-screen text-slate-500"><Loader2 size={32} className="animate-spin mb-4"/>読み込み中...</div>;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-[#066099]/10 pb-12">
@@ -693,7 +665,7 @@ export default function SNSGeneratorApp() {
           </div>
           {user ? (
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-500 hidden sm:inline">{user.email}</span>
+              <span className="text-xs text-slate-500 hidden sm:inline">{user.isAnonymous ? 'ゲストユーザー' : user.email}</span>
               <button onClick={handleLogout} className="text-xs border border-red-200 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-50">ログアウト</button>
             </div>
           ) : (
