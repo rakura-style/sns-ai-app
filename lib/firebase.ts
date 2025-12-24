@@ -1,8 +1,11 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
-// .env.localに入れた鍵情報を使います
+/**
+ * クライアント（ブラウザ）側で使用するFirebase設定です。
+ * 環境変数は .env.local または Vercel の Settings で設定してください。
+ */
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -12,9 +15,10 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// 二重に初期化されるのを防ぐおまじない
+// アプリの初期化（二重初期化を防止）
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 他のファイルで使いやすいようにエクスポート
+// 他のファイルから利用できるようにエクスポート
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export default app;

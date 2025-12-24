@@ -7,17 +7,40 @@ import {
   ChevronDown, User, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock
 } from 'lucide-react';
 
-// 🔥 Firebase認証・DB読み込み
-import { auth, db } from '@/lib/firebase';
-import { useAuthState } from 'react-firebase-hooks/auth';
+// 🔥 Firebase SDK Imports
+import { initializeApp } from 'firebase/app';
 import { 
+  getAuth, 
+  onAuthStateChanged,
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword 
+  createUserWithEmailAndPassword,
+  signInWithCustomToken,
+  signInAnonymously
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+
+// ==========================================
+// 🔥 Firebase Initialization
+// ==========================================
+// 環境変数から設定を読み込み
+// 修正: TypeScriptエラー回避のため window オブジェクト経由でアクセス
+const firebaseConfig = JSON.parse(
+  typeof window !== 'undefined' && (window as any).__firebase_config 
+    ? (window as any).__firebase_config 
+    : '{}'
+);
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ==========================================
+// 🔥 Stripe設定 (ここに本番のリンクを貼ってください)
+// ==========================================
+const STRIPE_CHECKOUT_URL = 'https://buy.stripe.com/YOUR_ACTUAL_STRIPE_LINK_HERE';
 
 // グローバル定数: アプリID
 const getAppId = () => {
@@ -31,9 +54,6 @@ const getAppId = () => {
 const appId = getAppId();
 
 // --- Logic Functions (サーバー経由版) ---
-
-// ⏳ 待機用ユーティリティ関数（今回は使用しませんが、互換性のため残すか削除可）
-// const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const callSecureApi = async (prompt: string, token: string, actionType: 'post' | 'theme', userId: string) => {
   // 🔥 1. 利用回数制限のチェック (1日100回)
@@ -105,7 +125,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     - style: 文体・口調・語尾の傾向
     - emoji: 絵文字の使用傾向
     - character: 投稿者の性格・特徴・興味をじっくり分析し、50文字以上にまとめる
-     
+      
     【タスク2: テーマ提案】
     エンゲージメントが高い投稿の傾向（勝ちパターン）じっくり分析し、
     次回投稿すべき**「テーマ案を3つ」**作成してください。
@@ -150,7 +170,7 @@ const generateTrendThemes = async (token: string, userId: string) => {
     あなたはトレンドマーケターです。
     **現在日時(${new Date().toLocaleDateString()})、季節、SNSでの一般的な流行**を考慮し、
     多くの反応が見込める**「おすすめテーマ案を3つ」**作成してください。
-     
+      
     出力は必ず **純粋なJSON配列形式 (例: ["テーマA", "テーマB", "テーマC"])** で返してください。
   `;
 
@@ -353,11 +373,11 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
               {error.includes("無料枠") && (
                 <div className="flex flex-col items-center mt-2 w-full">
                   <div className="bg-white/60 p-3 rounded-lg mb-3 w-full border border-red-100">
-                    <p className="text-slate-700 font-bold mb-1">Proプランにアップグレード</p>
-                    <p className="text-xs text-slate-500">月額980円で無制限に使い放題</p>
+                    <p className="text-slate-700 font-bold mb-1">Proプランに登録</p>
+                    <p className="text-xs text-slate-500">月額980円でほぼ使い放題</p>
                   </div>
                   <a 
-                    href="https://buy.stripe.com/test_xxxxxxxxxxxxxxxxx" 
+                    href={STRIPE_CHECKOUT_URL} // 🔥 ここを定数に変更
                     target="_blank" 
                     rel="noreferrer" 
                     className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-full text-sm font-bold hover:from-orange-600 hover:to-red-600 transition shadow-md flex items-center justify-center gap-2"
@@ -388,7 +408,36 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
 
 export default function SNSGeneratorApp() {
   const [isClient, setIsClient] = useState(false); // 🔥 Hydrationエラー対策用ステート
-  const [user, loading] = useAuthState(auth); 
+  
+  // 🔥 Firebase Auth State Logic (Replaces react-firebase-hooks)
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // 1. Auth Initialization
+    const initAuth = async () => {
+      // Custom Tokenがある場合は優先して使用
+      if (typeof (window as any).__initial_auth_token !== 'undefined' && (window as any).__initial_auth_token) {
+        try {
+          await signInWithCustomToken(auth, (window as any).__initial_auth_token);
+        } catch (e) {
+          console.error("Custom token sign-in failed", e);
+        }
+      }
+      
+      // 2. Auth State Listener
+      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+        setLoading(false);
+      });
+      return unsubscribe;
+    };
+    
+    // Start init
+    const cleanupPromise = initAuth();
+    return () => { cleanupPromise.then(cleanup => cleanup && cleanup()); };
+  }, []);
+
   const [activeMode, setActiveMode] = useState('trend'); 
   
   // 🔥 入力管理: 手入力と選択テーマを分離
@@ -505,7 +554,7 @@ export default function SNSGeneratorApp() {
         // 🔥 Firestoreに保存
         if (user) {
             try {
-                await setDoc(doc(db, 'users', user.uid), {
+                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'user_data'), {
                     csvData: text,
                     csvUploadDate: dateStr
                 }, { merge: true });
@@ -526,7 +575,7 @@ export default function SNSGeneratorApp() {
     if (!user) return;
     const loadUserData = async () => {
       try {
-        const docRef = doc(db, 'users', user.uid);
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'user_data');
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
@@ -777,14 +826,14 @@ export default function SNSGeneratorApp() {
                 )}
                 
                 {activeMode === 'trend' && (
-                   <button 
-                     onClick={() => handleUpdateThemes('trend')}
-                     disabled={isThemesLoading}
-                     className="text-xs bg-white border border-[#066099] text-[#066099] px-3 py-1.5 rounded-lg hover:bg-sky-50 transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm"
-                   >
-                     <RefreshCcw size={12} className={isThemesLoading ? "animate-spin" : ""}/>
-                     トレンド更新
-                   </button>
+                    <button 
+                      onClick={() => handleUpdateThemes('trend')}
+                      disabled={isThemesLoading}
+                      className="text-xs bg-white border border-[#066099] text-[#066099] px-3 py-1.5 rounded-lg hover:bg-sky-50 transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm"
+                    >
+                      <RefreshCcw size={12} className={isThemesLoading ? "animate-spin" : ""}/>
+                      トレンド更新
+                    </button>
                 )}
               </div>
 
