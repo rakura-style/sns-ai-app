@@ -357,7 +357,7 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
                     <p className="text-xs text-slate-500">月額980円で無制限に使い放題</p>
                   </div>
                   <a 
-                    href="https://buy.stripe.com/test_xxxxxxxxxxxxxxxxx" 
+                    href="https://buy.stripe.com/9B64gy0Yb03vfDDgpL1Jm01" 
                     target="_blank" 
                     rel="noreferrer" 
                     className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-full text-sm font-bold hover:from-orange-600 hover:to-red-600 transition shadow-md flex items-center justify-center gap-2"
