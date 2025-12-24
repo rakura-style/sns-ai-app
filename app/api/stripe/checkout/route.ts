@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       line_items: [
         {
           // ⚠️ ここに Stripe ダッシュボードで取得した「価格ID（price_...）」を貼り付けてください
-          price: 'price_1ShlHYCF3PejR9RoYCZ9Qduc', 
+          price: 'price_1SeuU8CF3PejR9RoqC1V1RJz', 
           quantity: 1,
         },
       ],

@@ -463,7 +463,7 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
               {error.includes("無料枠") && (
                 <div className="flex flex-col items-center mt-2 w-full">
                   <div className="bg-white/60 p-3 rounded-lg mb-3 w-full border border-red-100">
-                    <p className="text-slate-700 font-bold mb-1">Proプランを購入</p>
+                    <p className="text-slate-700 font-bold mb-1">Proプランに登録</p>
                     <p className="text-xs text-slate-500">月額980円でほぼ使い放題</p>
                   </div>
                   
@@ -762,7 +762,7 @@ export default function SNSGeneratorApp() {
             <div className="bg-gradient-to-br from-[#066099] to-sky-600 text-white p-1.5 rounded-lg shadow-sm">
               <Send size={20} />
             </div>
-            <h1 className="font-bold text-xl tracking-tight text-slate-900">SNS投稿サポーターAI</h1>
+            <h1 className="font-bold text-xl tracking-tight text-slate-900">SNS投稿サポートAI</h1>
           </div>
           {user ? (
             <div className="flex items-center gap-3">
