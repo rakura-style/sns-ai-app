@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
 
+// Vercelの環境変数から取得
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -11,19 +11,19 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// 変数の初期値をダミー（型合わせ用の空オブジェクト）で設定
-let app: any = {};
-let auth: any = {};
-let db: any = {};
-
-// 1. ブラウザ環境（windowがある）であること
-// 2. APIキーが正しく読み込まれていること
-// この2つが揃ったときだけ、本物のFirebaseを初期化します
-if (typeof window !== 'undefined' && firebaseConfig.apiKey) {
-  app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-  auth = getAuth(app);
-  db = getFirestore(app);
+// --- デバッグ用チェック ---
+if (typeof window === "undefined") {
+  // ビルド時（サーバー側）にキーがない場合にログを出す
+  if (!firebaseConfig.apiKey) {
+    console.warn("⚠️ Warning: NEXT_PUBLIC_FIREBASE_API_KEY が設定されていません。");
+  }
 }
 
-export { auth, db };
+// 初期化。APIキーがない場合はnullを返すようにしてビルドエラーを防ぐ
+let app;
+if (firebaseConfig.apiKey) {
+  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+}
+
+export const auth = app ? getAuth(app) : null;
 export default app;

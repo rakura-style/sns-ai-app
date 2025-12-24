@@ -9,8 +9,8 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  /* StripeやFirebase Adminなど、
-     サーバーサイド専用のパッケージをバンドル対象から除外してビルドを安定させます
+  /* サーバーサイド専用パッケージをバンドル対象から除外。
+    これによりビルド時のハングアップや依存関係のエラーを防止します。
   */
   serverExternalPackages: ["stripe", "firebase-admin"],
 };
