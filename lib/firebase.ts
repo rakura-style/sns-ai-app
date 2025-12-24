@@ -1,5 +1,5 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
+import { getAuth, Auth } from "firebase/auth";
 
 // Vercelの環境変数から取得
 const firebaseConfig = {
@@ -11,23 +11,24 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// --- デバッグ用チェック ---
-if (typeof window === "undefined") {
-  // ビルド時（サーバー側）にキーがない場合にログを出す
+// サーバーサイドでの初期化を完全に回避
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+
+if (typeof window !== "undefined") {
+  // クライアントサイドでのみ初期化
   if (!firebaseConfig.apiKey) {
-    console.warn("⚠️ Warning: NEXT_PUBLIC_FIREBASE_API_KEY が設定されていません。VercelのSettingsから環境変数を確認してください。");
+    console.error("❌ Firebase API Key が設定されていません");
+  } else {
+    app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+    auth = getAuth(app);
+  }
+} else {
+  // サーバーサイド（ビルド時）では警告のみ
+  if (!firebaseConfig.apiKey) {
+    console.warn("⚠️ ビルド時: Firebase環境変数が未設定です（Vercelの環境変数を確認してください）");
   }
 }
 
-// 初期化。APIキーがない場合はnullを返すようにしてビルドエラーを防ぐ
-let app;
-if (firebaseConfig.apiKey) {
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-} else {
-  // ビルド時などでキーがない場合は、アプリを初期化せずにnullを維持
-  app = null;
-}
-
-
-export const auth = app ? getAuth(app) : null;
+export { auth };
 export default app;
