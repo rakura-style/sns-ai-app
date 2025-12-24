@@ -1,7 +1,8 @@
-import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
-import { getAuth, Auth } from "firebase/auth";
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
-// Vercelの環境変数から取得
+// .env.localに入れた鍵情報を使います
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -11,24 +12,9 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// サーバーサイドでの初期化を完全に回避
-let app: FirebaseApp | null = null;
-let auth: Auth | null = null;
+// 二重に初期化されるのを防ぐおまじない
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-if (typeof window !== "undefined") {
-  // クライアントサイドでのみ初期化
-  if (!firebaseConfig.apiKey) {
-    console.error("❌ Firebase API Key が設定されていません");
-  } else {
-    app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    auth = getAuth(app);
-  }
-} else {
-  // サーバーサイド（ビルド時）では警告のみ
-  if (!firebaseConfig.apiKey) {
-    console.warn("⚠️ ビルド時: Firebase環境変数が未設定です（Vercelの環境変数を確認してください）");
-  }
-}
-
-export { auth };
-export default app;
+// 他のファイルで使いやすいようにエクスポート
+export const auth = getAuth(app);
+export const db = getFirestore(app);

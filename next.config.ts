@@ -1,15 +1,11 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  /* ビルド時の型チェックをスキップ */
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+  // eslintブロックは完全に削除してください
   typescript: {
     ignoreBuildErrors: true,
   },
-  /* ビルド時のESLintチェックをスキップ */
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  /* サーバーサイド専用パッケージをバンドル対象から除外 */
-  serverExternalPackages: ["stripe", "firebase-admin"],
 };
 
 export default nextConfig;
