@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, BarChart3, RefreshCcw, Send, Copy, Check, Sparkles, Zap,
   Loader2, Settings, Pencil, ChevronRight, Lightbulb, Upload,
-  ChevronDown, User as UserIcon, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock, CreditCard
+  ChevronDown, User as UserIcon, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock, CreditCard, LogOut
 } from 'lucide-react';
 
 // 🔥 Firebase認証・DB読み込み
-// lib/firebase.ts が存在することを前提に相対パスでインポート
+// 相対パスで確実に lib/firebase.ts を読み込む
 import { auth, db } from '../lib/firebase';
 
 import { 
@@ -207,6 +207,84 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
 };
 
 // --- UI Components ---
+
+// 🔥 ドロップダウンメニューコンポーネントの追加
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: any) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuRef]);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 text-xs border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors text-slate-600 bg-white shadow-sm"
+      >
+        <Settings size={14} />
+        <span>設定</span>
+        <ChevronDown size={12} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-50 bg-slate-50/50">
+            <p className="text-xs font-medium text-slate-900 truncate">{user.email}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5 flex items-center gap-1">
+              {isSubscribed ? <><Check size={10} className="text-green-500"/> Proプラン契約中</> : '無料プラン'}
+            </p>
+          </div>
+          
+          <div className="p-1.5 space-y-0.5">
+            {isSubscribed ? (
+              <button 
+                onClick={() => { onManageSubscription(); setIsOpen(false); }}
+                disabled={isPortalLoading}
+                className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <div className="bg-blue-50 p-1 rounded text-blue-600">
+                  {isPortalLoading ? <Loader2 size={14} className="animate-spin"/> : <CreditCard size={14} />}
+                </div>
+                契約内容の確認・解約
+              </button>
+            ) : (
+              <button 
+                onClick={() => { onUpgrade(); setIsOpen(false); }}
+                disabled={isPortalLoading}
+                className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-orange-50 hover:text-orange-700 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <div className="bg-orange-100 p-1 rounded text-orange-500">
+                  {isPortalLoading ? <Loader2 size={14} className="animate-spin"/> : <Zap size={14} className="fill-orange-500" />}
+                </div>
+                Proプランに登録
+              </button>
+            )}
+            
+            <div className="h-px bg-slate-100 my-1 mx-2"></div>
+
+            <button 
+              onClick={() => { onLogout(); setIsOpen(false); }}
+              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <div className="p-1">
+                <LogOut size={14} />
+              </div>
+              ログアウト
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ComboboxInput = ({ label, icon: Icon, value, onChange, options, placeholder, multiline = false }: any) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -688,8 +766,16 @@ export default function SNSGeneratorApp() {
           </div>
           {user ? (
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-500 hidden sm:inline">{user.email}</span>
-              <button onClick={handleLogout} className="text-xs border border-red-200 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-50">ログアウト</button>
+              {/* <span className="text-xs text-slate-500 hidden sm:inline">{user.email}</span> */}
+              {/* <button onClick={handleLogout} className="text-xs border border-red-200 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-50">ログアウト</button> */}
+              <SettingsDropdown 
+                user={user} 
+                isSubscribed={isSubscribed} 
+                onLogout={handleLogout}
+                onManageSubscription={handleManageSubscription}
+                onUpgrade={handleUpgradeFromMenu}
+                isPortalLoading={isPortalLoading}
+              />
             </div>
           ) : (
             <button onClick={handleGoogleLogin} className="text-xs bg-[#066099] text-white px-4 py-2 rounded-lg hover:bg-[#055080] font-bold">ログイン</button>
