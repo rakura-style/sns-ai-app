@@ -15,7 +15,7 @@ const firebaseConfig = {
 if (typeof window === "undefined") {
   // ビルド時（サーバー側）にキーがない場合にログを出す
   if (!firebaseConfig.apiKey) {
-    console.warn("⚠️ Warning: NEXT_PUBLIC_FIREBASE_API_KEY が設定されていません。");
+    console.warn("⚠️ Warning: NEXT_PUBLIC_FIREBASE_API_KEY が設定されていません。VercelのSettingsから環境変数を確認してください。");
   }
 }
 
@@ -23,7 +23,11 @@ if (typeof window === "undefined") {
 let app;
 if (firebaseConfig.apiKey) {
   app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+} else {
+  // ビルド時などでキーがない場合は、アプリを初期化せずにnullを維持
+  app = null;
 }
+
 
 export const auth = app ? getAuth(app) : null;
 export default app;
