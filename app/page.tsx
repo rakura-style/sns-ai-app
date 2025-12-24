@@ -4,24 +4,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, BarChart3, RefreshCcw, Send, Copy, Check, Sparkles, Zap,
   Loader2, Settings, Pencil, ChevronRight, Lightbulb, Upload,
-  ChevronDown, User, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock
+  ChevronDown, User as UserIcon, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock, CreditCard
 } from 'lucide-react';
 
 // 🔥 Firebase認証・DB読み込み
-import { auth, db } from '@/lib/firebase';
-import { useAuthState } from 'react-firebase-hooks/auth';
+// lib/firebase.ts が存在することを前提に相対パスでインポート
+import { auth, db } from '../lib/firebase';
+
 import { 
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword 
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  User
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // グローバル定数: アプリID
 const getAppId = () => {
-  // __app_id が未定義というエラーを防ぐため、windowオブジェクト経由で安全にアクセスします
   if (typeof window !== 'undefined' && (window as any).__app_id) {
     return (window as any).__app_id;
   }
@@ -32,13 +34,9 @@ const appId = getAppId();
 
 // --- Logic Functions (サーバー経由版) ---
 
-// ⏳ 待機用ユーティリティ関数（今回は使用しませんが、互換性のため残すか削除可）
-// const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 const callSecureApi = async (prompt: string, token: string, actionType: 'post' | 'theme', userId: string) => {
   // 🔥 1. 利用回数制限のチェック (1日100回)
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  // 厳格なパス指定ルールに従い、/artifacts/{appId}/users/{userId}/... を使用
   const usageRef = doc(db, 'artifacts', appId, 'users', userId, 'daily_usage', today);
   
   let currentCount = 0;
@@ -49,14 +47,13 @@ const callSecureApi = async (prompt: string, token: string, actionType: 'post' |
     }
   } catch (error) {
     console.error("Usage check failed:", error);
-    // エラー時はチェックをスキップするか、安全側に倒すか。ここでは続行させる。
   }
 
   if (currentCount >= 100) {
     throw new Error("本日の利用上限に達しました。\n明日以降ご利用ください。");
   }
 
-  // 🔥 2. API呼び出し (リトライ機能なし・1回のみ)
+  // 🔥 2. API呼び出し
   const response = await fetch('/api/generate', {
     method: 'POST',
     headers: {
@@ -86,7 +83,6 @@ const callSecureApi = async (prompt: string, token: string, actionType: 'post' |
   
   // 🔥 3. 成功時に利用回数を更新
   try {
-    // 成功時のみカウントアップ
     await setDoc(usageRef, { count: currentCount + 1 }, { merge: true });
   } catch (error) {
     console.error("Failed to update usage count:", error);
@@ -105,7 +101,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     - style: 文体・口調・語尾の傾向
     - emoji: 絵文字の使用傾向
     - character: 投稿者の性格・特徴・興味をじっくり分析し、50文字以上にまとめる
-     
+      
     【タスク2: テーマ提案】
     エンゲージメントが高い投稿の傾向（勝ちパターン）じっくり分析し、
     次回投稿すべき**「テーマ案を3つ」**作成してください。
@@ -125,12 +121,10 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   `;
 
   try {
-    // userIdを渡す
     const text = await callSecureApi(prompt, token, 'theme', userId);
     
     // 🔥 JSON抽出ロジックの強化
     let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    // '{' から '}' までを確実に切り出す
     const firstBrace = cleanText.indexOf('{');
     const lastBrace = cleanText.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1) {
@@ -140,7 +134,6 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     return JSON.parse(cleanText);
   } catch (error: any) {
     console.error("Analysis failed:", error);
-    // 🔥 修正: 元のエラーメッセージ（利用上限など）を優先して表示する
     throw new Error(error.message || "分析に失敗しました。もう一度試してみてください。");
   }
 };
@@ -150,17 +143,15 @@ const generateTrendThemes = async (token: string, userId: string) => {
     あなたはトレンドマーケターです。
     **現在日時(${new Date().toLocaleDateString()})、季節、SNSでの一般的な流行**を考慮し、
     多くの反応が見込める**「おすすめテーマ案を3つ」**作成してください。
-     
+      
     出力は必ず **純粋なJSON配列形式 (例: ["テーマA", "テーマB", "テーマC"])** で返してください。
   `;
 
   try {
-    // userIdを渡す
     const text = await callSecureApi(prompt, token, 'theme', userId);
     
     // 🔥 JSON抽出ロジックの強化
     let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    // '[' から ']' までを確実に切り出す
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
     if (firstBracket !== -1 && lastBracket !== -1) {
@@ -170,7 +161,6 @@ const generateTrendThemes = async (token: string, userId: string) => {
     return JSON.parse(cleanText);
   } catch (error: any) {
     console.error("Trend generation failed:", error);
-    // 🔥 修正: 元のエラーメッセージ（利用上限など）を優先して表示する
     throw new Error(error.message || "トレンドの取得に失敗しました。もう一度試してみてください。");
   }
 };
@@ -209,7 +199,6 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
   }
 
   try {
-    // userIdを渡す
     return await callSecureApi(prompt, token, 'post', userId);
   } catch (error) {
     console.error(error);
@@ -294,7 +283,7 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
       </div>
       <ComboboxInput label="文体・口調" icon={MessageCircle} value={settings.style} onChange={(val: string) => handleChange('style', val)} options={["親しみやすい（です・ます調）", "プロフェッショナル（だ・である調）", "ハイテンション・カジュアル", "辛口・批評的", "ポエム・エモーショナル", "簡潔・箇条書き中心"]} placeholder="例: 親しみやすい" />
       <ComboboxInput label="絵文字の使い方" icon={Smile} value={settings.emoji} onChange={(val: string) => handleChange('emoji', val)} options={["適度に使用（文末に1つなど）", "多用する（賑やかに）", "一切使用しない", "特定の絵文字を好む（✨🚀）", "顔文字（( ^ω^ )）を使用"]} placeholder="例: 適度に使用" />
-      <ComboboxInput label="性格・特徴" icon={User} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している", "30代エンジニア\n技術トレンドに敏感", "熱血広報担当\n自社製品への愛が強い", "トレンドマーケター\n分析的で冷静な視点", "毒舌批評家\n本質を突くのが得意", "丁寧な暮らし系\n穏やかで情緒的"]} placeholder="例: 30代エンジニア" multiline={true} />
+      <ComboboxInput label="性格・特徴" icon={UserIcon} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している", "30代エンジニア\n技術トレンドに敏感", "熱血広報担当\n自社製品への愛が強い", "トレンドマーケター\n分析的で冷静な視点", "毒舌批評家\n本質を突くのが得意", "丁寧な暮らし系\n穏やかで情緒的"]} placeholder="例: 30代エンジニア" multiline={true} />
       
       {/* 文字数設定エリア */}
       <div className="pt-2 border-t border-slate-100">
@@ -330,12 +319,55 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
 
 const ResultCard = ({ content, isLoading, error, onChange }: any) => {
   const [copied, setCopied] = useState(false);
+  const [isUpgradeLoading, setIsUpgradeLoading] = useState(false); 
+
   const handleCopy = () => {
     if (!content) return;
     navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // 🔥 API経由でStripeチェックアウトURLを取得する処理
+  const handleUpgrade = async () => {
+    try {
+      setIsUpgradeLoading(true);
+      const user = auth.currentUser;
+      if (!user) {
+        alert("ログインが必要です");
+        return;
+      }
+
+      // IDトークンを取得
+      const token = await user.getIdToken();
+
+      // Stripe Checkoutセッション作成APIを呼び出し
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || '決済ページの作成に失敗しました');
+      }
+
+      if (data.url) {
+        // Stripeの決済ページへ移動
+        window.location.href = data.url;
+      }
+    } catch (error: any) {
+      console.error("Upgrade Error:", error);
+      alert("エラーが発生しました: " + error.message);
+    } finally {
+      setIsUpgradeLoading(false);
+    }
+  };
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col h-full min-h-[500px] transition-all duration-500">
       <div className="bg-gradient-to-r from-sky-50 to-white px-4 py-3 border-b border-slate-200 flex justify-between items-center">
@@ -347,24 +379,26 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div className="text-red-500 bg-red-50 p-6 rounded-xl text-sm flex flex-col gap-3 items-center max-w-sm text-center shadow-sm border border-red-100">
               <span className="text-3xl">⚠️</span> 
-              {/* 🔥 修正: whitespace-pre-wrap を追加して改行を有効化 */}
               <span className="font-bold text-base whitespace-pre-wrap">{error}</span>
-              {/* 🔥 アップグレード案内の強化 */}
+              
+              {/* 無料枠上限エラー時のボタン処理 */}
               {error.includes("無料枠") && (
                 <div className="flex flex-col items-center mt-2 w-full">
                   <div className="bg-white/60 p-3 rounded-lg mb-3 w-full border border-red-100">
                     <p className="text-slate-700 font-bold mb-1">Proプランにアップグレード</p>
                     <p className="text-xs text-slate-500">月額980円で無制限に使い放題</p>
                   </div>
-                  <a 
-                    href="https://buy.stripe.com/9B64gy0Yb03vfDDgpL1Jm01" 
-                    target="_blank" 
-                    rel="noreferrer" 
-                    className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-full text-sm font-bold hover:from-orange-600 hover:to-red-600 transition shadow-md flex items-center justify-center gap-2"
+                  
+                  {/* API呼び出しボタン */}
+                  <button 
+                    onClick={handleUpgrade}
+                    disabled={isUpgradeLoading}
+                    className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-full text-sm font-bold hover:from-orange-600 hover:to-red-600 transition shadow-md flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   >
-                    <Zap size={16} className="fill-white" />
-                    今すぐ登録する
-                  </a>
+                    {isUpgradeLoading ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} className="fill-white" />}
+                    {isUpgradeLoading ? "処理中..." : "今すぐ登録する"}
+                  </button>
+                  
                   <p className="text-[10px] text-slate-400 mt-2">※いつでもキャンセル可能です</p>
                 </div>
               )}
@@ -387,30 +421,27 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
 };
 
 export default function SNSGeneratorApp() {
-  const [isClient, setIsClient] = useState(false); // 🔥 Hydrationエラー対策用ステート
-  const [user, loading] = useAuthState(auth); 
+  const [isClient, setIsClient] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const [activeMode, setActiveMode] = useState('trend'); 
-  
-  // 🔥 入力管理: 手入力と選択テーマを分離
+  const [isSubscribed, setIsSubscribed] = useState(false); // 🔥 追加: サブスク状態
+  const [isPortalLoading, setIsPortalLoading] = useState(false); // 🔥 追加: ポータル読み込み中
+
   const [manualInput, setManualInput] = useState('');
   const [selectedTheme, setSelectedTheme] = useState('');
 
-  // メールログイン用State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoginMode, setIsLoginMode] = useState(true); // true:ログイン, false:新規登録
+  const [isLoginMode, setIsLoginMode] = useState(true);
   
-  // 🔥 CSVデータ管理 (初期値はデモ用)
   const [csvData, setCsvData] = useState('Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200');
   const [csvUploadDate, setCsvUploadDate] = useState<string | null>(null);
   
-  // 🔥 ファイル入力への参照
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 🔥 テーマ候補をモード別に保持 (API節約のため)
   const [trendThemes, setTrendThemes] = useState<string[]>([]);
   const [myPostThemes, setMyPostThemes] = useState<string[]>([]);
-  // const [themeCandidates, setThemeCandidates] = useState<string[]>([]); // 削除
   
   const [isThemesLoading, setIsThemesLoading] = useState(false);
   
@@ -418,23 +449,10 @@ export default function SNSGeneratorApp() {
   const [isPostLoading, setIsPostLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // Settings
   const [allSettings, setAllSettings] = useState({
     mypost: { style: '親しみやすい（です・ます調）', emoji: '適度に使用', character: 'SNS初心者', minLength: 50, maxLength: 150 },
-    trend: { 
-      style: '情報発信系（断定口調）', 
-      emoji: '要点を強調するために使用', 
-      character: '一人称は私\n誰もが感じる「弱気」を肯定した上で、それを乗り越えるための「力強い一言」で締めくくる',
-      minLength: 50, 
-      maxLength: 150 
-    },
-    rewrite: { 
-      style: 'プロフェッショナル', 
-      emoji: '控えめ', 
-      character: '一人称は私\n誰もが感じる「弱気」を肯定した上で、それを乗り越えるための「力強い一言」で締めくくる', 
-      minLength: 50, 
-      maxLength: 150 
-    }
+    trend: { style: '情報発信系（断定口調）', emoji: '要点を強調するために使用', character: '一人称は私\n誰もが感じる「弱気」を肯定した上で、それを乗り越えるための「力強い一言」で締めくくる', minLength: 50, maxLength: 150 },
+    rewrite: { style: 'プロフェッショナル', emoji: '控えめ', character: '一人称は私\n誰もが感じる「弱気」を肯定した上で、それを乗り越えるための「力強い一言」で締めくくる', minLength: 50, maxLength: 150 }
   });
 
   const currentSettings = allSettings[activeMode as keyof typeof allSettings];
@@ -452,18 +470,24 @@ export default function SNSGeneratorApp() {
   const changeMode = (mode: string) => {
     setActiveMode(mode);
     setError('');
-    setManualInput(''); // 🔥 モード切替時にクリア
-    setSelectedTheme(''); // 🔥 モード切替時にクリア
+    setManualInput(''); 
+    setSelectedTheme('');
     setResult('');
-    // setThemeCandidates([]); // 🔥 削除: モード切替時に候補を消さない
   };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleGoogleLogin = async () => {
     try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
     catch (e) { alert("ログイン失敗"); }
   };
 
-  // 🔥 メールログイン処理
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -481,12 +505,10 @@ export default function SNSGeneratorApp() {
 
   const handleLogout = () => signOut(auth);
 
-  // 🔥 CSVファイル選択トリガー
   const handleCsvImportClick = () => {
     fileInputRef.current?.click();
   };
 
-  // 🔥 CSVファイル読み込み処理 (Firestore保存対応)
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -495,14 +517,13 @@ export default function SNSGeneratorApp() {
     reader.onload = async (e) => {
       const text = e.target?.result as string;
       if (text) {
-        setCsvData(text); // データを更新
+        setCsvData(text); 
         const now = new Date();
         const dateStr = now.toLocaleString('ja-JP', { 
           year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
         });
         setCsvUploadDate(dateStr);
         
-        // 🔥 Firestoreに保存
         if (user) {
             try {
                 await setDoc(doc(db, 'users', user.uid), {
@@ -511,7 +532,6 @@ export default function SNSGeneratorApp() {
                 }, { merge: true });
             } catch (err) {
                 console.error("CSV保存失敗:", err);
-                // 必要に応じてユーザーに通知
             }
         }
 
@@ -521,7 +541,6 @@ export default function SNSGeneratorApp() {
     reader.readAsText(file);
   };
 
-  // 🔥 ログイン時に保存されたCSVデータを読み込む
   useEffect(() => {
     if (!user) return;
     const loadUserData = async () => {
@@ -533,6 +552,9 @@ export default function SNSGeneratorApp() {
           const data = docSnap.data();
           if (data.csvData) setCsvData(data.csvData);
           if (data.csvUploadDate) setCsvUploadDate(data.csvUploadDate);
+          // 🔥 修正: サブスク状態をロード
+          if (data.isSubscribed) setIsSubscribed(true);
+          else setIsSubscribed(false);
         }
       } catch (e) {
         console.error("データの読み込みに失敗:", e);
@@ -544,22 +566,15 @@ export default function SNSGeneratorApp() {
   const handleUpdateThemes = async (mode: string) => {
     if (!user) { setError("ログインが必要です"); return; }
     setIsThemesLoading(true);
-    // setThemeCandidates([]); // 削除
     setError('');
-    
-    // 🔥 分析・更新時は入力をクリア
     setManualInput('');
     setSelectedTheme('');
-    
     try {
       const token = await user.getIdToken(); 
-      // 🔥 修正: user.uid を各関数に渡す
       const userId = user.uid;
-
       if (mode === 'mypost') {
         const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId);
-        setMyPostThemes(analysisResult.themes || []); // 🔥 モード別ステートにセット
-        
+        setMyPostThemes(analysisResult.themes || []); 
         if (analysisResult.settings) {
           setAllSettings(prev => ({
             ...prev,
@@ -568,7 +583,7 @@ export default function SNSGeneratorApp() {
         }
       } else if (mode === 'trend') {
         const themes = await generateTrendThemes(token, userId);
-        setTrendThemes(themes); // 🔥 モード別ステートにセット
+        setTrendThemes(themes);
       }
     } catch (err: any) {
       setError(err.message || "テーマの取得に失敗しました");
@@ -578,9 +593,7 @@ export default function SNSGeneratorApp() {
   };
 
   const handleGeneratePost = async () => {
-    // 🔥 テーマは選択中のものか手入力のどちらかを使用
     const topic = selectedTheme || manualInput;
-
     if (!user) { setError("ログインが必要です"); return; }
     if (!topic) {
       setError("テーマを選択するか、入力してください。");
@@ -588,16 +601,11 @@ export default function SNSGeneratorApp() {
     }
     setIsPostLoading(true);
     setError('');
-    
     try {
       const token = await user.getIdToken(); 
-      // 🔥 修正: user.uid を各関数に渡す
       const userId = user.uid;
-
-      // リライトモード時は常に手入力(manualInput)を使用
       const inputSource = activeMode === 'rewrite' ? manualInput : topic;
       const inputData = { sourcePost: activeMode === 'rewrite' ? inputSource : undefined };
-      
       const post = await generatePost(activeMode, inputSource, inputData, currentSettings, token, userId);
       setResult(post);
     } catch (err: any) {
@@ -607,28 +615,64 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // 🔥 修正箇所: ここで isThemeMode を定義します
+  // 🔥 追加: カスタマーポータルへ遷移する処理
+  const handleManageSubscription = async () => {
+    try {
+      setIsPortalLoading(true);
+      const token = await user?.getIdToken();
+      if (!token) return;
+
+      const response = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'ポータルへの移動に失敗しました');
+      
+      window.location.href = data.url;
+    } catch (error: any) {
+      alert("エラー: " + error.message);
+    } finally {
+      setIsPortalLoading(false);
+    }
+  };
+
+  // 🔥 追加: 未契約者のための登録ボタン処理（ResultCardと同じロジック）
+  const handleUpgradeFromMenu = async () => {
+    try {
+      setIsPortalLoading(true); // ポータル用ローディングを再利用
+      const token = await user?.getIdToken();
+      if (!token) return;
+
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      if (data.url) window.location.href = data.url;
+    } catch (error: any) {
+      alert("エラー: " + error.message);
+    } finally {
+      setIsPortalLoading(false);
+    }
+  };
+
   const isThemeMode = activeMode === 'mypost' || activeMode === 'trend';
-  
-  // 🔥 現在のモードに応じたテーマ候補を取得
   const currentThemeCandidates = activeMode === 'mypost' ? myPostThemes : trendThemes;
 
-  // 🔥 API節約のため自動更新用のEffectを削除
-  /*
-  useEffect(() => {
-    if (user && isThemeMode) {
-      handleUpdateThemes(activeMode);
-    }
-  }, [user, activeMode]);
-  */
-
-  // 🔥 Hydrationエラー対策: マウントされたことを検知
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // 🔥 Hydrationエラー対策: サーバー/クライアント不一致を防ぐため、マウント前はローディング表示
-  // また、Auth読み込み中も同様に待機
   if (!isClient || loading) return <div className="p-10 text-center">読み込み中...</div>;
 
   return (
@@ -656,68 +700,38 @@ export default function SNSGeneratorApp() {
       {!user ? (
         <div className="max-w-md mx-auto mt-20 p-8 bg-white rounded-xl shadow-lg">
           <h2 className="text-xl font-bold mb-6 text-center">ようこそ！</h2>
-          
-          {/* Google Login */}
           <button onClick={handleGoogleLogin} className="w-full bg-[#066099] text-white py-3 rounded-xl font-bold hover:bg-[#055080] transition mb-6 shadow-sm">
             Googleでログイン
           </button>
-
+          {/* ... Login Form ... */}
           <div className="flex items-center gap-4 mb-6">
             <div className="h-px bg-slate-200 flex-1"></div>
             <span className="text-xs text-slate-400">またはメールアドレスで</span>
             <div className="h-px bg-slate-200 flex-1"></div>
           </div>
-
-          {/* Email Login Form */}
           <form onSubmit={handleEmailAuth} className="space-y-4">
             <div>
               <div className="relative">
                 <Mail size={16} className="absolute left-3 top-3 text-slate-400"/>
-                <input 
-                  type="email" 
-                  placeholder="メールアドレス" 
-                  className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#066099] transition-all text-black"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
+                <input type="email" placeholder="メールアドレス" className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#066099] transition-all text-black" value={email} onChange={(e) => setEmail(e.target.value)} required />
               </div>
             </div>
             <div>
               <div className="relative">
                 <Lock size={16} className="absolute left-3 top-3 text-slate-400"/>
-                <input 
-                  type="password" 
-                  placeholder="パスワード（6文字以上）" 
-                  className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#066099] transition-all text-black"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                />
+                <input type="password" placeholder="パスワード（6文字以上）" className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#066099] transition-all text-black" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
               </div>
             </div>
-            
             {error && <p className="text-xs text-red-500 text-center">{error}</p>}
-
-            <button type="submit" className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition shadow-sm">
-              {isLoginMode ? 'メールでログイン' : '新規登録する'}
-            </button>
+            <button type="submit" className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition shadow-sm">{isLoginMode ? 'メールでログイン' : '新規登録する'}</button>
           </form>
-
           <div className="mt-4 text-center">
-            <button 
-              onClick={() => { setIsLoginMode(!isLoginMode); setError(''); }}
-              className="text-xs text-[#066099] hover:underline"
-            >
-              {isLoginMode ? 'アカウントをお持ちでない方は新規登録' : 'すでにアカウントをお持ちの方はログイン'}
-            </button>
+            <button onClick={() => { setIsLoginMode(!isLoginMode); setError(''); }} className="text-xs text-[#066099] hover:underline">{isLoginMode ? 'アカウントをお持ちでない方は新規登録' : 'すでにアカウントをお持ちの方はログイン'}</button>
           </div>
         </div>
       ) : (
         <main className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           
-          {/* --- Left Column: Menu & Settings --- */}
           <div className="lg:col-span-1 space-y-6">
             <div>
               <ModeButton active={activeMode === 'trend'} onClick={() => changeMode('trend')} icon={TrendingUp} label="トレンド提案" />
@@ -727,6 +741,38 @@ export default function SNSGeneratorApp() {
 
             <PersistentSettings settings={currentSettings} setSettings={updateCurrentSettings} mode={activeMode} />
 
+            {/* 🔥 追加: 契約管理エリア */}
+            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-slate-700 font-bold text-sm mb-3">
+                    <CreditCard size={16} className="text-[#066099]" /><span>プラン管理</span>
+                </div>
+                {isSubscribed ? (
+                    <div className="text-center">
+                        <p className="text-xs text-green-600 font-bold mb-2 flex items-center justify-center gap-1"><Check size={12}/> Proプラン契約中</p>
+                        <button 
+                            onClick={handleManageSubscription}
+                            disabled={isPortalLoading}
+                            className="w-full text-xs border border-slate-300 text-slate-600 hover:bg-slate-50 py-2 rounded-lg transition-colors flex items-center justify-center gap-1"
+                        >
+                            {isPortalLoading ? <Loader2 size={12} className="animate-spin"/> : <Settings size={12}/>}
+                            契約内容の確認・解約
+                        </button>
+                    </div>
+                ) : (
+                    <div className="text-center">
+                        <p className="text-xs text-slate-500 mb-2">無料プラン利用中</p>
+                        <button 
+                            onClick={handleUpgradeFromMenu}
+                            disabled={isPortalLoading}
+                            className="w-full text-xs bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600 py-2 rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1"
+                        >
+                            {isPortalLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12} className="fill-white"/>}
+                            Proプランに登録
+                        </button>
+                    </div>
+                )}
+            </div>
+
             <div className="text-center pt-2">
               <a href="https://rakura.net/" target="_blank" rel="noopener noreferrer" className="text-xs text-slate-400 hover:text-[#066099] flex items-center justify-center gap-1 transition-colors group">
                 Created by らくらスタイル
@@ -735,7 +781,6 @@ export default function SNSGeneratorApp() {
             </div>
           </div>
 
-          {/* --- Right Column: Workspace & Results --- */}
           <div className="lg:col-span-2 space-y-4">
             
             <div className="space-y-4">
@@ -752,7 +797,6 @@ export default function SNSGeneratorApp() {
                       <span className="font-bold">CSV:</span>
                       {csvUploadDate ? csvUploadDate : "未取込"}
                     </div>
-                    {/* 🔥 隠しファイル入力 */}
                     <input 
                       type="file" 
                       ref={fileInputRef} 
@@ -760,7 +804,6 @@ export default function SNSGeneratorApp() {
                       className="hidden" 
                       accept=".csv, .txt" 
                     />
-                    {/* 🔥 ボタンクリックで隠し入力を起動 */}
                     <button onClick={handleCsvImportClick} className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors" title="CSV読込">
                       <Upload size={16} />
                     </button>
@@ -788,7 +831,6 @@ export default function SNSGeneratorApp() {
                 )}
               </div>
 
-              {/* Theme Candidates & Input */}
               {isThemeMode ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     {isThemesLoading ? (
@@ -801,7 +843,7 @@ export default function SNSGeneratorApp() {
                           key={i}
                           onClick={() => {
                             setSelectedTheme(theme);
-                            setManualInput(''); // 🔥 テーマ選択時は手入力をクリア
+                            setManualInput(''); 
                           }}
                           className={`relative text-left p-3 rounded-xl border text-xs transition-all h-24 flex flex-col justify-between group overflow-hidden
                             ${selectedTheme === theme 
@@ -839,7 +881,7 @@ export default function SNSGeneratorApp() {
                         value={manualInput}
                         onChange={(e) => {
                           setManualInput(e.target.value);
-                          setSelectedTheme(''); // 🔥 手入力時はテーマ選択をクリア
+                          setSelectedTheme(''); 
                         }}
                         placeholder="自由に入力..."
                       />
@@ -871,7 +913,6 @@ export default function SNSGeneratorApp() {
             </div>
 
             <div className="flex-1 min-h-0">
-               {/* 🔥 編集可能にするためonChangeを追加 */}
                <ResultCard content={result} isLoading={isPostLoading} error={error} onChange={setResult} />
             </div>
             
