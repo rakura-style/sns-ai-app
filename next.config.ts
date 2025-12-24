@@ -1,14 +1,8 @@
-/* eslint-disable */
-// @ts-nocheck
-
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // ビルド時のESLintチェックを無視
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  // TypeScriptのエラーを無視
+  /* config options here */
+  // eslintブロックは完全に削除してください
   typescript: {
     ignoreBuildErrors: true,
   },
