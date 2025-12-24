@@ -179,7 +179,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
        - 箇条書き等の装飾にもこれらを使わないでください。
     3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。文中の使用は禁止です。
 
-    この設定になりきって投稿を作成してください。
+    この設定になりきってAIっぽくならない文章の投稿を作成してください。
   `;
 
   let prompt = "";
@@ -463,8 +463,8 @@ const ResultCard = ({ content, isLoading, error, onChange }: any) => {
               {error.includes("無料枠") && (
                 <div className="flex flex-col items-center mt-2 w-full">
                   <div className="bg-white/60 p-3 rounded-lg mb-3 w-full border border-red-100">
-                    <p className="text-slate-700 font-bold mb-1">Proプランにアップグレード</p>
-                    <p className="text-xs text-slate-500">月額980円で無制限に使い放題</p>
+                    <p className="text-slate-700 font-bold mb-1">Proプランを購入</p>
+                    <p className="text-xs text-slate-500">月額980円でほぼ使い放題</p>
                   </div>
                   
                   {/* API呼び出しボタン */}
