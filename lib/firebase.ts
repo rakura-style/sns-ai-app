@@ -11,24 +11,18 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// 変数の初期値をダミーで設定（ビルド落ち防止）
-let app;
-let auth;
-let db;
+// 変数の初期値をダミー（型合わせ用の空オブジェクト）で設定
+let app: any = {};
+let auth: any = {};
+let db: any = {};
 
-// APIキーが存在する場合のみ初期化を実行する
+// 1. ブラウザ環境（windowがある）であること
+// 2. APIキーが正しく読み込まれていること
+// この2つが揃ったときだけ、本物のFirebaseを初期化します
 if (typeof window !== 'undefined' && firebaseConfig.apiKey) {
-  // クライアントサイド（ブラウザ）かつキーがある場合
   app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
   auth = getAuth(app);
   db = getFirestore(app);
-} else {
-  // サーバーサイド（ビルド中）またはキーがない場合
-  // エラーにならないよう、一旦ダミーのオブジェクトを入れておく
-  // ※型エラー回避のため as any を使用
-  app = {} as any;
-  auth = {} as any;
-  db = {} as any;
 }
 
 export { auth, db };
