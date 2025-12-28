@@ -64,6 +64,21 @@ const getDestinationLabel = (destination: PostDestination): string => {
 // Xの文字数制限（280文字）
 const X_CHARACTER_LIMIT = 280;
 
+// Xの文字数を計算（全角文字は2文字としてカウント）
+const calculateXCharacterCount = (text: string): number => {
+  let count = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    // 全角文字（日本語、全角英数字、全角記号など）は2文字としてカウント
+    if (char.match(/[^\x00-\x7F]/) || char.match(/[！-～]/)) {
+      count += 2;
+    } else {
+      count += 1;
+    }
+  }
+  return count;
+};
+
 // --- Logic Functions (サーバー経由版) ---
 
 const callSecureApi = async (prompt: string, token: string, actionType: 'post' | 'theme', userId: string) => {
@@ -634,11 +649,12 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
   const handlePost = () => {
     if (!content || selectedDestinations.length === 0) return;
 
-    // Xが選択されている場合、文字数制限をチェック
-    if (selectedDestinations.includes('x') && content.length > X_CHARACTER_LIMIT) {
+    // Xが選択されている場合、文字数制限をチェック（全角文字は2文字として計算）
+    const xCharCount = calculateXCharacterCount(content);
+    if (selectedDestinations.includes('x') && xCharCount > X_CHARACTER_LIMIT) {
       const shouldContinue = confirm(
         `Xの文字数制限（${X_CHARACTER_LIMIT}文字）を超えています。\n` +
-        `現在の文字数: ${content.length}文字\n\n` +
+        `現在の文字数: ${xCharCount}文字（全角文字は2文字として計算）\n\n` +
         `このまま投稿すると、Xでは投稿できません。\n` +
         `書き直しますか？`
       );
@@ -790,7 +806,12 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
               </button>
               <button 
                 onClick={() => {
+                  if (!content) {
+                    alert('投稿内容を生成してください');
+                    return;
+                  }
                   setSelectedDestinations([]);
+                  setScheduledDateTime('');
                   setShowScheduleModal(true);
                 }} 
                 className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-sky-500 text-white hover:bg-sky-600"
@@ -894,11 +915,14 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <p className="text-xs text-slate-500 mb-1">投稿内容（プレビュー）</p>
                 <p className="text-sm text-slate-700 line-clamp-3">{content}</p>
-                {selectedDestinations.includes('x') && (
-                  <p className={`text-xs mt-2 ${content.length > X_CHARACTER_LIMIT ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
-                    文字数: {content.length} / {X_CHARACTER_LIMIT}文字（Xの制限）
-                  </p>
-                )}
+                {selectedDestinations.includes('x') && (() => {
+                  const xCharCount = calculateXCharacterCount(content);
+                  return (
+                    <p className={`text-xs mt-2 ${xCharCount > X_CHARACTER_LIMIT ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
+                      文字数: {xCharCount} / {X_CHARACTER_LIMIT}文字（Xの制限・全角は2文字）
+                    </p>
+                  );
+                })()}
               </div>
             </div>
 
@@ -1017,35 +1041,45 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
       {/* 予約投稿モーダル */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Clock size={20} className="text-[#066099]" />
                 予約投稿を設定
               </h3>
               <button 
-                onClick={() => setShowScheduleModal(false)}
+                onClick={() => {
+                  setShowScheduleModal(false);
+                  setSelectedDestinations([]);
+                  setScheduledDateTime('');
+                }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <XIcon size={20} />
               </button>
             </div>
             
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* 投稿内容の確認 */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
-                  <Calendar size={12} />
-                  投稿日時
+                <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
+                  <Sparkles size={12} />
+                  投稿内容（確認）
                 </label>
-                <input
-                  type="datetime-local"
-                  value={scheduledDateTime}
-                  onChange={(e) => setScheduledDateTime(e.target.value)}
-                  min={new Date().toISOString().slice(0, 16)}
-                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
-                />
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 max-h-48 overflow-y-auto">
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{content}</p>
+                </div>
+                {selectedDestinations.includes('x') && (() => {
+                  const xCharCount = calculateXCharacterCount(content);
+                  return (
+                    <p className={`text-xs mt-2 ${xCharCount > X_CHARACTER_LIMIT ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
+                      文字数: {xCharCount} / {X_CHARACTER_LIMIT}文字（Xの制限・全角は2文字）
+                    </p>
+                  );
+                })()}
               </div>
-              
+
+              {/* 投稿先選択 */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
                   <Send size={12} />
@@ -1072,26 +1106,43 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
                 </div>
               </div>
               
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <p className="text-xs text-slate-500 mb-1">投稿内容（プレビュー）</p>
-                <p className="text-sm text-slate-700 line-clamp-3">{content}</p>
+              {/* 投稿日時選択 */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                  <Calendar size={12} />
+                  投稿実行日時
+                </label>
+                <input
+                  type="datetime-local"
+                  value={scheduledDateTime}
+                  onChange={(e) => setScheduledDateTime(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  投稿内容を確認してから、実行する日時を選択してください
+                </p>
               </div>
             </div>
 
             <div className="flex gap-2 pt-2">
               <button
-                onClick={() => setShowScheduleModal(false)}
+                onClick={() => {
+                  setShowScheduleModal(false);
+                  setSelectedDestinations([]);
+                  setScheduledDateTime('');
+                }}
                 className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
               >
                 キャンセル
               </button>
               <button
                 onClick={handleSchedulePost}
-                disabled={!scheduledDateTime || isScheduling}
+                disabled={!scheduledDateTime || isScheduling || selectedDestinations.length === 0}
                 className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isScheduling ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />}
-                {isScheduling ? '設定中...' : '予約する'}
+                {isScheduling ? '設定中...' : '予約投稿を設定'}
               </button>
             </div>
           </div>
