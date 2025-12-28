@@ -52,10 +52,14 @@ export async function POST(req: Request) {
     const decodedToken = await adminAuth.verifyIdToken(token);
     const userId = decodedToken.uid;
 
-    const { content, scheduledAt, destination } = await req.json();
+    const { content, scheduledAt, destinations } = await req.json();
 
     if (!content || !scheduledAt) {
       return NextResponse.json({ error: 'Content and scheduledAt are required' }, { status: 400 });
+    }
+
+    if (!destinations || !Array.isArray(destinations) || destinations.length === 0) {
+      return NextResponse.json({ error: 'Destinations array is required' }, { status: 400 });
     }
 
     // 予約時刻が過去でないかチェック
@@ -73,7 +77,7 @@ export async function POST(req: Request) {
     const docRef = await scheduledPostsRef.add({
       content,
       scheduledAt: admin.firestore.Timestamp.fromDate(scheduledDate),
-      destination: destination || 'x', // デフォルトはX
+      destinations: destinations, // 投稿先の配列
       posted: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });

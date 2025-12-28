@@ -34,7 +34,7 @@ const getAppId = () => {
 const appId = getAppId();
 
 // 投稿先の種類とURL生成関数
-type PostDestination = 'x' | 'facebook' | 'instagram';
+type PostDestination = 'x' | 'facebook';
 
 const getPostUrl = (destination: PostDestination, content: string): string => {
   const encodedText = encodeURIComponent(content);
@@ -45,11 +45,6 @@ const getPostUrl = (destination: PostDestination, content: string): string => {
     case 'facebook':
       // Facebookはテキストをquoteパラメータで渡せる
       return `https://www.facebook.com/sharer/sharer.php?quote=${encodedText}`;
-    case 'instagram':
-      // Instagramは公式の共有URLがないため、テキストをコピーしてInstagramを開く
-      // Instagramアプリを開くか、テキストをクリップボードにコピーする
-      // 実際にはInstagramの投稿画面を開くことはできないため、テキストをコピーして通知
-      return `https://www.instagram.com/`;
     default:
       return `https://twitter.com/intent/tweet?text=${encodedText}`;
   }
@@ -61,12 +56,13 @@ const getDestinationLabel = (destination: PostDestination): string => {
       return 'X（旧Twitter）';
     case 'facebook':
       return 'Facebook';
-    case 'instagram':
-      return 'Instagram';
     default:
       return 'X（旧Twitter）';
   }
 };
+
+// Xの文字数制限（280文字）
+const X_CHARACTER_LIMIT = 280;
 
 // --- Logic Functions (サーバー経由版) ---
 
@@ -431,13 +427,15 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
   );
 };
 
-const ResultCard = ({ content, isLoading, error, onChange, user, postDestination, onDestinationChange }: any) => {
+const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
+  const [showPostModal, setShowPostModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [scheduledDateTime, setScheduledDateTime] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
+  const [selectedDestinations, setSelectedDestinations] = useState<PostDestination[]>([]);
 
   // 予約投稿一覧を取得
   useEffect(() => {
@@ -500,27 +498,12 @@ const ResultCard = ({ content, isLoading, error, onChange, user, postDestination
 
         // 予約時刻になったら自動で投稿先のURLを開く
         if (now >= scheduledTime && !post.posted) {
-          const destination = post.destination || 'x';
+          const destinations = post.destinations || ['x'];
           
-          // Instagramの場合はテキストをコピーしてInstagramを開く
-          if (destination === 'instagram') {
-            navigator.clipboard.writeText(post.content).then(() => {
-              // 通知でユーザーに知らせる
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('予約投稿の時刻です（Instagram）', {
-                  body: '投稿内容をクリップボードにコピーしました。Instagramで貼り付けて投稿してください。',
-                  icon: '/next.svg',
-                  tag: `scheduled-post-instagram-${post.id}`,
-                });
-              }
-              window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer');
-            }).catch(() => {
-              console.error('クリップボードへのコピーに失敗しました');
-            });
-          } else {
+          destinations.forEach((destination: PostDestination) => {
             const postUrl = getPostUrl(destination, post.content);
             window.open(postUrl, '_blank', 'noopener,noreferrer');
-          }
+          });
           
           // 投稿済みフラグを更新（簡易版：実際にはAPIで更新すべき）
           const postRef = doc(db, 'users', user.uid, 'scheduledPosts', post.id);
@@ -539,23 +522,39 @@ const ResultCard = ({ content, isLoading, error, onChange, user, postDestination
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 選択された投稿先に投稿する関数（API不使用）
+  // 投稿先選択モーダルを開く
+  const handleOpenPostModal = () => {
+    setSelectedDestinations([]);
+    setShowPostModal(true);
+  };
+
+  // 投稿を実行する関数
   const handlePost = () => {
-    if (!content) return;
-    
-    // Instagramの場合はテキストをコピーしてInstagramを開く
-    if (postDestination === 'instagram') {
-      navigator.clipboard.writeText(content).then(() => {
-        alert('投稿内容をクリップボードにコピーしました。\nInstagramアプリまたはWebサイトで貼り付けて投稿してください。');
-        window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer');
-      }).catch(() => {
-        alert('クリップボードへのコピーに失敗しました。');
-      });
-      return;
+    if (!content || selectedDestinations.length === 0) return;
+
+    // Xが選択されている場合、文字数制限をチェック
+    if (selectedDestinations.includes('x') && content.length > X_CHARACTER_LIMIT) {
+      const shouldContinue = confirm(
+        `Xの文字数制限（${X_CHARACTER_LIMIT}文字）を超えています。\n` +
+        `現在の文字数: ${content.length}文字\n\n` +
+        `このまま投稿すると、Xでは投稿できません。\n` +
+        `書き直しますか？`
+      );
+      
+      if (shouldContinue) {
+        setShowPostModal(false);
+        return; // ユーザーが書き直すことを選択
+      }
     }
-    
-    const postUrl = getPostUrl(postDestination, content);
-    window.open(postUrl, '_blank', 'noopener,noreferrer');
+
+    // 選択された投稿先に投稿
+    selectedDestinations.forEach((destination) => {
+      const postUrl = getPostUrl(destination, content);
+      window.open(postUrl, '_blank', 'noopener,noreferrer');
+    });
+
+    setShowPostModal(false);
+    setSelectedDestinations([]);
   };
 
   // 予約投稿を保存
@@ -583,7 +582,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, postDestination
         body: JSON.stringify({
           content,
           scheduledAt: scheduledDate.toISOString(),
-          destination: postDestination,
+          destinations: selectedDestinations,
         }),
       });
 
@@ -674,37 +673,24 @@ const ResultCard = ({ content, isLoading, error, onChange, user, postDestination
           {content && !isLoading && !error && (
             <>
               <button 
-                onClick={() => setShowScheduleModal(true)} 
+                onClick={handleOpenPostModal} 
+                className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#066099] text-white hover:bg-[#055080]"
+                title="投稿"
+              >
+                <Send size={14} />
+                投稿
+              </button>
+              <button 
+                onClick={() => {
+                  setSelectedDestinations([]);
+                  setShowScheduleModal(true);
+                }} 
                 className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-sky-500 text-white hover:bg-sky-600"
                 title="予約投稿"
               >
                 <Clock size={14} />
                 予約投稿
               </button>
-              <div className="relative group">
-                <button 
-                  onClick={handlePost} 
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black text-white hover:bg-slate-800"
-                  title={`${getDestinationLabel(postDestination)}に投稿`}
-                >
-                  <Send size={14} />
-                  {getDestinationLabel(postDestination)}に投稿
-                </button>
-                <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                  {(['x', 'facebook', 'instagram'] as PostDestination[]).map((dest) => (
-                    <button
-                      key={dest}
-                      onClick={() => onDestinationChange(dest)}
-                      className={`w-full text-left px-3 py-2 text-xs hover:bg-sky-50 transition-colors flex items-center gap-2 ${
-                        postDestination === dest ? 'bg-sky-50 text-[#066099] font-bold' : 'text-slate-600'
-                      }`}
-                    >
-                      {postDestination === dest && <Check size={12} />}
-                      <span>{getDestinationLabel(dest)}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </>
           )}
           <button onClick={handleCopy} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${copied ? 'bg-green-50 text-green-600' : 'text-slate-500 hover:text-[#066099] hover:bg-sky-50'}`}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'コピー完了' : 'コピー'}</button>
@@ -753,6 +739,81 @@ const ResultCard = ({ content, isLoading, error, onChange, user, postDestination
         )}
       </div>
 
+      {/* 投稿先選択モーダル */}
+      {showPostModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Send size={20} className="text-[#066099]" />
+                投稿先を選択
+              </h3>
+              <button 
+                onClick={() => setShowPostModal(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
+                  <Send size={12} />
+                  投稿先（複数選択可）
+                </label>
+                <div className="space-y-2">
+                  {(['x', 'facebook'] as PostDestination[]).map((dest) => (
+                    <label key={dest} className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedDestinations.includes(dest)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedDestinations([...selectedDestinations, dest]);
+                          } else {
+                            setSelectedDestinations(selectedDestinations.filter(d => d !== dest));
+                          }
+                        }}
+                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                      />
+                      <span className="text-sm text-slate-700">{getDestinationLabel(dest)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <p className="text-xs text-slate-500 mb-1">投稿内容（プレビュー）</p>
+                <p className="text-sm text-slate-700 line-clamp-3">{content}</p>
+                {selectedDestinations.includes('x') && (
+                  <p className={`text-xs mt-2 ${content.length > X_CHARACTER_LIMIT ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
+                    文字数: {content.length} / {X_CHARACTER_LIMIT}文字（Xの制限）
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowPostModal(false)}
+                className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handlePost}
+                disabled={selectedDestinations.length === 0}
+                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Send size={16} />
+                投稿する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 予約投稿モーダル */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -786,21 +847,29 @@ const ResultCard = ({ content, isLoading, error, onChange, user, postDestination
               </div>
               
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
                   <Send size={12} />
-                  投稿先
+                  投稿先（複数選択可）
                 </label>
-                <select
-                  value={postDestination}
-                  onChange={(e) => onDestinationChange(e.target.value as PostDestination)}
-                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
-                >
-                  {(['x', 'facebook', 'instagram'] as PostDestination[]).map((dest) => (
-                    <option key={dest} value={dest}>
-                      {getDestinationLabel(dest)}
-                    </option>
+                <div className="space-y-2">
+                  {(['x', 'facebook'] as PostDestination[]).map((dest) => (
+                    <label key={dest} className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedDestinations.includes(dest)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedDestinations([...selectedDestinations, dest]);
+                          } else {
+                            setSelectedDestinations(selectedDestinations.filter(d => d !== dest));
+                          }
+                        }}
+                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                      />
+                      <span className="text-sm text-slate-700">{getDestinationLabel(dest)}</span>
+                    </label>
                   ))}
-                </select>
+                </div>
               </div>
               
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
@@ -853,9 +922,13 @@ const ResultCard = ({ content, isLoading, error, onChange, user, postDestination
                           minute: '2-digit',
                         })}
                       </p>
-                      <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                        {getDestinationLabel(post.destination || 'x')}
-                      </span>
+                      <div className="flex gap-1 flex-wrap">
+                        {(post.destinations || ['x']).map((dest: PostDestination) => (
+                          <span key={dest} className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {getDestinationLabel(dest)}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                     <p className="text-slate-700 line-clamp-2">{post.content}</p>
                   </div>
@@ -1014,10 +1087,6 @@ export default function SNSGeneratorApp() {
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
           else setIsSubscribed(false);
-          // 🔥 投稿先設定をロード
-          if (data.postDestination) {
-            setPostDestination(data.postDestination as PostDestination);
-          }
         }
       } catch (e) {
         console.error("データの読み込みに失敗:", e);
@@ -1026,17 +1095,6 @@ export default function SNSGeneratorApp() {
     loadUserData();
   }, [user]);
 
-  // 投稿先設定を保存
-  const savePostDestination = async (destination: PostDestination) => {
-    if (!user) return;
-    try {
-      const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, { postDestination: destination }, { merge: true });
-      setPostDestination(destination);
-    } catch (error) {
-      console.error("投稿先設定の保存に失敗:", error);
-    }
-  };
 
   const handleUpdateThemes = async (mode: string) => {
     if (!user) { setError("ログインが必要です"); return; }
@@ -1374,8 +1432,6 @@ export default function SNSGeneratorApp() {
                  error={error} 
                  onChange={setResult} 
                  user={user}
-                 postDestination={postDestination}
-                 onDestinationChange={savePostDestination}
                />
             </div>
             
