@@ -256,7 +256,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
 // --- UI Components ---
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenFacebookSettings }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenFacebookSettings, onOpenXSettings }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -325,6 +325,16 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
                 <Send size={14} />
               </div>
               Facebook設定
+            </button>
+
+            <button 
+              onClick={() => { onOpenXSettings(); setIsOpen(false); }}
+              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <div className="bg-black p-1 rounded text-white">
+                <Send size={14} />
+              </div>
+              X設定
             </button>
 
             <div className="h-px bg-slate-100 my-1 mx-2"></div>
@@ -454,7 +464,7 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
   );
 };
 
-const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }: any) => {
+const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, onPostToX, isPostingToX }: any) => {
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
   const [showPostModal, setShowPostModal] = useState(false);
@@ -529,19 +539,61 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
           
           destinations.forEach((destination: PostDestination) => {
             if (destination === 'x') {
-              // Xの場合はクリップボードにコピー
-              navigator.clipboard.writeText(post.content).then(() => {
-                // 通知でユーザーに知らせる
-                if ('Notification' in window && Notification.permission === 'granted') {
-                  new Notification('予約投稿の時刻です（X）', {
-                    body: '投稿内容をクリップボードにコピーしました。Xで貼り付けて投稿してください。',
-                    icon: '/next.svg',
-                    tag: `scheduled-post-x-${post.id}`,
-                  });
-                }
-              }).catch(() => {
-                console.error('クリップボードへのコピーに失敗しました');
-              });
+              // Xの場合はAPI経由で投稿を試みる
+              // アクセストークンがない場合はクリップボードにコピー
+              const savedXToken = localStorage.getItem('x_access_token');
+              if (savedXToken && user) {
+                // API経由で投稿
+                user.getIdToken().then((token: string) => {
+                  fetch('/api/x/post', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                      content: post.content,
+                      accessToken: savedXToken,
+                    }),
+                  }).then(response => response.json())
+                    .then(data => {
+                      if (data.success) {
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                          new Notification('予約投稿が完了しました（X）', {
+                            body: 'Xへの投稿が正常に完了しました。',
+                            icon: '/next.svg',
+                            tag: `scheduled-post-x-${post.id}`,
+                          });
+                        }
+                      }
+                    })
+                    .catch(() => {
+                      // API投稿に失敗した場合はクリップボードにコピー
+                      navigator.clipboard.writeText(post.content).then(() => {
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                          new Notification('予約投稿の時刻です（X）', {
+                            body: '投稿内容をクリップボードにコピーしました。Xで貼り付けて投稿してください。',
+                            icon: '/next.svg',
+                            tag: `scheduled-post-x-${post.id}`,
+                          });
+                        }
+                      });
+                    });
+                });
+              } else {
+                // アクセストークンがない場合はクリップボードにコピー
+                navigator.clipboard.writeText(post.content).then(() => {
+                  if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification('予約投稿の時刻です（X）', {
+                      body: '投稿内容をクリップボードにコピーしました。Xで貼り付けて投稿してください。',
+                      icon: '/next.svg',
+                      tag: `scheduled-post-x-${post.id}`,
+                    });
+                  }
+                }).catch(() => {
+                  console.error('クリップボードへのコピーに失敗しました');
+                });
+              }
             } else if (destination === 'facebook') {
               // Facebookの場合はURLを開く（Facebook Graph APIを使う場合は別途実装）
               const postUrl = getPostUrl(destination, post.content);
@@ -689,15 +741,15 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
       return;
     }
 
-    // Xのみ選択されている場合、クリップボードにコピー
+    // Xのみ選択されている場合、直接投稿
     if (selectedDestinations.includes('x')) {
-      navigator.clipboard.writeText(content).then(() => {
-        alert('投稿内容をクリップボードにコピーしました。\nXアプリまたはWebサイトで貼り付けて投稿してください。');
-        setShowPostModal(false);
-        setSelectedDestinations([]);
-      }).catch(() => {
-        alert('クリップボードへのコピーに失敗しました。');
-      });
+      setShowPostModal(false);
+      if (onPostToX) {
+        onPostToX(content, () => {
+          setShowPostModal(false);
+          setSelectedDestinations([]);
+        });
+      }
     }
   };
 
@@ -1250,6 +1302,11 @@ export default function SNSGeneratorApp() {
   const [error, setError] = useState('');
   const [showFacebookSettings, setShowFacebookSettings] = useState(false);
   const [facebookAppId, setFacebookAppId] = useState('');
+  const [showXSettings, setShowXSettings] = useState(false);
+  const [xApiKey, setXApiKey] = useState('');
+  const [xApiSecret, setXApiSecret] = useState('');
+  const [xAccessToken, setXAccessToken] = useState<string | null>(null);
+  const [isPostingToX, setIsPostingToX] = useState(false);
   
   const [allSettings, setAllSettings] = useState({
     mypost: { style: '親しみやすい（です・ます調）', emoji: '適度に使用', character: 'SNS初心者', minLength: 50, maxLength: 150 },
@@ -1362,6 +1419,12 @@ export default function SNSGeneratorApp() {
           else setIsSubscribed(false);
           // 🔥 Facebook App IDをロード
           if (data.facebookAppId) setFacebookAppId(data.facebookAppId);
+          // 🔥 X API認証情報をロード
+          if (data.xApiKey) setXApiKey(data.xApiKey);
+          if (data.xApiSecret) setXApiSecret(data.xApiSecret);
+          // localStorageからXアクセストークンを読み込む
+          const savedXToken = localStorage.getItem('x_access_token');
+          if (savedXToken) setXAccessToken(savedXToken);
         }
       } catch (e) {
         console.error("データの読み込みに失敗:", e);
@@ -1381,6 +1444,81 @@ export default function SNSGeneratorApp() {
     } catch (error) {
       console.error("Facebook App IDの保存に失敗:", error);
       alert('保存に失敗しました');
+    }
+  };
+
+  // X API認証情報を保存
+  const saveXApiCredentials = async () => {
+    if (!user) return;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, { 
+        xApiKey, 
+        xApiSecret 
+      }, { merge: true });
+      alert('X API認証情報を保存しました');
+      setShowXSettings(false);
+    } catch (error) {
+      console.error("X API認証情報の保存に失敗:", error);
+      alert('保存に失敗しました');
+    }
+  };
+
+  // X OAuth認証（PKCE方式）
+  const handleXAuth = async () => {
+    if (!xApiKey || !xApiSecret) {
+      alert('X API KeyとAPI Secretを設定してください。\n設定メニューからX設定を開いてください。');
+      return;
+    }
+
+    // X API v2のOAuth 2.0認証フロー
+    // 注意: X API v2のOAuth 2.0は複雑なので、簡易版としてユーザーにアクセストークンを直接入力してもらう方法も検討
+    alert('X API認証は、X Developer Portalで取得したアクセストークンを直接入力する方法を使用します。\n設定画面でアクセストークンを入力してください。');
+  };
+
+  // Xに投稿する関数
+  const handlePostToX = async (postContent: string, onSuccess?: () => void) => {
+    if (!postContent || !user) return;
+
+    if (!xAccessToken) {
+      const shouldAuth = confirm('Xへの投稿には認証が必要です。\n設定画面でX API認証情報とアクセストークンを設定してください。\n設定画面を開きますか？');
+      if (shouldAuth) {
+        setShowXSettings(true);
+      }
+      return;
+    }
+
+    setIsPostingToX(true);
+
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/x/post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          content: postContent,
+          accessToken: xAccessToken,
+          apiKey: xApiKey,
+          apiSecret: xApiSecret,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Xへの投稿に失敗しました');
+      }
+
+      alert('Xへの投稿が完了しました！');
+      if (onSuccess) onSuccess();
+    } catch (error: any) {
+      console.error('X post error:', error);
+      alert('エラー: ' + error.message);
+    } finally {
+      setIsPostingToX(false);
     }
   };
 
@@ -1723,12 +1861,104 @@ export default function SNSGeneratorApp() {
                  onChange={setResult} 
                  user={user}
                  facebookAppId={facebookAppId}
+                 onPostToX={handlePostToX}
+                 isPostingToX={isPostingToX}
                />
             </div>
             
           </div>
 
         </main>
+      )}
+
+      {/* X設定モーダル */}
+      {showXSettings && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Send size={20} className="text-black" />
+                X設定
+              </h3>
+              <button 
+                onClick={() => setShowXSettings(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2">
+                  X API Key
+                </label>
+                <input
+                  type="text"
+                  value={xApiKey}
+                  onChange={(e) => setXApiKey(e.target.value)}
+                  placeholder="例: your_api_key"
+                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2">
+                  X API Secret
+                </label>
+                <input
+                  type="password"
+                  value={xApiSecret}
+                  onChange={(e) => setXApiSecret(e.target.value)}
+                  placeholder="例: your_api_secret"
+                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2">
+                  X Access Token（OAuth 2.0）
+                </label>
+                <input
+                  type="password"
+                  value={xAccessToken || ''}
+                  onChange={(e) => {
+                    setXAccessToken(e.target.value);
+                    if (e.target.value) {
+                      localStorage.setItem('x_access_token', e.target.value);
+                    } else {
+                      localStorage.removeItem('x_access_token');
+                    }
+                  }}
+                  placeholder="例: Bearer token..."
+                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  X Developer Portalで取得したOAuth 2.0アクセストークンを入力してください。
+                  <br />
+                  <a href="https://developer.twitter.com/en/portal/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                    X Developer Portal
+                  </a>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowXSettings(false)}
+                className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={saveXApiCredentials}
+                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-black rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Facebook設定モーダル */}
