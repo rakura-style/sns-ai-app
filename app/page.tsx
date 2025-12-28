@@ -523,13 +523,30 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
           }
         }
 
-        // 予約時刻になったら自動で投稿先のURLを開く
+        // 予約時刻になったら自動で投稿先に投稿
         if (now >= scheduledTime && !post.posted) {
           const destinations = post.destinations || ['x'];
           
           destinations.forEach((destination: PostDestination) => {
-            const postUrl = getPostUrl(destination, post.content);
-            window.open(postUrl, '_blank', 'noopener,noreferrer');
+            if (destination === 'x') {
+              // Xの場合はクリップボードにコピー
+              navigator.clipboard.writeText(post.content).then(() => {
+                // 通知でユーザーに知らせる
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  new Notification('予約投稿の時刻です（X）', {
+                    body: '投稿内容をクリップボードにコピーしました。Xで貼り付けて投稿してください。',
+                    icon: '/next.svg',
+                    tag: `scheduled-post-x-${post.id}`,
+                  });
+                }
+              }).catch(() => {
+                console.error('クリップボードへのコピーに失敗しました');
+              });
+            } else if (destination === 'facebook') {
+              // Facebookの場合はURLを開く（Facebook Graph APIを使う場合は別途実装）
+              const postUrl = getPostUrl(destination, post.content);
+              window.open(postUrl, '_blank', 'noopener,noreferrer');
+            }
           });
           
           // 投稿済みフラグを更新（簡易版：実際にはAPIで更新すべき）
@@ -672,12 +689,15 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId }
       return;
     }
 
-    // Xのみ選択されている場合、直接投稿
+    // Xのみ選択されている場合、クリップボードにコピー
     if (selectedDestinations.includes('x')) {
-      const postUrl = getPostUrl('x', content);
-      window.open(postUrl, '_blank', 'noopener,noreferrer');
-      setShowPostModal(false);
-      setSelectedDestinations([]);
+      navigator.clipboard.writeText(content).then(() => {
+        alert('投稿内容をクリップボードにコピーしました。\nXアプリまたはWebサイトで貼り付けて投稿してください。');
+        setShowPostModal(false);
+        setSelectedDestinations([]);
+      }).catch(() => {
+        alert('クリップボードへのコピーに失敗しました。');
+      });
     }
   };
 
@@ -1503,6 +1523,7 @@ export default function SNSGeneratorApp() {
                 onManageSubscription={handleManageSubscription}
                 onUpgrade={handleUpgradeFromMenu}
                 isPortalLoading={isPortalLoading}
+                onOpenFacebookSettings={() => setShowFacebookSettings(true)}
               />
             </div>
           ) : (
