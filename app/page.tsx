@@ -1662,6 +1662,7 @@ export default function SNSGeneratorApp() {
                 onUpgrade={handleUpgradeFromMenu}
                 isPortalLoading={isPortalLoading}
                 onOpenFacebookSettings={() => setShowFacebookSettings(true)}
+                onOpenXSettings={() => setShowXSettings(true)}
               />
             </div>
           ) : (
