@@ -33,6 +33,41 @@ const getAppId = () => {
 
 const appId = getAppId();
 
+// 投稿先の種類とURL生成関数
+type PostDestination = 'x' | 'facebook' | 'instagram';
+
+const getPostUrl = (destination: PostDestination, content: string): string => {
+  const encodedText = encodeURIComponent(content);
+  
+  switch (destination) {
+    case 'x':
+      return `https://twitter.com/intent/tweet?text=${encodedText}`;
+    case 'facebook':
+      // Facebookはテキストをquoteパラメータで渡せる
+      return `https://www.facebook.com/sharer/sharer.php?quote=${encodedText}`;
+    case 'instagram':
+      // Instagramは公式の共有URLがないため、テキストをコピーしてInstagramを開く
+      // Instagramアプリを開くか、テキストをクリップボードにコピーする
+      // 実際にはInstagramの投稿画面を開くことはできないため、テキストをコピーして通知
+      return `https://www.instagram.com/`;
+    default:
+      return `https://twitter.com/intent/tweet?text=${encodedText}`;
+  }
+};
+
+const getDestinationLabel = (destination: PostDestination): string => {
+  switch (destination) {
+    case 'x':
+      return 'X（旧Twitter）';
+    case 'facebook':
+      return 'Facebook';
+    case 'instagram':
+      return 'Instagram';
+    default:
+      return 'X（旧Twitter）';
+  }
+};
+
 // --- Logic Functions (サーバー経由版) ---
 
 const callSecureApi = async (prompt: string, token: string, actionType: 'post' | 'theme', userId: string) => {
@@ -396,7 +431,7 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
   );
 };
 
-const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
+const ResultCard = ({ content, isLoading, error, onChange, user, postDestination, onDestinationChange }: any) => {
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -463,11 +498,29 @@ const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
           }
         }
 
-        // 予約時刻になったら自動でXの投稿URLを開く
+        // 予約時刻になったら自動で投稿先のURLを開く
         if (now >= scheduledTime && !post.posted) {
-          const encodedText = encodeURIComponent(post.content);
-          const tweetUrl = `https://twitter.com/intent/tweet?text=${encodedText}`;
-          window.open(tweetUrl, '_blank', 'noopener,noreferrer');
+          const destination = post.destination || 'x';
+          
+          // Instagramの場合はテキストをコピーしてInstagramを開く
+          if (destination === 'instagram') {
+            navigator.clipboard.writeText(post.content).then(() => {
+              // 通知でユーザーに知らせる
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('予約投稿の時刻です（Instagram）', {
+                  body: '投稿内容をクリップボードにコピーしました。Instagramで貼り付けて投稿してください。',
+                  icon: '/next.svg',
+                  tag: `scheduled-post-instagram-${post.id}`,
+                });
+              }
+              window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer');
+            }).catch(() => {
+              console.error('クリップボードへのコピーに失敗しました');
+            });
+          } else {
+            const postUrl = getPostUrl(destination, post.content);
+            window.open(postUrl, '_blank', 'noopener,noreferrer');
+          }
           
           // 投稿済みフラグを更新（簡易版：実際にはAPIで更新すべき）
           const postRef = doc(db, 'users', user.uid, 'scheduledPosts', post.id);
@@ -486,14 +539,23 @@ const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // X（旧Twitter）に投稿する関数（API不使用）
-  const handlePostToX = () => {
+  // 選択された投稿先に投稿する関数（API不使用）
+  const handlePost = () => {
     if (!content) return;
-    // Xの投稿URLにテキストをエンコードして渡す
-    const encodedText = encodeURIComponent(content);
-    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodedText}`;
-    // 新しいタブで開く
-    window.open(tweetUrl, '_blank', 'noopener,noreferrer');
+    
+    // Instagramの場合はテキストをコピーしてInstagramを開く
+    if (postDestination === 'instagram') {
+      navigator.clipboard.writeText(content).then(() => {
+        alert('投稿内容をクリップボードにコピーしました。\nInstagramアプリまたはWebサイトで貼り付けて投稿してください。');
+        window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer');
+      }).catch(() => {
+        alert('クリップボードへのコピーに失敗しました。');
+      });
+      return;
+    }
+    
+    const postUrl = getPostUrl(postDestination, content);
+    window.open(postUrl, '_blank', 'noopener,noreferrer');
   };
 
   // 予約投稿を保存
@@ -521,6 +583,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
         body: JSON.stringify({
           content,
           scheduledAt: scheduledDate.toISOString(),
+          destination: postDestination,
         }),
       });
 
@@ -618,14 +681,30 @@ const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
                 <Clock size={14} />
                 予約投稿
               </button>
-              <button 
-                onClick={handlePostToX} 
-                className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black text-white hover:bg-slate-800"
-                title="Xに投稿"
-              >
-                <Send size={14} />
-                Xに投稿
-              </button>
+              <div className="relative group">
+                <button 
+                  onClick={handlePost} 
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black text-white hover:bg-slate-800"
+                  title={`${getDestinationLabel(postDestination)}に投稿`}
+                >
+                  <Send size={14} />
+                  {getDestinationLabel(postDestination)}に投稿
+                </button>
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                  {(['x', 'facebook', 'instagram'] as PostDestination[]).map((dest) => (
+                    <button
+                      key={dest}
+                      onClick={() => onDestinationChange(dest)}
+                      className={`w-full text-left px-3 py-2 text-xs hover:bg-sky-50 transition-colors flex items-center gap-2 ${
+                        postDestination === dest ? 'bg-sky-50 text-[#066099] font-bold' : 'text-slate-600'
+                      }`}
+                    >
+                      {postDestination === dest && <Check size={12} />}
+                      <span>{getDestinationLabel(dest)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </>
           )}
           <button onClick={handleCopy} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${copied ? 'bg-green-50 text-green-600' : 'text-slate-500 hover:text-[#066099] hover:bg-sky-50'}`}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'コピー完了' : 'コピー'}</button>
@@ -706,6 +785,24 @@ const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
                 />
               </div>
               
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                  <Send size={12} />
+                  投稿先
+                </label>
+                <select
+                  value={postDestination}
+                  onChange={(e) => onDestinationChange(e.target.value as PostDestination)}
+                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
+                >
+                  {(['x', 'facebook', 'instagram'] as PostDestination[]).map((dest) => (
+                    <option key={dest} value={dest}>
+                      {getDestinationLabel(dest)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <p className="text-xs text-slate-500 mb-1">投稿内容（プレビュー）</p>
                 <p className="text-sm text-slate-700 line-clamp-3">{content}</p>
@@ -746,15 +843,20 @@ const ResultCard = ({ content, isLoading, error, onChange, user }: any) => {
               <div key={post.id} className="bg-white rounded-lg p-3 border border-slate-200 text-xs">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-slate-500 mb-1">
-                      {new Date(post.scheduledAt).toLocaleString('ja-JP', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="text-slate-500">
+                        {new Date(post.scheduledAt).toLocaleString('ja-JP', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                      <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                        {getDestinationLabel(post.destination || 'x')}
+                      </span>
+                    </div>
                     <p className="text-slate-700 line-clamp-2">{post.content}</p>
                   </div>
                   <button
@@ -808,6 +910,9 @@ export default function SNSGeneratorApp() {
     trend: { style: '情報発信系（断定口調）', emoji: '要点を強調するために使用', character: '一人称は私\n誰もが感じる「弱気」を肯定した上で、それを乗り越えるための「力強い一言」で締めくくる', minLength: 50, maxLength: 150 },
     rewrite: { style: 'プロフェッショナル', emoji: '控えめ', character: '一人称は私\n誰もが感じる「弱気」を肯定した上で、それを乗り越えるための「力強い一言」で締めくくる', minLength: 50, maxLength: 150 }
   });
+
+  // 投稿先設定（デフォルトはX）
+  const [postDestination, setPostDestination] = useState<PostDestination>('x');
 
   const currentSettings = allSettings[activeMode as keyof typeof allSettings];
 
@@ -909,6 +1014,10 @@ export default function SNSGeneratorApp() {
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
           else setIsSubscribed(false);
+          // 🔥 投稿先設定をロード
+          if (data.postDestination) {
+            setPostDestination(data.postDestination as PostDestination);
+          }
         }
       } catch (e) {
         console.error("データの読み込みに失敗:", e);
@@ -916,6 +1025,18 @@ export default function SNSGeneratorApp() {
     };
     loadUserData();
   }, [user]);
+
+  // 投稿先設定を保存
+  const savePostDestination = async (destination: PostDestination) => {
+    if (!user) return;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, { postDestination: destination }, { merge: true });
+      setPostDestination(destination);
+    } catch (error) {
+      console.error("投稿先設定の保存に失敗:", error);
+    }
+  };
 
   const handleUpdateThemes = async (mode: string) => {
     if (!user) { setError("ログインが必要です"); return; }
@@ -1247,7 +1368,15 @@ export default function SNSGeneratorApp() {
             </div>
 
             <div className="flex-1 min-h-0">
-               <ResultCard content={result} isLoading={isPostLoading} error={error} onChange={setResult} user={user} />
+               <ResultCard 
+                 content={result} 
+                 isLoading={isPostLoading} 
+                 error={error} 
+                 onChange={setResult} 
+                 user={user}
+                 postDestination={postDestination}
+                 onDestinationChange={savePostDestination}
+               />
             </div>
             
           </div>

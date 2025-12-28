@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     const decodedToken = await adminAuth.verifyIdToken(token);
     const userId = decodedToken.uid;
 
-    const { content, scheduledAt } = await req.json();
+    const { content, scheduledAt, destination } = await req.json();
 
     if (!content || !scheduledAt) {
       return NextResponse.json({ error: 'Content and scheduledAt are required' }, { status: 400 });
@@ -73,6 +73,7 @@ export async function POST(req: Request) {
     const docRef = await scheduledPostsRef.add({
       content,
       scheduledAt: admin.firestore.Timestamp.fromDate(scheduledDate),
+      destination: destination || 'x', // デフォルトはX
       posted: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
