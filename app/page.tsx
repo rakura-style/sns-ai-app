@@ -1118,8 +1118,12 @@ export default function SNSGeneratorApp() {
   // マイ投稿分析用の状態
   const [parsedPosts, setParsedPosts] = useState<any[]>([]);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [sortBy, setSortBy] = useState<'engagement' | 'date'>('engagement');
+  const [sortBy, setSortBy] = useState<string>('engagement-desc');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showPostAnalysis, setShowPostAnalysis] = useState(false);
+  const [csvImportMode, setCsvImportMode] = useState<'replace' | 'append'>('replace');
+  const [showCsvImportModal, setShowCsvImportModal] = useState(false);
+  const [pendingCsvData, setPendingCsvData] = useState<string>('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1163,9 +1167,35 @@ export default function SNSGeneratorApp() {
         post[header] = values[index] || '';
       });
       
-      // エンゲージメント数値を抽出（Likes, Retweets, Engagement等の列から）
+      // いいね数を抽出
+      let likes = 0;
+      const likesKeys = ['Likes', 'likes', 'Like', 'いいね', 'Like Count', 'like_count'];
+      for (const key of likesKeys) {
+        if (post[key] !== undefined && post[key] !== '') {
+          const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
+          if (!isNaN(num)) {
+            likes = num;
+            break;
+          }
+        }
+      }
+      
+      // ビュー数を抽出
+      let views = 0;
+      const viewsKeys = ['Views', 'views', 'View', 'ビュー', 'View Count', 'view_count', 'Impressions', 'impressions', 'インプレッション'];
+      for (const key of viewsKeys) {
+        if (post[key] !== undefined && post[key] !== '') {
+          const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
+          if (!isNaN(num)) {
+            views = num;
+            break;
+          }
+        }
+      }
+      
+      // エンゲージメント数値を抽出（Engagement等の列から、いいねとビューが別々の場合は合算）
       let engagement = 0;
-      const engagementKeys = ['Likes', 'likes', 'Like', 'Retweets', 'retweets', 'Engagement', 'engagement', 'いいね', 'リツイート', 'エンゲージメント'];
+      const engagementKeys = ['Engagement', 'engagement', 'エンゲージメント', 'Total Engagement'];
       for (const key of engagementKeys) {
         if (post[key] !== undefined && post[key] !== '') {
           const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
@@ -1174,6 +1204,10 @@ export default function SNSGeneratorApp() {
             break;
           }
         }
+      }
+      // エンゲージメントが0で、いいねとビューがある場合は合算
+      if (engagement === 0 && (likes > 0 || views > 0)) {
+        engagement = likes + views;
       }
       
       // 投稿内容を取得（Post Content, Content, 投稿内容等の列から）
@@ -1200,6 +1234,8 @@ export default function SNSGeneratorApp() {
         posts.push({
           id: `post-${i}`,
           content,
+          likes,
+          views,
           engagement,
           date,
           rawData: post
@@ -1298,31 +1334,63 @@ export default function SNSGeneratorApp() {
     reader.onload = async (e) => {
       const text = e.target?.result as string;
       if (text) {
-        setCsvData(text);
-        const parsed = parseCsvToPosts(text);
-        setParsedPosts(parsed);
-        
-        const now = new Date();
-        const dateStr = now.toLocaleString('ja-JP', { 
-          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-        });
-        setCsvUploadDate(dateStr);
-        
-        if (user) {
-            try {
-                await setDoc(doc(db, 'users', user.uid), {
-                    csvData: text,
-                    csvUploadDate: dateStr
-                }, { merge: true });
-            } catch (err) {
-                console.error("CSV保存失敗:", err);
-            }
+        // 既存のデータがある場合はモーダルを表示
+        if (parsedPosts.length > 0) {
+          setPendingCsvData(text);
+          setShowCsvImportModal(true);
+        } else {
+          // 既存データがない場合は直接書き換え
+          await applyCsvData(text, 'replace');
         }
-
-        event.target.value = ''; 
       }
+      event.target.value = ''; 
     };
     reader.readAsText(file);
+  };
+
+  const applyCsvData = async (csvText: string, mode: 'replace' | 'append') => {
+    const parsed = parseCsvToPosts(csvText);
+    
+    if (mode === 'append') {
+      // 追加モード：既存データに追加
+      setParsedPosts(prev => [...prev, ...parsed]);
+      // CSVデータも結合（ヘッダー行は最初のものを使う）
+      const existingLines = csvData.split('\n');
+      const newLines = csvText.split('\n');
+      if (existingLines.length > 0 && newLines.length > 1) {
+        const combinedCsv = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
+        setCsvData(combinedCsv);
+      } else {
+        setCsvData(csvText);
+      }
+    } else {
+      // 書き換えモード：既存データを置き換え
+      setParsedPosts(parsed);
+      setCsvData(csvText);
+    }
+    
+    const now = new Date();
+    const dateStr = now.toLocaleString('ja-JP', { 
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+    });
+    setCsvUploadDate(dateStr);
+    
+    if (user) {
+        try {
+            const finalCsvData = mode === 'append' 
+              ? (csvData + '\n' + csvText.split('\n').slice(1).join('\n'))
+              : csvText;
+            await setDoc(doc(db, 'users', user.uid), {
+                csvData: finalCsvData,
+                csvUploadDate: dateStr
+            }, { merge: true });
+        } catch (err) {
+            console.error("CSV保存失敗:", err);
+        }
+    }
+    
+    setShowCsvImportModal(false);
+    setPendingCsvData('');
   };
 
   useEffect(() => {
@@ -1771,11 +1839,17 @@ export default function SNSGeneratorApp() {
                     </div>
                     <select
                       value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as 'engagement' | 'date')}
+                      onChange={(e) => setSortBy(e.target.value)}
                       className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
                     >
-                      <option value="engagement">エンゲージメント順</option>
-                      <option value="date">日付順</option>
+                      <option value="likes-desc">いいね数（降順）</option>
+                      <option value="likes-asc">いいね数（昇順）</option>
+                      <option value="views-desc">ビュー数（降順）</option>
+                      <option value="views-asc">ビュー数（昇順）</option>
+                      <option value="engagement-desc">エンゲージメント（降順）</option>
+                      <option value="engagement-asc">エンゲージメント（昇順）</option>
+                      <option value="date-desc">日付（新しい順）</option>
+                      <option value="date-asc">日付（古い順）</option>
                     </select>
                   </div>
                   
@@ -1787,15 +1861,40 @@ export default function SNSGeneratorApp() {
                         post.content.toLowerCase().includes(searchKeyword.toLowerCase())
                       );
                       
-                      if (sortBy === 'engagement') {
-                        filtered.sort((a, b) => b.engagement - a.engagement);
-                      } else {
-                        filtered.sort((a, b) => {
-                          const dateA = new Date(a.date).getTime();
-                          const dateB = new Date(b.date).getTime();
-                          return dateB - dateA; // 新しい順
-                        });
-                      }
+                      // ソート処理
+                      const [sortField, sortDirection] = sortBy.split('-');
+                      filtered.sort((a, b) => {
+                        let aValue: number;
+                        let bValue: number;
+                        
+                        switch (sortField) {
+                          case 'likes':
+                            aValue = a.likes || 0;
+                            bValue = b.likes || 0;
+                            break;
+                          case 'views':
+                            aValue = a.views || 0;
+                            bValue = b.views || 0;
+                            break;
+                          case 'engagement':
+                            aValue = a.engagement || 0;
+                            bValue = b.engagement || 0;
+                            break;
+                          case 'date':
+                            aValue = new Date(a.date || 0).getTime();
+                            bValue = new Date(b.date || 0).getTime();
+                            break;
+                          default:
+                            aValue = a.engagement || 0;
+                            bValue = b.engagement || 0;
+                        }
+                        
+                        if (sortDirection === 'asc') {
+                          return aValue - bValue;
+                        } else {
+                          return bValue - aValue;
+                        }
+                      });
                       
                       return filtered.map((post) => (
                         <div
@@ -1804,10 +1903,22 @@ export default function SNSGeneratorApp() {
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-xs font-bold text-[#066099] bg-[#066099]/10 px-2 py-0.5 rounded">
-                                  {post.engagement.toLocaleString()} エンゲージメント
-                                </span>
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                {post.likes !== undefined && post.likes > 0 && (
+                                  <span className="text-xs font-bold text-pink-600 bg-pink-50 px-2 py-0.5 rounded">
+                                    ❤️ {post.likes.toLocaleString()}
+                                  </span>
+                                )}
+                                {post.views !== undefined && post.views > 0 && (
+                                  <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                                    👁️ {post.views.toLocaleString()}
+                                  </span>
+                                )}
+                                {post.engagement > 0 && (
+                                  <span className="text-xs font-bold text-[#066099] bg-[#066099]/10 px-2 py-0.5 rounded">
+                                    📊 {post.engagement.toLocaleString()}
+                                  </span>
+                                )}
                                 {post.date && (
                                   <span className="text-xs text-slate-500">{post.date}</span>
                                 )}
@@ -1820,7 +1931,7 @@ export default function SNSGeneratorApp() {
                                 setShowPostAnalysis(false);
                               }}
                               className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1 opacity-0 group-hover:opacity-100"
-                              title="この投稿を編集"
+                              title="この投稿を編集（全文）"
                             >
                               <Pencil size={12} />
                               編集
@@ -1844,6 +1955,92 @@ export default function SNSGeneratorApp() {
                     }
                     return null;
                   })()}
+                </div>
+              )}
+
+              {/* CSV取込みモーダル */}
+              {showCsvImportModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <Upload size={20} className="text-[#066099]" />
+                        CSV取込み方法を選択
+                      </h3>
+                      <button 
+                        onClick={() => {
+                          setShowCsvImportModal(false);
+                          setPendingCsvData('');
+                        }}
+                        className="text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        <XIcon size={20} />
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <p className="text-sm text-slate-600">
+                        既存の投稿データ（{parsedPosts.length}件）があります。
+                        <br />
+                        取込み方法を選択してください。
+                      </p>
+                      
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
+                          <input
+                            type="radio"
+                            name="csvMode"
+                            value="replace"
+                            checked={csvImportMode === 'replace'}
+                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">書き換え</p>
+                            <p className="text-xs text-slate-500">既存データを削除して、新しいCSVデータに置き換えます</p>
+                          </div>
+                        </label>
+                        
+                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
+                          <input
+                            type="radio"
+                            name="csvMode"
+                            value="append"
+                            checked={csvImportMode === 'append'}
+                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">追加</p>
+                            <p className="text-xs text-slate-500">既存データに新しいCSVデータを追加します</p>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={() => {
+                          setShowCsvImportModal(false);
+                          setPendingCsvData('');
+                        }}
+                        className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (pendingCsvData) {
+                            applyCsvData(pendingCsvData, csvImportMode);
+                          }
+                        }}
+                        className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Upload size={16} />
+                        取込み実行
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
