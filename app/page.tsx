@@ -219,12 +219,13 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
     - 絵文字: ${settings.emoji}
     - 性格・特徴: ${settings.character}
 
-    【重要: 出力ルール（厳守すること）】
-    1. 文字数: ${settings.minLength}文字以上、${settings.maxLength}文字以内を目安に作成してください。
+    【重要: 出力ルール（必ず守ること）】
+    1. 文字数: **絶対に${settings.minLength}文字以上、${settings.maxLength}文字以内**にしてください。これは厳密な要件です。文字数を数えて必ず範囲内に収めてください。
     2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。
        - Markdownの見出し記号（#）や強調（**）は不要です。
        - 箇条書き等の装飾にもこれらを使わないでください。
     3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。文中の使用は禁止です。
+    4. 文字数確認: 生成後、必ず文字数を確認し、範囲外の場合は調整してください。
 
     この設定になりきってAIっぽくならない文章の投稿を作成してください。
   `;
@@ -509,6 +510,14 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
       const now = new Date();
       scheduledPosts.forEach(post => {
         const scheduledTime = new Date(post.scheduledAt);
+        
+        // デバッグ用ログ
+        console.log('予約投稿チェック:', {
+          現在時刻: now.toLocaleString('ja-JP'),
+          予約時刻: scheduledTime.toLocaleString('ja-JP'),
+          差分秒: Math.floor((scheduledTime.getTime() - now.getTime()) / 1000)
+        });
+        
         // 予約時刻の1分前から通知可能
         const notifyTime = new Date(scheduledTime.getTime() - 60000);
         
@@ -761,10 +770,14 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
       setIsScheduling(true);
       const token = await user.getIdToken();
 
-      // 日時をISO形式に変換
+      // 日時をISO形式に変換（日本時間を考慮）
+      // datetime-local inputは現地時間を返すので、そのままDateオブジェクトに変換
       const scheduledDate = new Date(scheduledDateTime);
-      if (scheduledDate <= new Date()) {
-        alert('予約時刻は未来の日時を指定してください');
+      const now = new Date();
+      
+      // 現在時刻との比較（1分の猶予を持たせる）
+      if (scheduledDate.getTime() <= now.getTime() + 60000) {
+        alert('予約時刻は現在時刻より少なくとも1分以上先の日時を指定してください');
         setIsScheduling(false);
         return;
       }
@@ -1188,11 +1201,11 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
                   type="datetime-local"
                   value={scheduledDateTime}
                   onChange={(e) => setScheduledDateTime(e.target.value)}
-                  min={new Date().toISOString().slice(0, 16)}
+                  min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
                   className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  投稿内容を確認してから、実行する日時を選択してください
+                  ⏰ お使いの端末の時刻（日本時間）で設定されます。予約投稿は10秒ごとにチェックされます。
                 </p>
               </div>
             </div>
