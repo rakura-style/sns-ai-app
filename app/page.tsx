@@ -450,7 +450,7 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
   );
 };
 
-const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX }: any) => {
+const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX, xAccessToken }: any) => {
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
   const [showPostModal, setShowPostModal] = useState(false);
@@ -795,22 +795,6 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                 <Send size={14} />
                 投稿
               </button>
-              <button 
-                onClick={() => {
-                  if (!content) {
-                    alert('投稿内容を生成してください');
-                    return;
-                  }
-                  setSelectedDestinations([]);
-                  setScheduledDateTime('');
-                  setShowScheduleModal(true);
-                }} 
-                className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-sky-500 text-white hover:bg-sky-600"
-                title="予約投稿"
-              >
-                <Clock size={14} />
-                予約投稿
-              </button>
             </>
           )}
           <button onClick={handleCopy} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${copied ? 'bg-green-50 text-green-600' : 'text-slate-500 hover:text-[#066099] hover:bg-sky-50'}`}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'コピー完了' : 'コピー'}</button>
@@ -860,17 +844,20 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
         )}
       </div>
 
-      {/* 投稿先選択モーダル */}
+      {/* 投稿確認モーダル */}
       {showPostModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Send size={20} className="text-[#066099]" />
-                投稿先を選択
+                Xに投稿
               </h3>
               <button 
-                onClick={() => setShowPostModal(false)}
+                onClick={() => {
+                  setShowPostModal(false);
+                  setSelectedDestinations([]);
+                }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <XIcon size={20} />
@@ -878,36 +865,19 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
             </div>
             
             <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
-                  <Send size={12} />
-                  投稿先（複数選択可）
-                </label>
-                <div className="space-y-2">
-                  {(['x'] as PostDestination[]).map((dest) => (
-                    <label key={dest} className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedDestinations.includes(dest)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedDestinations([...selectedDestinations, dest]);
-                          } else {
-                            setSelectedDestinations(selectedDestinations.filter(d => d !== dest));
-                          }
-                        }}
-                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
-                      />
-                      <span className="text-sm text-slate-700">{getDestinationLabel(dest)}</span>
-                    </label>
-                  ))}
+              {/* X設定チェック */}
+              {!xAccessToken && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <p className="text-xs text-amber-700 font-bold mb-1">⚠️ X設定が必要です</p>
+                  <p className="text-xs text-amber-600">Xへの投稿には、設定メニューからX API認証情報の設定をお願いします。</p>
                 </div>
-              </div>
+              )}
               
+              {/* 投稿内容プレビュー */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <p className="text-xs text-slate-500 mb-1">投稿内容（プレビュー）</p>
-                <p className="text-sm text-slate-700 line-clamp-3">{content}</p>
-                {selectedDestinations.includes('x') && (() => {
+                <p className="text-xs text-slate-500 mb-2 font-bold">投稿内容（プレビュー）</p>
+                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{content}</p>
+                {(() => {
                   const xCharCount = calculateXCharacterCount(content);
                   return (
                     <p className={`text-xs mt-2 ${xCharCount > X_CHARACTER_LIMIT ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
@@ -920,18 +890,45 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
 
             <div className="flex gap-2 pt-2">
               <button
-                onClick={() => setShowPostModal(false)}
+                onClick={() => {
+                  setShowPostModal(false);
+                  setSelectedDestinations([]);
+                }}
                 className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
               >
                 キャンセル
               </button>
               <button
-                onClick={handlePost}
-                disabled={selectedDestinations.length === 0}
+                onClick={() => {
+                  if (!xAccessToken) {
+                    setShowPostModal(false);
+                    alert('X設定が必要です。設定メニューからX API認証情報を設定してください。');
+                    return;
+                  }
+                  setSelectedDestinations(['x']);
+                  handlePost();
+                }}
+                disabled={!xAccessToken}
                 className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Send size={16} />
                 投稿する
+              </button>
+              <button
+                onClick={() => {
+                  if (!xAccessToken) {
+                    setShowPostModal(false);
+                    alert('X設定が必要です。設定メニューからX API認証情報を設定してください。');
+                    return;
+                  }
+                  setShowPostModal(false);
+                  setShowScheduleModal(true);
+                }}
+                disabled={!xAccessToken}
+                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Clock size={16} />
+                予約投稿
               </button>
             </div>
           </div>
@@ -1745,6 +1742,111 @@ export default function SNSGeneratorApp() {
                 )}
               </div>
 
+              {/* マイ投稿分析: 投稿一覧 */}
+              {activeMode === 'mypost' && showPostAnalysis && parsedPosts.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <BarChart3 size={16} className="text-[#066099]" />
+                      過去の投稿分析
+                    </h3>
+                    <button
+                      onClick={() => setShowPostAnalysis(false)}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <XIcon size={16} />
+                    </button>
+                  </div>
+                  
+                  {/* 検索・ソート */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        placeholder="キーワード検索..."
+                        value={searchKeyword}
+                        onChange={(e) => setSearchKeyword(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white text-black"
+                      />
+                    </div>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as 'engagement' | 'date')}
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                    >
+                      <option value="engagement">エンゲージメント順</option>
+                      <option value="date">日付順</option>
+                    </select>
+                  </div>
+                  
+                  {/* 投稿一覧 */}
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {(() => {
+                      // フィルタリングとソート
+                      let filtered = parsedPosts.filter(post => 
+                        post.content.toLowerCase().includes(searchKeyword.toLowerCase())
+                      );
+                      
+                      if (sortBy === 'engagement') {
+                        filtered.sort((a, b) => b.engagement - a.engagement);
+                      } else {
+                        filtered.sort((a, b) => {
+                          const dateA = new Date(a.date).getTime();
+                          const dateB = new Date(b.date).getTime();
+                          return dateB - dateA; // 新しい順
+                        });
+                      }
+                      
+                      return filtered.map((post) => (
+                        <div
+                          key={post.id}
+                          className="p-3 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#066099]/50 transition-colors group"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-bold text-[#066099] bg-[#066099]/10 px-2 py-0.5 rounded">
+                                  {post.engagement.toLocaleString()} エンゲージメント
+                                </span>
+                                {post.date && (
+                                  <span className="text-xs text-slate-500">{post.date}</span>
+                                )}
+                              </div>
+                              <p className="text-sm text-slate-700 line-clamp-2">{post.content}</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setResult(post.content);
+                                setShowPostAnalysis(false);
+                              }}
+                              className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1 opacity-0 group-hover:opacity-100"
+                              title="この投稿を編集"
+                            >
+                              <Pencil size={12} />
+                              編集
+                            </button>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  
+                  {(() => {
+                    const filtered = parsedPosts.filter(post => 
+                      post.content.toLowerCase().includes(searchKeyword.toLowerCase())
+                    );
+                    if (filtered.length === 0) {
+                      return (
+                        <p className="text-sm text-slate-400 text-center py-4">
+                          検索結果が見つかりませんでした
+                        </p>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
+
               {isThemeMode ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     {isThemesLoading ? (
@@ -1833,9 +1935,9 @@ export default function SNSGeneratorApp() {
                  error={error} 
                  onChange={setResult} 
                  user={user}
-                 facebookAppId={facebookAppId}
                  onPostToX={handlePostToX}
                  isPostingToX={isPostingToX}
+                 xAccessToken={xAccessToken}
                />
                <div className="text-right text-xs text-slate-400">
                  Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
