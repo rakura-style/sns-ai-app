@@ -939,11 +939,6 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
           />
         )}
       </div>
-      <div className="px-4 py-2 border-t border-slate-200 bg-slate-50 flex justify-end">
-        <div className="text-xs text-slate-400">
-          Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
-        </div>
-      </div>
 
       {/* 投稿先選択モーダル */}
       {showPostModal && (
@@ -1737,12 +1732,6 @@ export default function SNSGeneratorApp() {
 
             <PersistentSettings settings={currentSettings} setSettings={updateCurrentSettings} mode={activeMode} />
 
-            <div className="text-center pt-2">
-              <a href="https://rakura.net/" target="_blank" rel="noopener noreferrer" className="text-xs text-slate-400 hover:text-[#066099] flex items-center justify-center gap-1 transition-colors group">
-                Created by らくらスタイル
-                <ExternalLink size={10} className="opacity-50 group-hover:opacity-100" />
-              </a>
-            </div>
           </div>
 
           <div className="lg:col-span-2 space-y-4">
@@ -1876,7 +1865,7 @@ export default function SNSGeneratorApp() {
               </button>
             </div>
 
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 flex flex-col gap-2">
                <ResultCard 
                  content={result} 
                  isLoading={isPostLoading} 
@@ -1887,6 +1876,9 @@ export default function SNSGeneratorApp() {
                  onPostToX={handlePostToX}
                  isPostingToX={isPostingToX}
                />
+               <div className="text-right text-xs text-slate-400">
+                 Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
+               </div>
             </div>
             
           </div>
