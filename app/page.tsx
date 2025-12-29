@@ -145,7 +145,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     - character: 投稿者の性格・特徴・興味をじっくり分析し、50文字以上にまとめる
       
     【タスク2: テーマ提案】
-    エンゲージメントが高い投稿の傾向（勝ちパターン）じっくり分析し、
+    エンゲージメント、favorite_count、view_countが多い投稿の傾向（勝ちパターン）じっくり分析し、
     次回投稿すべき**「テーマ案を3つ」**作成してください。
 
     出力は必ず以下の **JSON形式のみ** で返してください。
@@ -1579,6 +1579,10 @@ export default function SNSGeneratorApp() {
     setError('');
     setManualInput('');
     setSelectedTheme('');
+    // 分析・更新ボタンを押したら過去の投稿分析は表示しないようにする
+    if (mode === 'mypost') {
+      setShowPostAnalysis(false);
+    }
     try {
       const token = await user.getIdToken(); 
       const userId = user.uid;
@@ -2110,7 +2114,8 @@ export default function SNSGeneratorApp() {
                 </div>
               )}
 
-              {isThemeMode ? (
+              {/* 過去の投稿分析を表示している場合は、テーマ候補と投稿生成ボタンを非表示 */}
+              {isThemeMode && !(activeMode === 'mypost' && showPostAnalysis) ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     {isThemesLoading ? (
                       [...Array(3)].map((_, i) => (
@@ -2181,14 +2186,17 @@ export default function SNSGeneratorApp() {
                 </div>
               )}
 
-              <button
-                onClick={handleGeneratePost}
-                disabled={isPostLoading || (!manualInput && !selectedTheme)}
-                className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-              >
-                {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
-              </button>
+              {/* 過去の投稿分析を表示している場合は、投稿生成ボタンを非表示 */}
+              {!(activeMode === 'mypost' && showPostAnalysis) && (
+                <button
+                  onClick={handleGeneratePost}
+                  disabled={isPostLoading || (!manualInput && !selectedTheme)}
+                  className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                >
+                  {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                  {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
+                </button>
+              )}
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col gap-2">
