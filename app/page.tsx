@@ -450,7 +450,7 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
   );
 };
 
-const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX, xAccessToken }: any) => {
+const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX, xAccessToken, showPostAnalysis }: any) => {
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
   const [showPostModal, setShowPostModal] = useState(false);
@@ -783,7 +783,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col h-full min-h-[500px] transition-all duration-500">
       <div className="bg-gradient-to-r from-sky-50 to-white px-4 py-3 border-b border-slate-200 flex justify-between items-center">
-        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2"><Sparkles size={14} className="text-[#066099]" />生成結果</span>
+        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2"><Sparkles size={14} className="text-[#066099]" />{showPostAnalysis ? '投稿内容' : '生成結果'}</span>
         <div className="flex items-center gap-2">
           {content && !isLoading && !error && (
             <>
@@ -1121,6 +1121,7 @@ export default function SNSGeneratorApp() {
   const [sortBy, setSortBy] = useState<string>('engagement-desc');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showPostAnalysis, setShowPostAnalysis] = useState(false);
+  const [excludeRTAndReplies, setExcludeRTAndReplies] = useState(false);
   const [csvImportMode, setCsvImportMode] = useState<'replace' | 'append'>('replace');
   const [showCsvImportModal, setShowCsvImportModal] = useState(false);
   const [pendingCsvData, setPendingCsvData] = useState<string>('');
@@ -1896,40 +1897,67 @@ export default function SNSGeneratorApp() {
                     </button>
                   </div>
                   
-                  {/* 検索・ソート */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 relative">
-                      <input
-                        type="text"
-                        placeholder="キーワード検索..."
-                        value={searchKeyword}
-                        onChange={(e) => setSearchKeyword(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white text-black"
-                      />
+                  {/* 検索・ソート・フィルタ */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          placeholder="キーワード検索..."
+                          value={searchKeyword}
+                          onChange={(e) => setSearchKeyword(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white text-black"
+                        />
+                      </div>
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
+                        className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                      >
+                        <option value="likes-desc">いいね数（降順）</option>
+                        <option value="likes-asc">いいね数（昇順）</option>
+                        <option value="views-desc">ビュー数（降順）</option>
+                        <option value="views-asc">ビュー数（昇順）</option>
+                        <option value="engagement-desc">エンゲージメント（降順）</option>
+                        <option value="engagement-asc">エンゲージメント（昇順）</option>
+                        <option value="date-desc">日付（新しい順）</option>
+                        <option value="date-asc">日付（古い順）</option>
+                      </select>
                     </div>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value)}
-                      className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                    >
-                      <option value="likes-desc">いいね数（降順）</option>
-                      <option value="likes-asc">いいね数（昇順）</option>
-                      <option value="views-desc">ビュー数（降順）</option>
-                      <option value="views-asc">ビュー数（昇順）</option>
-                      <option value="engagement-desc">エンゲージメント（降順）</option>
-                      <option value="engagement-asc">エンゲージメント（昇順）</option>
-                      <option value="date-desc">日付（新しい順）</option>
-                      <option value="date-asc">日付（古い順）</option>
-                    </select>
+                    <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={excludeRTAndReplies}
+                        onChange={(e) => setExcludeRTAndReplies(e.target.checked)}
+                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                      />
+                      <span>RT（リツイート）と返信（@で始まる投稿）を除外</span>
+                    </label>
                   </div>
                   
                   {/* 投稿一覧 */}
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {(() => {
                       // フィルタリングとソート
-                      let filtered = parsedPosts.filter(post => 
-                        post.content.toLowerCase().includes(searchKeyword.toLowerCase())
-                      );
+                      let filtered = parsedPosts.filter(post => {
+                        // キーワード検索
+                        if (!post.content.toLowerCase().includes(searchKeyword.toLowerCase())) {
+                          return false;
+                        }
+                        // RTと返信の除外
+                        if (excludeRTAndReplies) {
+                          const content = post.content.trim();
+                          // RT（リツイート）を除外（"RT @" で始まる、または "RT:" で始まる）
+                          if (content.startsWith('RT @') || content.startsWith('RT:') || content.startsWith('rt @') || content.startsWith('rt:')) {
+                            return false;
+                          }
+                          // 返信を除外（"@" で始まる）
+                          if (content.startsWith('@')) {
+                            return false;
+                          }
+                        }
+                        return true;
+                      });
                       
                       // ソート処理
                       const [sortField, sortDirection] = sortBy.split('-');
@@ -2172,18 +2200,21 @@ export default function SNSGeneratorApp() {
                     </div>
                 </div>
               ) : (
-                <div className="relative">
-                    <textarea 
-                      className="w-full h-24 p-3 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#066099] focus:border-[#066099] outline-none transition-all resize-none shadow-sm"
-                      value={manualInput}
-                      onChange={(e) => setManualInput(e.target.value)}
-                      placeholder="ここにリライトしたい文章を入力..."
-                    />
-                    <div className="absolute bottom-2 right-2 text-xs text-slate-400 pointer-events-none">
-                      <Pencil size={12} className="inline mr-1"/>
-                      入力中
-                    </div>
-                </div>
+                // マイ投稿分析の投稿分析を選択している場合は非表示、文章リライトを選択しているときは表示
+                activeMode === 'rewrite' && (
+                  <div className="relative">
+                      <textarea 
+                        className="w-full h-24 p-3 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#066099] focus:border-[#066099] outline-none transition-all resize-none shadow-sm"
+                        value={manualInput}
+                        onChange={(e) => setManualInput(e.target.value)}
+                        placeholder="ここにリライトしたい文章を入力..."
+                      />
+                      <div className="absolute bottom-2 right-2 text-xs text-slate-400 pointer-events-none">
+                        <Pencil size={12} className="inline mr-1"/>
+                        入力中
+                      </div>
+                  </div>
+                )
               )}
 
               {/* 過去の投稿分析を表示している場合は、投稿生成ボタンを非表示 */}
@@ -2209,6 +2240,7 @@ export default function SNSGeneratorApp() {
                  onPostToX={handlePostToX}
                  isPostingToX={isPostingToX}
                  xAccessToken={xAccessToken}
+                 showPostAnalysis={activeMode === 'mypost' && showPostAnalysis}
                />
                <div className="text-right text-xs text-slate-400">
                  Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
