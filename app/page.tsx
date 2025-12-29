@@ -1127,44 +1127,109 @@ export default function SNSGeneratorApp() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // CSVをパースして投稿データの配列に変換
+  // CSV行をパースするヘルパー関数（カンマ区切り、ダブルクォート対応）
+  const parseCsvRow = (row: string): string[] => {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < row.length; i++) {
+      const char = row[i];
+      const nextChar = row[i + 1];
+      
+      if (char === '"') {
+        // エスケープされたダブルクォート（""）の処理
+        if (inQuotes && nextChar === '"') {
+          current += '"';
+          i++; // 次の文字をスキップ
+        } else {
+          inQuotes = !inQuotes;
+          // クォート自体は値に含めない（最初と最後のクォートのみ）
+        }
+      } else if (char === ',' && !inQuotes) {
+        // クォート外のカンマはフィールドの区切り
+        values.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    
+    // 最後のフィールドを追加
+    values.push(current);
+    
+    return values;
+  };
+
+  // CSVをパースして投稿データの配列に変換（改行を含むフィールドに対応）
   const parseCsvToPosts = (csvText: string): any[] => {
     if (!csvText) return [];
     
-    const lines = csvText.split('\n').filter((line: string) => line.trim());
-    if (lines.length < 2) return [];
+    // 改行を含むフィールドに対応したCSVパース
+    const rows: string[] = [];
+    let currentRow = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < csvText.length; i++) {
+      const char = csvText[i];
+      const nextChar = csvText[i + 1];
+      
+      if (char === '"') {
+        // エスケープされたダブルクォート（""）の処理
+        if (inQuotes && nextChar === '"') {
+          currentRow += '"';
+          i++; // 次の文字をスキップ
+        } else {
+          inQuotes = !inQuotes;
+          currentRow += char;
+        }
+      } else if (char === '\n' && !inQuotes) {
+        // クォート外の改行は行の区切り
+        if (currentRow.trim()) {
+          rows.push(currentRow);
+        }
+        currentRow = '';
+      } else {
+        currentRow += char;
+      }
+    }
+    
+    // 最後の行を追加
+    if (currentRow.trim()) {
+      rows.push(currentRow);
+    }
+    
+    if (rows.length < 2) return [];
     
     // ヘッダー行を取得
-    const headers = lines[0].split(',').map((h: string) => h.trim().replace(/"/g, ''));
+    const headerValues = parseCsvRow(rows[0]);
+    const headers = headerValues.map((h: string) => {
+      // ヘッダーからダブルクォートを除去
+      let header = h.trim();
+      if (header.startsWith('"') && header.endsWith('"')) {
+        header = header.slice(1, -1);
+      }
+      header = header.replace(/""/g, '"');
+      return header;
+    });
     
     // データ行をパース
     const posts: any[] = [];
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.trim()) continue;
-      
-      // CSVのパース（カンマ区切り、ダブルクォート対応）
-      const values: string[] = [];
-      let current = '';
-      let inQuotes = false;
-      
-      for (let j = 0; j < line.length; j++) {
-        const char = line[j];
-        if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
-          values.push(current.trim());
-          current = '';
-        } else {
-          current += char;
-        }
-      }
-      values.push(current.trim());
+    for (let i = 1; i < rows.length; i++) {
+      const values = parseCsvRow(rows[i]);
       
       // オブジェクトに変換
       const post: any = {};
       headers.forEach((header: string, index: number) => {
-        post[header] = values[index] || '';
+        // 値は既にparseCsvRowで処理済み（ダブルクォートは除去済み、エスケープも処理済み）
+        let value = values[index] || '';
+        // 念のため、先頭と末尾のダブルクォートを除去（残っている場合）
+        if (value.startsWith('"') && value.endsWith('"') && value.length > 1) {
+          value = value.slice(1, -1);
+        }
+        // エスケープされたダブルクォート（""）を単一のダブルクォート（"）に変換
+        value = value.replace(/""/g, '"');
+        post[header] = value;
       });
       
       // いいね数を抽出
@@ -1929,7 +1994,7 @@ export default function SNSGeneratorApp() {
                             <button
                               onClick={() => {
                                 setResult(post.content);
-                                setShowPostAnalysis(false);
+                                // 投稿分析の一覧は閉じない
                               }}
                               className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1 opacity-0 group-hover:opacity-100"
                               title="この投稿を編集（全文）"
