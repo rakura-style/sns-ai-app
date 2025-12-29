@@ -5,7 +5,7 @@ import {
   TrendingUp, BarChart3, RefreshCcw, Send, Copy, Check, Sparkles, Zap,
   Loader2, Settings, Pencil, ChevronRight, Lightbulb, Upload,
   ChevronDown, User as UserIcon, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock, CreditCard, LogOut,
-  Clock, Calendar, X as XIcon, Trash2
+  Clock, Calendar, X as XIcon, Trash2, BookOpen
 } from 'lucide-react';
 
 // 🔥 Firebase認証・DB読み込み
@@ -321,6 +321,21 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
                 <Send size={14} />
               </div>
               X設定
+            </button>
+
+            <div className="h-px bg-slate-100 my-1 mx-2"></div>
+
+            <button 
+              onClick={() => { 
+                window.open('https://docs.google.com/presentation/d/13usgF8xliRE4onBYtZ-k978YXsE5Aici6yQe9rm3yQI/edit?usp=sharing', '_blank');
+                setIsOpen(false);
+              }}
+              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <div className="bg-[#066099] p-1 rounded text-white">
+                <BookOpen size={14} />
+              </div>
+              マニュアル
             </button>
 
             <div className="h-px bg-slate-100 my-1 mx-2"></div>
