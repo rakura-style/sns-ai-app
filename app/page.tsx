@@ -407,8 +407,23 @@ const ModeButton = ({ active, icon: Icon, label, onClick }: any) => (
   </button>
 );
 
-const PersistentSettings = ({ settings, setSettings, mode }: any) => {
-  const handleChange = (key: string, value: string) => setSettings((prev: any) => ({ ...prev, [key]: value }));
+const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
+  const handleChange = async (key: string, value: string | number) => {
+    const updatedSettings = { ...settings, [key]: value };
+    // 状態を更新（updateCurrentSettings関数を呼び出す）
+    setSettings(updatedSettings);
+    
+    // Firestoreに保存
+    if (user) {
+      try {
+        await setDoc(doc(db, 'users', user.uid), {
+          [`settings.${mode}`]: updatedSettings
+        }, { merge: true });
+      } catch (err) {
+        console.error("パーソナリティ設定の保存に失敗:", err);
+      }
+    }
+  };
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4 shadow-sm mt-4">
       <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-slate-700 font-bold text-sm">
@@ -1485,6 +1500,13 @@ export default function SNSGeneratorApp() {
           if (data.xApiKeySecret) setXApiKeySecret(data.xApiKeySecret);
           if (data.xAccessToken) setXAccessToken(data.xAccessToken);
           if (data.xAccessTokenSecret) setXAccessTokenSecret(data.xAccessTokenSecret);
+          // パーソナリティ設定をロード
+          if (data.settings) {
+            setAllSettings((prev: any) => ({
+              ...prev,
+              ...data.settings
+            }));
+          }
         }
       } catch (e) {
         console.error("データの読み込みに失敗:", e);
@@ -1815,7 +1837,7 @@ export default function SNSGeneratorApp() {
               <ModeButton active={activeMode === 'rewrite'} onClick={() => changeMode('rewrite')} icon={RefreshCcw} label="文章リライト" />
             </div>
 
-            <PersistentSettings settings={currentSettings} setSettings={updateCurrentSettings} mode={activeMode} />
+            <PersistentSettings settings={currentSettings} setSettings={updateCurrentSettings} mode={activeMode} user={user} />
 
           </div>
 
