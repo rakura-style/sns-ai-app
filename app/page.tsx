@@ -381,7 +381,7 @@ const ComboboxInput = ({ label, icon: Icon, value, onChange, options, placeholde
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onClick={() => setIsOpen(true)}
-            className="w-full p-2.5 pr-8 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors min-h-[5rem] resize-y leading-relaxed text-black"
+            className="w-full p-2.5 pr-8 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors min-h-[7.5rem] resize-y leading-relaxed text-black"
             placeholder={placeholder}
           />
         ) : (
@@ -932,11 +932,16 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
         ) : !content ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 gap-3 border-2 border-dashed border-slate-100 rounded-lg m-6"><Sparkles size={40} className="text-slate-200" /><p className="text-sm font-medium">テーマを選んで「生成」ボタンを押してください</p></div>
         ) : (
-          <textarea
-            className="w-full h-full min-h-[400px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-base animate-in fade-in duration-500 bg-transparent border-none focus:ring-0 resize-none outline-none"
-            value={content}
-            onChange={(e) => onChange && onChange(e.target.value)}
-          />
+          <>
+            <textarea
+              className="w-full h-full min-h-[400px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-base animate-in fade-in duration-500 bg-transparent border-none focus:ring-0 resize-none outline-none"
+              value={content}
+              onChange={(e) => onChange && onChange(e.target.value)}
+            />
+            <div className="absolute bottom-2 right-2 text-xs text-slate-400">
+              Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
+            </div>
+          </>
         )}
       </div>
 
@@ -1466,18 +1471,6 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // X OAuth認証（PKCE方式）
-  const handleXAuth = async () => {
-    if (!xApiKey || !xApiKeySecret) {
-      alert('X API KeyとAPI Key Secretを設定してください。\n設定メニューからX設定を開いてください。');
-      return;
-    }
-
-    // X API v2のOAuth 2.0認証フロー
-    // 注意: X API v2のOAuth 2.0は複雑なので、簡易版としてユーザーにアクセストークンを直接入力してもらう方法も検討
-    alert('X API認証は、X Developer Portalで取得したアクセストークンを直接入力する方法を使用します。\n設定画面でアクセストークンを入力してください。');
-  };
-
   // Xに投稿する関数
   const handlePostToX = async (postContent: string, onSuccess?: () => void) => {
     if (!postContent || !user) return;
@@ -1643,11 +1636,37 @@ export default function SNSGeneratorApp() {
       
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm mb-6">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-gradient-to-br from-[#066099] to-sky-600 text-white p-1.5 rounded-lg shadow-sm">
-              <Send size={20} />
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="bg-gradient-to-br from-[#066099] to-sky-600 text-white p-1.5 rounded-lg shadow-sm">
+                <Send size={20} />
+              </div>
+              <h1 className="font-bold text-xl tracking-tight text-slate-900">SNS投稿サポートAI</h1>
             </div>
-            <h1 className="font-bold text-xl tracking-tight text-slate-900">SNS投稿サポートAI</h1>
+            <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
+              <a 
+                href="https://twitter.com/home" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-slate-600 hover:text-black transition-colors p-1.5 hover:bg-slate-100 rounded-lg"
+                title="Xを開く"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+              </a>
+              <a 
+                href="https://www.facebook.com/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-slate-600 hover:text-blue-600 transition-colors p-1.5 hover:bg-slate-100 rounded-lg"
+                title="Facebookを開く"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+              </a>
+            </div>
           </div>
           {user ? (
             <div className="flex items-center gap-3">
