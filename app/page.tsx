@@ -790,10 +790,10 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
               <button 
                 onClick={handleOpenPostModal} 
                 className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#066099] text-white hover:bg-[#055080]"
-                title="投稿"
+                title="Xに投稿"
               >
                 <Send size={14} />
-                投稿
+                Xに投稿
               </button>
             </>
           )}
@@ -1169,7 +1169,7 @@ export default function SNSGeneratorApp() {
       
       // いいね数を抽出
       let likes = 0;
-      const likesKeys = ['Likes', 'likes', 'Like', 'いいね', 'Like Count', 'like_count'];
+      const likesKeys = ['Likes', 'likes', 'Like', 'いいね', 'Like Count', 'like_count', 'favorite_count', 'Favorite Count'];
       for (const key of likesKeys) {
         if (post[key] !== undefined && post[key] !== '') {
           const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
@@ -1210,11 +1210,12 @@ export default function SNSGeneratorApp() {
         engagement = likes + views;
       }
       
-      // 投稿内容を取得（Post Content, Content, 投稿内容等の列から）
-      const contentKeys = ['Post Content', 'Content', 'content', '投稿内容', 'Text', 'text'];
+      // 投稿内容を取得（Post Content, Content, 投稿内容等の列から、改行も含めて全部読み込む）
+      const contentKeys = ['Post Content', 'Content', 'content', '投稿内容', 'Text', 'text', 'Tweet', 'tweet', '投稿', 'Post'];
       let content = '';
       for (const key of contentKeys) {
         if (post[key] !== undefined && post[key] !== '') {
+          // 改行を含めて全部読み込む（toString()でそのまま取得）
           content = post[key].toString();
           break;
         }
