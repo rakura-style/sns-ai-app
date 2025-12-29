@@ -1834,6 +1834,16 @@ export default function SNSGeneratorApp() {
           <div className="mt-4 text-center">
             <button onClick={() => { setIsLoginMode(!isLoginMode); setError(''); }} className="text-xs text-[#066099] hover:underline">{isLoginMode ? 'アカウントをお持ちでない方は新規登録' : 'すでにアカウントをお持ちの方はログイン'}</button>
           </div>
+          <div className="mt-6 pt-4 border-t border-slate-200 text-center">
+            <a 
+              href="https://rakura.net/policy/" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-xs text-slate-500 hover:text-[#066099] transition-colors"
+            >
+              プライバシーポリシー
+            </a>
+          </div>
         </div>
       ) : (
         <main className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
