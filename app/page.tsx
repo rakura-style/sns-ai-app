@@ -34,7 +34,7 @@ const getAppId = () => {
 const appId = getAppId();
 
 // 投稿先の種類とURL生成関数
-type PostDestination = 'x' | 'facebook';
+type PostDestination = 'x';
 
 const getPostUrl = (destination: PostDestination, content: string): string => {
   const encodedText = encodeURIComponent(content);
@@ -42,9 +42,6 @@ const getPostUrl = (destination: PostDestination, content: string): string => {
   switch (destination) {
     case 'x':
       return `https://twitter.com/intent/tweet?text=${encodedText}`;
-    case 'facebook':
-      // Facebookはテキストをquoteパラメータで渡せる
-      return `https://www.facebook.com/sharer/sharer.php?quote=${encodedText}`;
     default:
       return `https://twitter.com/intent/tweet?text=${encodedText}`;
   }
@@ -53,11 +50,9 @@ const getPostUrl = (destination: PostDestination, content: string): string => {
 const getDestinationLabel = (destination: PostDestination): string => {
   switch (destination) {
     case 'x':
-      return 'X（旧Twitter）';
-    case 'facebook':
-      return 'Facebook';
+      return 'X';
     default:
-      return 'X（旧Twitter）';
+      return 'X';
   }
 };
 
@@ -257,7 +252,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
 // --- UI Components ---
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenFacebookSettings, onOpenXSettings }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -317,16 +312,6 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
             )}
             
             <div className="h-px bg-slate-100 my-1 mx-2"></div>
-
-            <button 
-              onClick={() => { onOpenFacebookSettings(); setIsOpen(false); }}
-              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
-            >
-              <div className="bg-blue-50 p-1 rounded text-blue-600">
-                <Send size={14} />
-              </div>
-              Facebook設定
-            </button>
 
             <button 
               onClick={() => { onOpenXSettings(); setIsOpen(false); }}
@@ -465,7 +450,7 @@ const PersistentSettings = ({ settings, setSettings, mode }: any) => {
   );
 };
 
-const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, onPostToX, isPostingToX }: any) => {
+const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX }: any) => {
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
   const [showPostModal, setShowPostModal] = useState(false);
@@ -633,95 +618,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
     setShowPostModal(true);
   };
 
-  const [facebookAccessToken, setFacebookAccessToken] = useState<string | null>(null);
-  const [showFacebookPreview, setShowFacebookPreview] = useState(false);
-  const [isPostingToFacebook, setIsPostingToFacebook] = useState(false);
-  const [postingStatus, setPostingStatus] = useState<{ [key: string]: 'success' | 'error' | 'pending' }>({});
 
-  // Facebook OAuth認証のメッセージリスナー
-  useEffect(() => {
-    // localStorageからアクセストークンを読み込む
-    const savedToken = localStorage.getItem('facebook_access_token');
-    if (savedToken) {
-      setFacebookAccessToken(savedToken);
-    }
-
-    // ポップアップからアクセストークンを受け取る
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data.type === 'FACEBOOK_ACCESS_TOKEN') {
-        setFacebookAccessToken(event.data.token);
-        localStorage.setItem('facebook_access_token', event.data.token);
-      } else if (event.data.type === 'FACEBOOK_AUTH_ERROR') {
-        alert('Facebook認証に失敗しました: ' + event.data.error);
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
-  // Facebook OAuth認証（facebookAppIdをpropsから受け取る）
-  const handleFacebookAuth = () => {
-    const appId = facebookAppId || '';
-    if (!appId) {
-      alert('Facebook App IDが設定されていません。\n設定メニューからFacebook App IDを設定してください。');
-      return;
-    }
-    
-    const redirectUri = encodeURIComponent(window.location.origin + '/facebook-callback');
-    const scope = 'publish_actions,pages_manage_posts';
-    const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=token`;
-    
-    window.open(authUrl, 'facebook-auth', 'width=600,height=700,scrollbars=yes');
-  };
-
-  // Facebookに投稿する関数
-  const handlePostToFacebook = async () => {
-    if (!content || !user) return;
-
-    if (!facebookAccessToken) {
-      const shouldAuth = confirm('Facebookへの投稿には認証が必要です。\n認証ページを開きますか？');
-      if (shouldAuth) {
-        handleFacebookAuth();
-      }
-      return;
-    }
-
-    setIsPostingToFacebook(true);
-    setPostingStatus({ ...postingStatus, facebook: 'pending' });
-
-    try {
-      const token = await user.getIdToken();
-      const response = await fetch('/api/facebook/post', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          content,
-          accessToken: facebookAccessToken,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Facebookへの投稿に失敗しました');
-      }
-
-      setPostingStatus({ ...postingStatus, facebook: 'success' });
-      setShowFacebookPreview(false);
-      alert('Facebookへの投稿が完了しました！');
-    } catch (error: any) {
-      console.error('Facebook post error:', error);
-      setPostingStatus({ ...postingStatus, facebook: 'error' });
-      alert('エラー: ' + error.message);
-    } finally {
-      setIsPostingToFacebook(false);
-    }
-  };
 
   // 投稿を実行する関数
   const handlePost = () => {
@@ -743,14 +640,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
       }
     }
 
-    // Facebookが選択されている場合、プレビューを表示
-    if (selectedDestinations.includes('facebook')) {
-      setShowPostModal(false);
-      setShowFacebookPreview(true);
-      return;
-    }
-
-    // Xのみ選択されている場合、直接投稿
+    // Xを選択している場合、直接投稿
     if (selectedDestinations.includes('x')) {
       setShowPostModal(false);
       if (onPostToX) {
@@ -769,6 +659,22 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
     try {
       setIsScheduling(true);
       const token = await user.getIdToken();
+
+      // Xが選択されている場合、文字数制限をチェック
+      const xCharCount = calculateXCharacterCount(content);
+      if (selectedDestinations.includes('x') && xCharCount > X_CHARACTER_LIMIT) {
+        const shouldContinue = confirm(
+          `Xの文字数制限（${X_CHARACTER_LIMIT}文字）を超えています。\n` +
+          `現在の文字数: ${xCharCount}文字（全角文字は2文字として計算）\n\n` +
+          `このまま予約投稿すると、時刻になってもXには投稿できません。\n` +
+          `予約投稿をキャンセルして書き直しますか？`
+        );
+        
+        if (shouldContinue) {
+          setIsScheduling(false);
+          return;
+        }
+      }
 
       // 日時をISO形式に変換（日本時間を考慮）
       // datetime-local inputは現地時間を返すので、そのままDateオブジェクトに変換
@@ -946,9 +852,10 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 gap-3 border-2 border-dashed border-slate-100 rounded-lg m-6"><Sparkles size={40} className="text-slate-200" /><p className="text-sm font-medium">テーマを選んで「生成」ボタンを押してください</p></div>
         ) : (
           <textarea
-            className="w-full h-full min-h-[400px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-base animate-in fade-in duration-500 bg-transparent border-none focus:ring-0 resize-none outline-none"
+            className="w-full h-full min-h-[400px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-base animate-in fade-in duration-500 bg-transparent border-none focus:ring-0 resize-y outline-none"
             value={content}
             onChange={(e) => onChange && onChange(e.target.value)}
+            placeholder="生成された内容がここに表示されます。直接編集も可能です。"
           />
         )}
       </div>
@@ -977,7 +884,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
                   投稿先（複数選択可）
                 </label>
                 <div className="space-y-2">
-                  {(['x', 'facebook'] as PostDestination[]).map((dest) => (
+                  {(['x'] as PostDestination[]).map((dest) => (
                     <label key={dest} className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1025,98 +932,6 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
               >
                 <Send size={16} />
                 投稿する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Facebookプレビューモーダル */}
-      {showFacebookPreview && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Send size={20} className="text-blue-600" />
-                Facebook投稿プレビュー
-              </h3>
-              <button 
-                onClick={() => {
-                  setShowFacebookPreview(false);
-                  setShowPostModal(true);
-                }}
-                className="text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                <XIcon size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                    F
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">あなたの投稿</p>
-                    <p className="text-xs text-slate-500">今</p>
-                  </div>
-                </div>
-                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                  {content}
-                </p>
-              </div>
-
-              {!facebookAccessToken && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-xs text-blue-700 mb-2">
-                    Facebookへの投稿には認証が必要です。
-                  </p>
-                  <button
-                    onClick={handleFacebookAuth}
-                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <span>Facebookで認証</span>
-                  </button>
-                </div>
-              )}
-
-              {facebookAccessToken && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-xs text-green-700 mb-2 flex items-center gap-1">
-                    <Check size={12} />
-                    認証済み
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => {
-                  setShowFacebookPreview(false);
-                  setShowPostModal(true);
-                }}
-                className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={handlePostToFacebook}
-                disabled={!facebookAccessToken || isPostingToFacebook}
-                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isPostingToFacebook ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    投稿中...
-                  </>
-                ) : (
-                  <>
-                    <Send size={16} />
-                    投稿する
-                  </>
-                )}
               </button>
             </div>
           </div>
@@ -1171,7 +986,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
                   投稿先（複数選択可）
                 </label>
                 <div className="space-y-2">
-                  {(['x', 'facebook'] as PostDestination[]).map((dest) => (
+                  {(['x'] as PostDestination[]).map((dest) => (
                     <label key={dest} className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1205,7 +1020,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
                   className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  ⏰ お使いの端末の時刻（日本時間）で設定されます。予約投稿は10秒ごとにチェックされます。
+                  予約投稿は1分以上先の時間としてください。
                 </p>
               </div>
             </div>
@@ -1303,7 +1118,100 @@ export default function SNSGeneratorApp() {
   const [csvData, setCsvData] = useState('Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200');
   const [csvUploadDate, setCsvUploadDate] = useState<string | null>(null);
   
+  // マイ投稿分析用の状態
+  const [parsedPosts, setParsedPosts] = useState<any[]>([]);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [sortBy, setSortBy] = useState<'engagement' | 'date'>('engagement');
+  const [showPostAnalysis, setShowPostAnalysis] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // CSVをパースして投稿データの配列に変換
+  const parseCsvToPosts = (csvText: string): any[] => {
+    if (!csvText) return [];
+    
+    const lines = csvText.split('\n').filter((line: string) => line.trim());
+    if (lines.length < 2) return [];
+    
+    // ヘッダー行を取得
+    const headers = lines[0].split(',').map((h: string) => h.trim().replace(/"/g, ''));
+    
+    // データ行をパース
+    const posts: any[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      
+      // CSVのパース（カンマ区切り、ダブルクォート対応）
+      const values: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          values.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      values.push(current.trim());
+      
+      // オブジェクトに変換
+      const post: any = {};
+      headers.forEach((header: string, index: number) => {
+        post[header] = values[index] || '';
+      });
+      
+      // エンゲージメント数値を抽出（Likes, Retweets, Engagement等の列から）
+      let engagement = 0;
+      const engagementKeys = ['Likes', 'likes', 'Like', 'Retweets', 'retweets', 'Engagement', 'engagement', 'いいね', 'リツイート', 'エンゲージメント'];
+      for (const key of engagementKeys) {
+        if (post[key] !== undefined && post[key] !== '') {
+          const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
+          if (!isNaN(num)) {
+            engagement = num;
+            break;
+          }
+        }
+      }
+      
+      // 投稿内容を取得（Post Content, Content, 投稿内容等の列から）
+      const contentKeys = ['Post Content', 'Content', 'content', '投稿内容', 'Text', 'text'];
+      let content = '';
+      for (const key of contentKeys) {
+        if (post[key] !== undefined && post[key] !== '') {
+          content = post[key].toString();
+          break;
+        }
+      }
+      
+      // 日付を取得
+      const dateKeys = ['Date', 'date', '日付', '投稿日', 'Posted At'];
+      let date = '';
+      for (const key of dateKeys) {
+        if (post[key] !== undefined && post[key] !== '') {
+          date = post[key].toString();
+          break;
+        }
+      }
+      
+      if (content) {
+        posts.push({
+          id: `post-${i}`,
+          content,
+          engagement,
+          date,
+          rawData: post
+        });
+      }
+    }
+    
+    return posts;
+  };
 
   const [trendThemes, setTrendThemes] = useState<string[]>([]);
   const [myPostThemes, setMyPostThemes] = useState<string[]>([]);
@@ -1393,7 +1301,10 @@ export default function SNSGeneratorApp() {
     reader.onload = async (e) => {
       const text = e.target?.result as string;
       if (text) {
-        setCsvData(text); 
+        setCsvData(text);
+        const parsed = parseCsvToPosts(text);
+        setParsedPosts(parsed);
+        
         const now = new Date();
         const dateStr = now.toLocaleString('ja-JP', { 
           year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
@@ -1426,7 +1337,11 @@ export default function SNSGeneratorApp() {
         
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.csvData) setCsvData(data.csvData);
+          if (data.csvData) {
+            setCsvData(data.csvData);
+            const parsed = parseCsvToPosts(data.csvData);
+            setParsedPosts(parsed);
+          }
           if (data.csvUploadDate) setCsvUploadDate(data.csvUploadDate);
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
@@ -1649,11 +1564,11 @@ export default function SNSGeneratorApp() {
               <div className="bg-gradient-to-br from-[#066099] to-sky-600 text-white p-1.5 rounded-lg shadow-sm">
                 <Send size={20} />
               </div>
-              <h1 className="font-bold text-xl tracking-tight text-slate-900">SNS投稿サポートAI</h1>
+              <h1 className="font-bold text-xl tracking-tight text-slate-900">SNS投稿サポートAI（ベータ版）</h1>
             </div>
             <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
               <a 
-                href="https://twitter.com/home" 
+                href="https://x.com/home" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-slate-600 hover:text-black transition-colors p-1.5 hover:bg-slate-100 rounded-lg"
@@ -1672,6 +1587,17 @@ export default function SNSGeneratorApp() {
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+              </a>
+              <a 
+                href="https://www.instagram.com" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-slate-600 hover:text-pink-600 transition-colors p-1.5 hover:bg-slate-100 rounded-lg"
+                title="Instagramを開く"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
                 </svg>
               </a>
             </div>
@@ -1792,6 +1718,18 @@ export default function SNSGeneratorApp() {
                       {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12}/>}
                       分析・更新
                     </button>
+                    {parsedPosts.length > 0 && (
+                      <>
+                        <div className="h-4 w-px bg-slate-300 mx-1"></div>
+                        <button 
+                          onClick={() => setShowPostAnalysis(!showPostAnalysis)}
+                          className="text-xs bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1 font-bold shadow-sm"
+                        >
+                          <BarChart3 size={12} />
+                          投稿分析 ({parsedPosts.length})
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
                 
