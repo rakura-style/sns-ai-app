@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebaseAdmin';
+import { TwitterApi } from 'twitter-api-v2';
 
-// X API v2を使って投稿する
+// X API v2を使って投稿する（OAuth 1.0a認証）
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get('authorization');
@@ -14,43 +15,38 @@ export async function POST(req: Request) {
     const decodedToken = await adminAuth.verifyIdToken(token);
     const userId = decodedToken.uid;
 
-    const { content, accessToken, apiKey, apiSecret } = await req.json();
+    const { content, apiKey, apiKeySecret, accessToken, accessTokenSecret } = await req.json();
 
     if (!content) {
       return NextResponse.json({ error: 'Content is required' }, { status: 400 });
     }
 
-    // X API v2を使って投稿
-    // OAuth 2.0のアクセストークンを使用
-    const response = await fetch('https://api.twitter.com/2/tweets', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        text: content,
-      }),
+    if (!apiKey || !apiKeySecret || !accessToken || !accessTokenSecret) {
+      return NextResponse.json({ error: 'All X API credentials are required' }, { status: 400 });
+    }
+
+    // Twitter API v2クライアントを作成（OAuth 1.0a認証）
+    const client = new TwitterApi({
+      appKey: apiKey,
+      appSecret: apiKeySecret,
+      accessToken: accessToken,
+      accessSecret: accessTokenSecret,
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('X API Error:', data);
-      return NextResponse.json({ 
-        error: data.detail || data.title || 'Xへの投稿に失敗しました',
-        errorDetails: data
-      }, { status: response.status });
-    }
+    // ツイートを投稿
+    const tweet = await client.v2.tweet(content);
 
     return NextResponse.json({ 
       success: true, 
-      tweetId: data.data?.id,
+      tweetId: tweet.data.id,
       message: 'Xへの投稿が完了しました'
     });
   } catch (error: any) {
     console.error('X post error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ 
+      error: error.message || 'Xへの投稿に失敗しました',
+      details: error.data || error
+    }, { status: 500 });
   }
 }
 

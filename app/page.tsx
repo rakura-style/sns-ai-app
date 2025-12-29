@@ -1304,8 +1304,9 @@ export default function SNSGeneratorApp() {
   const [facebookAppId, setFacebookAppId] = useState('');
   const [showXSettings, setShowXSettings] = useState(false);
   const [xApiKey, setXApiKey] = useState('');
-  const [xApiSecret, setXApiSecret] = useState('');
-  const [xAccessToken, setXAccessToken] = useState<string | null>(null);
+  const [xApiKeySecret, setXApiKeySecret] = useState('');
+  const [xAccessToken, setXAccessToken] = useState('');
+  const [xAccessTokenSecret, setXAccessTokenSecret] = useState('');
   const [isPostingToX, setIsPostingToX] = useState(false);
   
   const [allSettings, setAllSettings] = useState({
@@ -1421,10 +1422,9 @@ export default function SNSGeneratorApp() {
           if (data.facebookAppId) setFacebookAppId(data.facebookAppId);
           // 🔥 X API認証情報をロード
           if (data.xApiKey) setXApiKey(data.xApiKey);
-          if (data.xApiSecret) setXApiSecret(data.xApiSecret);
-          // localStorageからXアクセストークンを読み込む
-          const savedXToken = localStorage.getItem('x_access_token');
-          if (savedXToken) setXAccessToken(savedXToken);
+          if (data.xApiKeySecret) setXApiKeySecret(data.xApiKeySecret);
+          if (data.xAccessToken) setXAccessToken(data.xAccessToken);
+          if (data.xAccessTokenSecret) setXAccessTokenSecret(data.xAccessTokenSecret);
         }
       } catch (e) {
         console.error("データの読み込みに失敗:", e);
@@ -1454,7 +1454,9 @@ export default function SNSGeneratorApp() {
       const userRef = doc(db, 'users', user.uid);
       await setDoc(userRef, { 
         xApiKey, 
-        xApiSecret 
+        xApiKeySecret,
+        xAccessToken,
+        xAccessTokenSecret
       }, { merge: true });
       alert('X API認証情報を保存しました');
       setShowXSettings(false);
@@ -1466,8 +1468,8 @@ export default function SNSGeneratorApp() {
 
   // X OAuth認証（PKCE方式）
   const handleXAuth = async () => {
-    if (!xApiKey || !xApiSecret) {
-      alert('X API KeyとAPI Secretを設定してください。\n設定メニューからX設定を開いてください。');
+    if (!xApiKey || !xApiKeySecret) {
+      alert('X API KeyとAPI Key Secretを設定してください。\n設定メニューからX設定を開いてください。');
       return;
     }
 
@@ -1500,9 +1502,10 @@ export default function SNSGeneratorApp() {
         },
         body: JSON.stringify({
           content: postContent,
-          accessToken: xAccessToken,
           apiKey: xApiKey,
-          apiSecret: xApiSecret,
+          apiKeySecret: xApiKeySecret,
+          accessToken: xAccessToken,
+          accessTokenSecret: xAccessTokenSecret,
         }),
       });
 
@@ -1892,56 +1895,63 @@ export default function SNSGeneratorApp() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2">
-                  X API Key
+                  API Key
                 </label>
                 <input
                   type="text"
                   value={xApiKey}
                   onChange={(e) => setXApiKey(e.target.value)}
-                  placeholder="例: your_api_key"
+                  placeholder="例: abcd1234..."
                   className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2">
-                  X API Secret
+                  API Key Secret
                 </label>
                 <input
                   type="password"
-                  value={xApiSecret}
-                  onChange={(e) => setXApiSecret(e.target.value)}
-                  placeholder="例: your_api_secret"
+                  value={xApiKeySecret}
+                  onChange={(e) => setXApiKeySecret(e.target.value)}
+                  placeholder="例: xyz789..."
                   className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2">
-                  X Access Token（OAuth 2.0）
+                  Access Token
                 </label>
                 <input
                   type="password"
-                  value={xAccessToken || ''}
-                  onChange={(e) => {
-                    setXAccessToken(e.target.value);
-                    if (e.target.value) {
-                      localStorage.setItem('x_access_token', e.target.value);
-                    } else {
-                      localStorage.removeItem('x_access_token');
-                    }
-                  }}
-                  placeholder="例: Bearer token..."
+                  value={xAccessToken}
+                  onChange={(e) => setXAccessToken(e.target.value)}
+                  placeholder="例: 1234567890..."
                   className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
                 />
-                <p className="text-xs text-slate-400 mt-1">
-                  X Developer Portalで取得したOAuth 2.0アクセストークンを入力してください。
-                  <br />
-                  <a href="https://developer.twitter.com/en/portal/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                    X Developer Portal
-                  </a>
-                </p>
               </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2">
+                  Access Token Secret
+                </label>
+                <input
+                  type="password"
+                  value={xAccessTokenSecret}
+                  onChange={(e) => setXAccessTokenSecret(e.target.value)}
+                  placeholder="例: efgh567..."
+                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
+                />
+              </div>
+
+              <p className="text-xs text-slate-400">
+                X Developer Portalで取得した4つの認証情報を入力してください。
+                <br />
+                <a href="https://developer.twitter.com/en/portal/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                  X Developer Portal
+                </a>
+              </p>
             </div>
 
             <div className="flex gap-2 pt-2">
