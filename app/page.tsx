@@ -381,7 +381,7 @@ const ComboboxInput = ({ label, icon: Icon, value, onChange, options, placeholde
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onClick={() => setIsOpen(true)}
-            className="w-full p-2.5 pr-8 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors min-h-[8rem] resize-y leading-relaxed text-black"
+            className="w-full p-2.5 pr-8 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors min-h-[9rem] resize-y leading-relaxed text-black"
             placeholder={placeholder}
           />
         ) : (
@@ -932,17 +932,17 @@ const ResultCard = ({ content, isLoading, error, onChange, user, facebookAppId, 
         ) : !content ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 gap-3 border-2 border-dashed border-slate-100 rounded-lg m-6"><Sparkles size={40} className="text-slate-200" /><p className="text-sm font-medium">テーマを選んで「生成」ボタンを押してください</p></div>
         ) : (
-          <>
-            <textarea
-              className="w-full h-full min-h-[400px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-base animate-in fade-in duration-500 bg-transparent border-none focus:ring-0 resize-none outline-none"
-              value={content}
-              onChange={(e) => onChange && onChange(e.target.value)}
-            />
-            <div className="absolute bottom-2 right-2 text-xs text-slate-400">
-              Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
-            </div>
-          </>
+          <textarea
+            className="w-full h-full min-h-[400px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-base animate-in fade-in duration-500 bg-transparent border-none focus:ring-0 resize-none outline-none"
+            value={content}
+            onChange={(e) => onChange && onChange(e.target.value)}
+          />
         )}
+      </div>
+      <div className="px-4 py-2 border-t border-slate-200 bg-slate-50 flex justify-end">
+        <div className="text-xs text-slate-400">
+          Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
+        </div>
       </div>
 
       {/* 投稿先選択モーダル */}
@@ -1315,9 +1315,9 @@ export default function SNSGeneratorApp() {
   const [isPostingToX, setIsPostingToX] = useState(false);
   
   const [allSettings, setAllSettings] = useState({
-    mypost: { style: '親しみやすい（です・ます調）', emoji: '適度に使用', character: 'SNS初心者', minLength: 50, maxLength: 150 },
-    trend: { style: '情報発信系（断定口調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 },
-    rewrite: { style: 'プロフェッショナル', emoji: '控えめ', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 }
+    mypost: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 },
+    trend: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 },
+    rewrite: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 }
   });
 
   // 投稿先設定（デフォルトはX）
