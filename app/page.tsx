@@ -22,7 +22,6 @@ import {
   User
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, deleteDoc } from 'firebase/firestore';
-import { encryptApiKeys, decryptApiKeys } from '../lib/encryption';
 
 // グローバル定数: アプリID
 const getAppId = () => {
@@ -1310,13 +1309,6 @@ export default function SNSGeneratorApp() {
   const [xAccessTokenSecret, setXAccessTokenSecret] = useState('');
   const [isPostingToX, setIsPostingToX] = useState(false);
   
-  // 暗号化用マスターパスワード
-  const [showMasterPasswordModal, setShowMasterPasswordModal] = useState(false);
-  const [masterPassword, setMasterPassword] = useState('');
-  const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
-  const [hasMasterPassword, setHasMasterPassword] = useState(false);
-  const [tempMasterPassword, setTempMasterPassword] = useState<string | null>(null);
-  
   const [allSettings, setAllSettings] = useState({
     mypost: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 },
     trend: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 },
@@ -1428,35 +1420,11 @@ export default function SNSGeneratorApp() {
           else setIsSubscribed(false);
           // 🔥 Facebook App IDをロード
           if (data.facebookAppId) setFacebookAppId(data.facebookAppId);
-          
-          // マスターパスワードが設定されているかチェック
-          if (data.hasMasterPassword) {
-            setHasMasterPassword(true);
-            
-            // セッションストレージからマスターパスワードを取得
-            const sessionPassword = sessionStorage.getItem('master_password');
-            if (sessionPassword) {
-              setTempMasterPassword(sessionPassword);
-              
-              // 暗号化されたX API認証情報を復号化
-              try {
-                if (data.xApiKeysEncrypted) {
-                  const decrypted = await decryptApiKeys(data.xApiKeysEncrypted, sessionPassword);
-                  if (decrypted.xApiKey) setXApiKey(decrypted.xApiKey);
-                  if (decrypted.xApiKeySecret) setXApiKeySecret(decrypted.xApiKeySecret);
-                  if (decrypted.xAccessToken) setXAccessToken(decrypted.xAccessToken);
-                  if (decrypted.xAccessTokenSecret) setXAccessTokenSecret(decrypted.xAccessTokenSecret);
-                }
-              } catch (error) {
-                console.error('APIキーの復号化に失敗:', error);
-                // 復号化失敗時はマスターパスワード再入力を促す
-                setShowMasterPasswordModal(true);
-              }
-            } else {
-              // マスターパスワードが未入力の場合は入力を促す
-              setShowMasterPasswordModal(true);
-            }
-          }
+          // 🔥 X API認証情報をロード（平文）
+          if (data.xApiKey) setXApiKey(data.xApiKey);
+          if (data.xApiKeySecret) setXApiKeySecret(data.xApiKeySecret);
+          if (data.xAccessToken) setXAccessToken(data.xAccessToken);
+          if (data.xAccessTokenSecret) setXAccessTokenSecret(data.xAccessTokenSecret);
         }
       } catch (e) {
         console.error("データの読み込みに失敗:", e);
@@ -1479,105 +1447,22 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // X API認証情報を保存（暗号化）
+  // X API認証情報を保存
   const saveXApiCredentials = async () => {
     if (!user) return;
-    
-    // マスターパスワードの確認
-    if (!hasMasterPassword) {
-      // 初回設定の場合
-      if (!masterPassword || !masterPasswordConfirm) {
-        alert('マスターパスワードを入力してください。\nこのパスワードは暗号化に使用され、サーバーには保存されません。');
-        return;
-      }
-      if (masterPassword !== masterPasswordConfirm) {
-        alert('パスワードが一致しません');
-        return;
-      }
-      if (masterPassword.length < 8) {
-        alert('マスターパスワードは8文字以上にしてください');
-        return;
-      }
-    } else {
-      // 既存のマスターパスワードを使用
-      if (!tempMasterPassword) {
-        alert('マスターパスワードが設定されていません。再ログインしてください。');
-        return;
-      }
-    }
-    
     try {
-      const passwordToUse = hasMasterPassword ? tempMasterPassword! : masterPassword;
-      
-      // APIキーを暗号化
-      const keysToEncrypt: { [key: string]: string } = {};
-      if (xApiKey) keysToEncrypt.xApiKey = xApiKey;
-      if (xApiKeySecret) keysToEncrypt.xApiKeySecret = xApiKeySecret;
-      if (xAccessToken) keysToEncrypt.xAccessToken = xAccessToken;
-      if (xAccessTokenSecret) keysToEncrypt.xAccessTokenSecret = xAccessTokenSecret;
-      
-      const encryptedKeys = await encryptApiKeys(keysToEncrypt, passwordToUse);
-      
-      // Firestoreに暗号化されたデータを保存
       const userRef = doc(db, 'users', user.uid);
       await setDoc(userRef, { 
-        xApiKeysEncrypted: encryptedKeys,
-        hasMasterPassword: true
+        xApiKey, 
+        xApiKeySecret,
+        xAccessToken,
+        xAccessTokenSecret
       }, { merge: true });
-      
-      // セッションストレージにマスターパスワードを保存
-      sessionStorage.setItem('master_password', passwordToUse);
-      setTempMasterPassword(passwordToUse);
-      setHasMasterPassword(true);
-      
-      alert('X API認証情報を暗号化して保存しました\n（サーバー側では復号化できません）');
+      alert('X API認証情報を保存しました');
       setShowXSettings(false);
-      setMasterPassword('');
-      setMasterPasswordConfirm('');
     } catch (error) {
       console.error("X API認証情報の保存に失敗:", error);
-      alert('保存に失敗しました: ' + (error as Error).message);
-    }
-  };
-
-  // マスターパスワード送信処理
-  const handleMasterPasswordSubmit = async () => {
-    if (!masterPassword) {
-      alert('マスターパスワードを入力してください');
-      return;
-    }
-
-    try {
-      if (!user) return;
-      
-      const docRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        
-        if (data.xApiKeysEncrypted) {
-          // 復号化を試みる
-          const decrypted = await decryptApiKeys(data.xApiKeysEncrypted, masterPassword);
-          
-          // 成功したらセッションストレージに保存
-          sessionStorage.setItem('master_password', masterPassword);
-          setTempMasterPassword(masterPassword);
-          
-          // APIキーをセット
-          if (decrypted.xApiKey) setXApiKey(decrypted.xApiKey);
-          if (decrypted.xApiKeySecret) setXApiKeySecret(decrypted.xApiKeySecret);
-          if (decrypted.xAccessToken) setXAccessToken(decrypted.xAccessToken);
-          if (decrypted.xAccessTokenSecret) setXAccessTokenSecret(decrypted.xAccessTokenSecret);
-          
-          setShowMasterPasswordModal(false);
-          setMasterPassword('');
-          alert('APIキーの復号化に成功しました');
-        }
-      }
-    } catch (error) {
-      console.error('復号化エラー:', error);
-      alert('復号化に失敗しました。パスワードが正しいか確認してください。');
+      alert('保存に失敗しました');
     }
   };
 
@@ -2089,52 +1974,12 @@ export default function SNSGeneratorApp() {
                 </a>
               </p>
 
-              {/* マスターパスワード設定（初回のみ） */}
-              {!hasMasterPassword && (
-                <>
-                  <div className="pt-4 border-t border-slate-200">
-                    <p className="text-xs font-bold text-slate-700 mb-3 flex items-center gap-1">
-                      <Lock size={12} className="text-amber-500" />
-                      暗号化用マスターパスワード（初回設定）
-                    </p>
-                    <p className="text-xs text-slate-500 mb-3 bg-amber-50 p-2 rounded border border-amber-200">
-                      ⚠️ このパスワードはAPIキーの暗号化に使用されます。<br />
-                      サーバーには保存されず、復号化に必要なため忘れないでください。
-                    </p>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">マスターパスワード（8文字以上）</label>
-                        <input
-                          type="password"
-                          value={masterPassword}
-                          onChange={(e) => setMasterPassword(e.target.value)}
-                          placeholder="8文字以上のパスワード"
-                          className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">マスターパスワード（確認）</label>
-                        <input
-                          type="password"
-                          value={masterPasswordConfirm}
-                          onChange={(e) => setMasterPasswordConfirm(e.target.value)}
-                          placeholder="もう一度入力"
-                          className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-              
-              {hasMasterPassword && (
-                <div className="pt-4 border-t border-slate-200">
-                  <p className="text-xs text-green-600 bg-green-50 p-2 rounded border border-green-200 flex items-center gap-1">
-                    <Check size={12} />
-                    マスターパスワード設定済み（暗号化有効）
-                  </p>
-                </div>
-              )}
+              <div className="pt-4 border-t border-slate-200">
+                <p className="text-xs text-slate-500 bg-blue-50 p-3 rounded border border-blue-200">
+                  <Lock size={12} className="inline mr-1" />
+                  認証情報はお客様のアカウントでのみアクセス可能な形で保存されます。
+                </p>
+              </div>
             </div>
 
             <div className="flex gap-2 pt-2">
