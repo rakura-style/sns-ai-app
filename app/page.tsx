@@ -1152,7 +1152,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                 className="flex-1 px-4 py-2 text-sm font-bold text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Clock size={16} />
-                予約投稿
+                予約投稿（未実装）
               </button>
             </div>
           </div>
@@ -1213,7 +1213,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                   className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  予約投稿は1分以上先の時間としてください。
+                  【予約投稿はまだ使えません。】予約投稿は1分以上先の時間としてください。
                 </p>
               </div>
             </div>

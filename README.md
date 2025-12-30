@@ -39,26 +39,34 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 予約投稿機能は、アプリが閉じていても動作するようにサーバー側で定期チェックを行います。
 
-### Vercel Cron Jobsの設定
+### 予約投稿の定期チェック設定
 
-#### 方法1: vercel.jsonを使用（推奨）
+予約投稿機能を動作させるには、定期的に`/api/scheduled-posts/check`を実行する必要があります。
+
+#### 重要: Vercel Cron Jobsについて
+
+Vercel Cron Jobsは**有料プラン（Pro以上）**でのみ利用可能です。無料プランの場合は、外部Cronサービスを使用してください。
+
+#### 方法1: 外部Cronサービスを使用（無料プラン対応・推奨）
+
+無料の外部Cronサービスを使用して、APIエンドポイントを定期実行します：
+
+**cron-job.orgを使用する場合:**
+1. [cron-job.org](https://cron-job.org/)に無料アカウントを作成
+2. 「Create cronjob」をクリック
+3. 以下の設定を入力：
+   - **Address**: `https://your-domain.vercel.app/api/scheduled-posts/check`
+   - **Schedule**: `Every minute` または `*/1 * * * *`
+   - **Request method**: `GET`
+4. 「Create cronjob」をクリック
+
+詳細は`VERCEL_CRON_SETUP.md`を参照してください。
+
+#### 方法2: Vercel Cron Jobsを使用（有料プランの場合）
 
 1. `vercel.json`にCron Jobsの設定が含まれています（1分ごとに実行）
 2. Vercelにデプロイすると、自動的にCron Jobsが有効になります
-3. Vercel DashboardでCron Jobsの実行状況を確認できます
-
-#### 方法2: Vercel Dashboardで手動設定
-
-`vercel.json`が反映されない場合は、Vercel Dashboardで手動で設定してください：
-
-1. Vercel Dashboardにログイン
-2. プロジェクトを選択
-3. 「Settings」→「Cron Jobs」に移動
-4. 「Create Cron Job」をクリック
-5. 以下の設定を入力：
-   - **Path**: `/api/scheduled-posts/check`
-   - **Schedule**: `* * * * *` (1分ごと)
-6. 「Save」をクリック
+3. または、Vercel Dashboard → Settings → Cron Jobs で手動設定
 
 #### 確認方法
 
