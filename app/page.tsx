@@ -632,7 +632,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
       {/* 文字数設定エリア */}
       <div className="pt-2 border-t border-slate-100">
         <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
-          <AlignLeft size={12} /> 文字数目安
+          <AlignLeft size={12} /> 文字数目安（全角文字の場合誤差が生じます）
         </label>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -739,55 +739,75 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
         }
 
         // 予約時刻になったら自動で投稿先に投稿
-        if (now >= scheduledTime && !post.posted) {
+        // 注意: サーバー側でもチェックしているが、クライアント側でも補助的にチェック
+        if (now >= scheduledTime && !post.posted && user) {
           const destinations = post.destinations || ['x'];
           
-          destinations.forEach((destination: PostDestination) => {
+          // FirestoreからX API認証情報を取得して投稿を試みる（補助的な処理）
+          destinations.forEach(async (destination: PostDestination) => {
             if (destination === 'x') {
-              // Xの場合はAPI経由で投稿を試みる
-              // アクセストークンがない場合はクリップボードにコピー
-              const savedXToken = localStorage.getItem('x_access_token');
-              if (savedXToken && user) {
-                // API経由で投稿
-                user.getIdToken().then((token: string) => {
-                  fetch('/api/x/post', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                      content: post.content,
-                      accessToken: savedXToken,
-                    }),
-                  }).then(response => response.json())
-                    .then(data => {
-                      if (data.success) {
-                        if ('Notification' in window && Notification.permission === 'granted') {
-                          new Notification('予約投稿が完了しました（X）', {
-                            body: 'Xへの投稿が正常に完了しました。',
-                            icon: '/next.svg',
-                            tag: `scheduled-post-x-${post.id}`,
-                          });
-                        }
-                      }
-                    })
-                    .catch(() => {
-                      // API投稿に失敗した場合はクリップボードにコピー
-                      navigator.clipboard.writeText(post.content).then(() => {
-                        if ('Notification' in window && Notification.permission === 'granted') {
-                          new Notification('予約投稿の時刻です（X）', {
-                            body: '投稿内容をクリップボードにコピーしました。Xで貼り付けて投稿してください。',
-                            icon: '/next.svg',
-                            tag: `scheduled-post-x-${post.id}`,
-                          });
-                        }
-                      });
+              try {
+                // FirestoreからX API認証情報を取得
+                const userDocRef = doc(db, 'users', user.uid);
+                const userDocSnap = await getDoc(userDocRef);
+                
+                if (userDocSnap.exists()) {
+                  const userData = userDocSnap.data();
+                  const xApiKey = userData.xApiKey;
+                  const xApiKeySecret = userData.xApiKeySecret;
+                  const xAccessToken = userData.xAccessToken;
+                  const xAccessTokenSecret = userData.xAccessTokenSecret;
+                  
+                  if (xApiKey && xApiKeySecret && xAccessToken && xAccessTokenSecret) {
+                    // API経由で投稿
+                    const token = await user.getIdToken();
+                    const response = await fetch('/api/x/post', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                      },
+                      body: JSON.stringify({
+                        content: post.content,
+                        apiKey: xApiKey,
+                        apiKeySecret: xApiKeySecret,
+                        accessToken: xAccessToken,
+                        accessTokenSecret: xAccessTokenSecret,
+                      }),
                     });
-                });
-              } else {
-                // アクセストークンがない場合はクリップボードにコピー
-                navigator.clipboard.writeText(post.content).then(() => {
+                    
+                    const data = await response.json();
+                    if (data.success) {
+                      // 投稿済みフラグを更新
+                      const postRef = doc(db, 'users', user.uid, 'scheduledPosts', post.id);
+                      await setDoc(postRef, { posted: true }, { merge: true });
+                      
+                      if ('Notification' in window && Notification.permission === 'granted') {
+                        new Notification('予約投稿が完了しました（X）', {
+                          body: 'Xへの投稿が正常に完了しました。',
+                          icon: '/next.svg',
+                          tag: `scheduled-post-x-${post.id}`,
+                        });
+                      }
+                    }
+                  } else {
+                    // 認証情報がない場合はクリップボードにコピー
+                    navigator.clipboard.writeText(post.content).then(() => {
+                      if ('Notification' in window && Notification.permission === 'granted') {
+                        new Notification('予約投稿の時刻です（X）', {
+                          body: 'X設定が必要です。投稿内容をクリップボードにコピーしました。',
+                          icon: '/next.svg',
+                          tag: `scheduled-post-x-${post.id}`,
+                        });
+                      }
+                    });
+                  }
+                }
+              } catch (error) {
+                console.error('予約投稿エラー（クライアント側）:', error);
+                // エラー時はクリップボードにコピー
+                try {
+                  await navigator.clipboard.writeText(post.content);
                   if ('Notification' in window && Notification.permission === 'granted') {
                     new Notification('予約投稿の時刻です（X）', {
                       body: '投稿内容をクリップボードにコピーしました。Xで貼り付けて投稿してください。',
@@ -795,20 +815,12 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                       tag: `scheduled-post-x-${post.id}`,
                     });
                   }
-                }).catch(() => {
+                } catch (clipboardError) {
                   console.error('クリップボードへのコピーに失敗しました');
-                });
+                }
               }
-            } else if (destination === 'facebook') {
-              // Facebookの場合はURLを開く（Facebook Graph APIを使う場合は別途実装）
-              const postUrl = getPostUrl(destination, post.content);
-              window.open(postUrl, '_blank', 'noopener,noreferrer');
             }
           });
-          
-          // 投稿済みフラグを更新（簡易版：実際にはAPIで更新すべき）
-          const postRef = doc(db, 'users', user.uid, 'scheduledPosts', post.id);
-          setDoc(postRef, { posted: true }, { merge: true });
         }
       });
     }, 10000); // 10秒ごとにチェック

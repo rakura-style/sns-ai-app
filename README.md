@@ -34,3 +34,28 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## 予約投稿機能の設定
+
+予約投稿機能は、アプリが閉じていても動作するようにサーバー側で定期チェックを行います。
+
+### Vercel Cron Jobsの設定
+
+1. `vercel.json`にCron Jobsの設定が含まれています（1分ごとに実行）
+2. Vercelにデプロイすると、自動的にCron Jobsが有効になります
+3. Vercel DashboardでCron Jobsの実行状況を確認できます
+
+### Firestoreインデックスの設定（必要に応じて）
+
+以下の複合インデックスが必要な場合があります：
+
+- Collection: `users/{userId}/scheduledPosts`
+- Fields: `posted` (Ascending), `scheduledAt` (Ascending)
+
+Firestore Consoleでインデックスを作成するか、エラーメッセージに従って自動的に作成してください。
+
+### 動作確認
+
+1. 予約投稿を作成
+2. Vercel DashboardのCron Jobsセクションで実行ログを確認
+3. 指定時刻にXへの投稿が自動実行されることを確認
