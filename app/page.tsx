@@ -871,9 +871,9 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
       setIsScheduling(true);
       const token = await user.getIdToken();
 
-      // Xが選択されている場合、文字数制限をチェック
+      // Xの文字数制限をチェック（予約投稿は常にXに投稿）
       const xCharCount = calculateXCharacterCount(content);
-      if (selectedDestinations.includes('x') && xCharCount > X_CHARACTER_LIMIT) {
+      if (xCharCount > X_CHARACTER_LIMIT) {
         const shouldContinue = confirm(
           `Xの文字数制限（${X_CHARACTER_LIMIT}文字）を超えています。\n` +
           `現在の文字数: ${xCharCount}文字（全角文字は2文字として計算）\n\n` +
@@ -908,7 +908,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
         body: JSON.stringify({
           content,
           scheduledAt: scheduledDate.toISOString(),
-          destinations: selectedDestinations,
+          destinations: ['x'], // 予約投稿は常にXに投稿
         }),
       });
 
@@ -1158,7 +1158,6 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
               <button 
                 onClick={() => {
                   setShowScheduleModal(false);
-                  setSelectedDestinations([]);
                   setScheduledDateTime('');
                 }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -1177,7 +1176,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 max-h-48 overflow-y-auto">
                   <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{content}</p>
                 </div>
-                {selectedDestinations.includes('x') && (() => {
+                {(() => {
                   const xCharCount = calculateXCharacterCount(content);
                   return (
                     <p className={`text-xs mt-2 ${xCharCount > X_CHARACTER_LIMIT ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
@@ -1185,33 +1184,6 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                     </p>
                   );
                 })()}
-              </div>
-
-              {/* 投稿先選択 */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
-                  <Send size={12} />
-                  投稿先（複数選択可）
-                </label>
-                <div className="space-y-2">
-                  {(['x'] as PostDestination[]).map((dest) => (
-                    <label key={dest} className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedDestinations.includes(dest)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedDestinations([...selectedDestinations, dest]);
-                          } else {
-                            setSelectedDestinations(selectedDestinations.filter(d => d !== dest));
-                          }
-                        }}
-                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
-                      />
-                      <span className="text-sm text-slate-700">{getDestinationLabel(dest)}</span>
-                    </label>
-                  ))}
-                </div>
               </div>
               
               {/* 投稿日時選択 */}
@@ -1237,7 +1209,6 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
               <button
                 onClick={() => {
                   setShowScheduleModal(false);
-                  setSelectedDestinations([]);
                   setScheduledDateTime('');
                 }}
                 className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
@@ -1246,7 +1217,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
               </button>
               <button
                 onClick={handleSchedulePost}
-                disabled={!scheduledDateTime || isScheduling || selectedDestinations.length === 0}
+                disabled={!scheduledDateTime || isScheduling}
                 className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isScheduling ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />}
