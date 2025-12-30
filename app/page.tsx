@@ -700,11 +700,12 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
 
   // 予約時刻のチェックと通知
   useEffect(() => {
-    if (scheduledPosts.length === 0) return;
+    if (scheduledPosts.length === 0 || !user) return;
 
-    const checkInterval = setInterval(() => {
+    const checkInterval = setInterval(async () => {
       const now = new Date();
-      scheduledPosts.forEach(post => {
+      
+      for (const post of scheduledPosts) {
         const scheduledTime = new Date(post.scheduledAt);
         
         // デバッグ用ログ
@@ -740,11 +741,11 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
 
         // 予約時刻になったら自動で投稿先に投稿
         // 注意: サーバー側でもチェックしているが、クライアント側でも補助的にチェック
-        if (now >= scheduledTime && !post.posted && user) {
+        if (now >= scheduledTime && !post.posted) {
           const destinations = post.destinations || ['x'];
           
           // FirestoreからX API認証情報を取得して投稿を試みる（補助的な処理）
-          destinations.forEach(async (destination: PostDestination) => {
+          for (const destination of destinations) {
             if (destination === 'x') {
               try {
                 // FirestoreからX API認証情報を取得
@@ -820,9 +821,9 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                 }
               }
             }
-          });
+          }
         }
-      });
+      }
     }, 10000); // 10秒ごとにチェック
 
     return () => clearInterval(checkInterval);

@@ -41,9 +41,29 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ### Vercel Cron Jobsの設定
 
+#### 方法1: vercel.jsonを使用（推奨）
+
 1. `vercel.json`にCron Jobsの設定が含まれています（1分ごとに実行）
 2. Vercelにデプロイすると、自動的にCron Jobsが有効になります
 3. Vercel DashboardでCron Jobsの実行状況を確認できます
+
+#### 方法2: Vercel Dashboardで手動設定
+
+`vercel.json`が反映されない場合は、Vercel Dashboardで手動で設定してください：
+
+1. Vercel Dashboardにログイン
+2. プロジェクトを選択
+3. 「Settings」→「Cron Jobs」に移動
+4. 「Create Cron Job」をクリック
+5. 以下の設定を入力：
+   - **Path**: `/api/scheduled-posts/check`
+   - **Schedule**: `* * * * *` (1分ごと)
+6. 「Save」をクリック
+
+#### 確認方法
+
+- Vercel Dashboardの「Cron Jobs」セクションで実行ログを確認
+- エラーが発生している場合は、ログを確認して修正
 
 ### Firestoreインデックスの設定（必要に応じて）
 

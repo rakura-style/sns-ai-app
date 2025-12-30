@@ -3,6 +3,11 @@ import { adminDb } from '@/lib/firebaseAdmin';
 import { TwitterApi } from 'twitter-api-v2';
 import * as admin from 'firebase-admin';
 
+// Vercel Cron Jobsの設定
+export const config = {
+  runtime: 'nodejs',
+};
+
 // 予約投稿のチェックと実行（サーバー側で定期実行）
 // Vercel Cron Jobsから呼び出される
 export async function GET(req: Request) {
