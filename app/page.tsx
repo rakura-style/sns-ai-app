@@ -1244,22 +1244,30 @@ export default function SNSGeneratorApp() {
   const applyCsvData = async (csvText: string, mode: 'replace' | 'append') => {
     const parsed = parseCsvToPosts(csvText);
     
+    // 保存するCSVデータを先に計算（状態に依存しない）
+    let finalCsvData: string;
     if (mode === 'append') {
       // 追加モード：既存データに追加
-      setParsedPosts(prev => [...prev, ...parsed]);
-      // CSVデータも結合（ヘッダー行は最初のものを使う）
       const existingLines = csvData.split('\n');
       const newLines = csvText.split('\n');
       if (existingLines.length > 0 && newLines.length > 1) {
-        const combinedCsv = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
-        setCsvData(combinedCsv);
+        // ヘッダー行は最初のものを使い、データ行を結合
+        finalCsvData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
       } else {
-        setCsvData(csvText);
+        finalCsvData = csvText;
       }
     } else {
       // 書き換えモード：既存データを置き換え
+      finalCsvData = csvText;
+    }
+    
+    // 状態を更新
+    if (mode === 'append') {
+      setParsedPosts(prev => [...prev, ...parsed]);
+      setCsvData(finalCsvData);
+    } else {
       setParsedPosts(parsed);
-      setCsvData(csvText);
+      setCsvData(finalCsvData);
     }
     
     const now = new Date();
@@ -1268,35 +1276,13 @@ export default function SNSGeneratorApp() {
     });
     setCsvUploadDate(dateStr);
     
+    // Firestoreに保存（計算済みのfinalCsvDataを使用）
     if (user) {
         try {
-            // 状態更新後のCSVデータを使用
-            const finalCsvData = mode === 'append' 
-              ? (csvData + '\n' + csvText.split('\n').slice(1).join('\n'))
-              : csvText;
-            
-            // 状態を更新してから保存
-            if (mode === 'append') {
-              const existingLines = csvData.split('\n');
-              const newLines = csvText.split('\n');
-              if (existingLines.length > 0 && newLines.length > 1) {
-                const combinedCsv = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
-                await setDoc(doc(db, 'users', user.uid), {
-                    csvData: combinedCsv,
-                    csvUploadDate: dateStr
-                }, { merge: true });
-              } else {
-                await setDoc(doc(db, 'users', user.uid), {
-                    csvData: csvText,
-                    csvUploadDate: dateStr
-                }, { merge: true });
-              }
-            } else {
-              await setDoc(doc(db, 'users', user.uid), {
-                  csvData: csvText,
-                  csvUploadDate: dateStr
-              }, { merge: true });
-            }
+            await setDoc(doc(db, 'users', user.uid), {
+                csvData: finalCsvData,
+                csvUploadDate: dateStr
+            }, { merge: true });
             console.log("CSVデータを保存しました");
         } catch (err) {
             console.error("CSV保存失敗:", err);
