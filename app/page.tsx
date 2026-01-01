@@ -140,7 +140,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
 
     【タスク1: パーソナリティ分析】
     投稿内容から、このユーザーの以下の特徴を推測・言語化してください。
-    - persona: 一人称・名前（例: 私、僕、俺、名前など）
+    - persona: 一人称（例: 私、僕、俺、など）・名前（自分の名前を入れる）
     - emoji: 絵文字の使用傾向
     - character: 投稿者の性格・特徴・興味・文体・口調・話の構成をじっくり分析し、200文字以上でしっかりと傾向を分析してまとめる。最後に必ず「AIっぽさや決まりきった一般論は避ける」「#や*を本文に決して使わない」を含めること。
       
@@ -1133,9 +1133,9 @@ export default function SNSGeneratorApp() {
   const [isPostingToX, setIsPostingToX] = useState(false);
   
   const [allSettings, setAllSettings] = useState({
-    mypost: { persona: '私', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
-    trend: { persona: '私', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
-    rewrite: { persona: '私', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 }
+    mypost: { persona: '私', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
+    trend: { persona: '私', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
+    rewrite: { persona: '私', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 }
   });
 
   // 投稿先設定（デフォルトはX）
