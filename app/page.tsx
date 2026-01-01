@@ -147,6 +147,8 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     【タスク2: テーマ提案】
     エンゲージメント、favorite_count、view_countが多い投稿の傾向（勝ちパターン）じっくり分析し、
     次回投稿すべき**「テーマ案を3つ」**作成してください。
+    
+    【重要】CSVデータにTitle列がある場合、投稿にはタイトルが含まれています。タイトルの傾向も分析し、同様の傾向のタイトルを生成するようにしてください。
 
     出力は必ず以下の **JSON形式のみ** で返してください。
     {
@@ -207,7 +209,7 @@ const generateTrendThemes = async (token: string, userId: string) => {
   }
 };
 
-const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string) => {
+const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string, hasTitle: boolean = false) => {
   const personaInstruction = `
     【パーソナリティ設定】
     - 一人称・名前: ${settings.persona || settings.style || '私・投稿主'}（一人称と名前を「・」で区切った形式）
@@ -233,10 +235,13 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
       [元の投稿]: ${inputData.sourcePost}
     `;
   } else {
+    const titleInstruction = hasTitle 
+      ? '\n【重要】過去の投稿にタイトルが含まれているため、投稿にもタイトルを含めてください。タイトルは1行目に記載し、タイトルと本文の間には必ず改行を2つ（空行1つ）入れてください。形式は「タイトル\n\n本文」としてください。'
+      : '';
     prompt = `
       ${personaInstruction}
       以下の[テーマ]について、共感を呼ぶ魅力的なSNS投稿を作成してください。
-      ハッシュタグも適切に含めてください（文末のみ）。
+      ハッシュタグも適切に含めてください（文末のみ）。${titleInstruction}
       [テーマ]: ${topic}
     `;
   }
@@ -1086,6 +1091,16 @@ export default function SNSGeneratorApp() {
         engagement = likes + views;
       }
       
+      // タイトルを取得
+      const titleKeys = ['Title', 'title', 'タイトル', '見出し', 'Headline'];
+      let title = '';
+      for (const key of titleKeys) {
+        if (post[key] !== undefined && post[key] !== '') {
+          title = post[key].toString();
+          break;
+        }
+      }
+      
       // 投稿内容を取得（Post Content, Content, 投稿内容等の列から、改行も含めて全部読み込む）
       const contentKeys = ['Post Content', 'Content', 'content', '投稿内容', 'Text', 'text', 'Tweet', 'tweet', '投稿', 'Post'];
       let content = '';
@@ -1110,6 +1125,7 @@ export default function SNSGeneratorApp() {
       if (content) {
         posts.push({
           id: `post-${i}`,
+          title,
           content,
           likes,
           views,
@@ -1254,15 +1270,37 @@ export default function SNSGeneratorApp() {
     
     if (user) {
         try {
+            // 状態更新後のCSVデータを使用
             const finalCsvData = mode === 'append' 
               ? (csvData + '\n' + csvText.split('\n').slice(1).join('\n'))
               : csvText;
-            await setDoc(doc(db, 'users', user.uid), {
-                csvData: finalCsvData,
-                csvUploadDate: dateStr
-            }, { merge: true });
+            
+            // 状態を更新してから保存
+            if (mode === 'append') {
+              const existingLines = csvData.split('\n');
+              const newLines = csvText.split('\n');
+              if (existingLines.length > 0 && newLines.length > 1) {
+                const combinedCsv = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
+                await setDoc(doc(db, 'users', user.uid), {
+                    csvData: combinedCsv,
+                    csvUploadDate: dateStr
+                }, { merge: true });
+              } else {
+                await setDoc(doc(db, 'users', user.uid), {
+                    csvData: csvText,
+                    csvUploadDate: dateStr
+                }, { merge: true });
+              }
+            } else {
+              await setDoc(doc(db, 'users', user.uid), {
+                  csvData: csvText,
+                  csvUploadDate: dateStr
+              }, { merge: true });
+            }
+            console.log("CSVデータを保存しました");
         } catch (err) {
             console.error("CSV保存失敗:", err);
+            alert("CSVデータの保存に失敗しました。");
         }
     }
     
@@ -1508,8 +1546,28 @@ export default function SNSGeneratorApp() {
       const userId = user.uid;
       const inputSource = activeMode === 'rewrite' ? manualInput : topic;
       const inputData = { sourcePost: activeMode === 'rewrite' ? inputSource : undefined };
-      const post = await generatePost(activeMode, inputSource, inputData, currentSettings, token, userId);
-      setResult(post);
+      
+      // CSVにTitleがあるかチェック
+      const hasTitle = parsedPosts.length > 0 && parsedPosts.some((post: any) => post.title && post.title.trim() !== '');
+      
+      const post = await generatePost(activeMode, inputSource, inputData, currentSettings, token, userId, hasTitle);
+      
+      // タイトルと本文の間に改行を2つ入れる処理
+      let formattedPost = post;
+      if (hasTitle && post) {
+        // 生成結果がタイトルと本文に分かれている場合、改行を2つに統一
+        const lines = post.split('\n');
+        if (lines.length >= 2) {
+          // 最初の行がタイトル、2行目以降が本文と仮定
+          const title = lines[0].trim();
+          const body = lines.slice(1).join('\n').trim();
+          if (title && body) {
+            formattedPost = `${title}\n\n${body}`;
+          }
+        }
+      }
+      
+      setResult(formattedPost);
     } catch (err: any) {
       setError(err.message || "投稿の生成に失敗しました。");
     } finally {
