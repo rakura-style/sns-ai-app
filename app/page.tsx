@@ -140,9 +140,9 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
 
     【タスク1: パーソナリティ分析】
     投稿内容から、このユーザーの以下の特徴を推測・言語化してください。
-    - persona: 一人称（例: 私、僕、俺、など）・名前（自分の名前を入れる）
+    - persona: 一人称と名前を「・」で区切って表記（例: 私・らくらスタイル、僕・投稿主）。一人称は「私」「僕」「俺」「自分」「わたくし」「あたし」などから選択。名前は投稿主の実際の名前やブランド名を入れる。文体や口調は含めない。
     - emoji: 絵文字の使用傾向
-    - character: 投稿者の性格・特徴・興味・文体・口調・話の構成をじっくり分析し、200文字以上でしっかりと傾向を分析してまとめる。最後に必ず「AIっぽさや決まりきった一般論は避ける」「#や*を本文に決して使わない」を含めること。
+    - character: 投稿者の性格・特徴・興味・話の構成をじっくり分析し、200文字以上でしっかりと傾向を分析してまとめる。最後に必ず「AIっぽさや決まりきった一般論は避ける」「#や*を本文に決して使わない」を含めること。
       
     【タスク2: テーマ提案】
     エンゲージメント、favorite_count、view_countが多い投稿の傾向（勝ちパターン）じっくり分析し、
@@ -210,7 +210,7 @@ const generateTrendThemes = async (token: string, userId: string) => {
 const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string) => {
   const personaInstruction = `
     【パーソナリティ設定】
-    - 一人称・名前: ${settings.persona || settings.style || '私'}
+    - 一人称・名前: ${settings.persona || settings.style || '私・投稿主'}（一人称と名前を「・」で区切った形式）
     - 絵文字の使い方: ${settings.emoji}
     - 性格・特徴: ${settings.character}
 
@@ -625,7 +625,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
       <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-slate-700 font-bold text-sm">
         <Settings size={16} className="text-[#066099]" /><span>パーソナリティ設定</span>
       </div>
-      <ComboboxInput label="一人称・名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私", "僕", "俺", "自分", "わたくし", "あたし", "名前を使う（例: たろう）"]} placeholder="例: 私" />
+      <ComboboxInput label="一人称・名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私・らくらスタイル", "私・投稿主", "僕・らくらスタイル", "僕・投稿主", "俺・らくらスタイル", "俺・投稿主", "自分・らくらスタイル", "自分・投稿主", "わたくし・らくらスタイル", "わたくし・投稿主", "あたし・らくらスタイル", "あたし・投稿主"]} placeholder="例: 私・らくらスタイル" />
       <ComboboxInput label="絵文字の使い方" icon={Smile} value={settings.emoji} onChange={(val: string) => handleChange('emoji', val)} options={["適度に使用（文末に1つなど）", "多用する（賑やかに）", "一切使用しない", "特定の絵文字を好む（✨🚀）", "顔文字（( ^ω^ )）を使用"]} placeholder="例: 適度に使用" />
       <ComboboxInput label="性格・特徴" icon={UserIcon} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "30代エンジニア\n技術トレンドに敏感\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "熱血広報担当\n自社製品への愛が強い\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "トレンドマーケター\n分析的で冷静な視点\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "毒舌批評家\n本質を突くのが得意\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "丁寧な暮らし系\n穏やかで情緒的\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない"]} placeholder="例: 30代エンジニア" multiline={true} />
       
@@ -1133,9 +1133,9 @@ export default function SNSGeneratorApp() {
   const [isPostingToX, setIsPostingToX] = useState(false);
   
   const [allSettings, setAllSettings] = useState({
-    mypost: { persona: '私', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
-    trend: { persona: '私', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
-    rewrite: { persona: '私', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 }
+    mypost: { persona: '私・投稿主', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
+    trend: { persona: '私・投稿主', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
+    rewrite: { persona: '私・投稿主', emoji: '要点を強調するために使用', character: 'SNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 }
   });
 
   // 投稿先設定（デフォルトはX）
@@ -1296,7 +1296,7 @@ export default function SNSGeneratorApp() {
                 migratedSettings[mode] = {
                   ...modeSettings,
                   // 既存のstyleをpersonaに変換（互換性のため）
-                  persona: modeSettings.persona || modeSettings.style || '私',
+                  persona: modeSettings.persona || modeSettings.style || '私・投稿主',
                   // characterの最後に注意事項を追加（まだ含まれていない場合）
                   character: modeSettings.character && 
                     (modeSettings.character.includes('AIっぽさ') || modeSettings.character.includes('#や*'))
@@ -1419,7 +1419,7 @@ export default function SNSGeneratorApp() {
           // styleをpersonaに変換し、characterの最後に注意事項を追加
           const migratedSettings = {
             ...analysisResult.settings,
-            persona: analysisResult.settings.persona || analysisResult.settings.style || '私',
+            persona: analysisResult.settings.persona || analysisResult.settings.style || '私・投稿主',
             character: analysisResult.settings.character && 
               (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*'))
                 ? analysisResult.settings.character
