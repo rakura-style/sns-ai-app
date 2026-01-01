@@ -648,7 +648,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
             <input 
               type="number" 
               value={settings.minLength} 
-              onChange={(e) => handleChange('minLength', e.target.value)}
+              onChange={(e) => handleChange('minLength', parseInt(e.target.value) || 50)}
               className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none text-right bg-slate-50 focus:bg-white transition-colors text-black"
             />
           </div>
@@ -657,7 +657,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
             <input 
               type="number" 
               value={settings.maxLength} 
-              onChange={(e) => handleChange('maxLength', e.target.value)}
+              onChange={(e) => handleChange('maxLength', parseInt(e.target.value) || 150)}
               className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none text-right bg-slate-50 focus:bg-white transition-colors text-black"
             />
           </div>
@@ -1306,18 +1306,22 @@ export default function SNSGeneratorApp() {
                   // 既存のstyleをpersonaに変換（互換性のため）
                   persona: modeSettings.persona || modeSettings.style || '私・投稿主',
                   // characterの最後に注意事項を追加（まだ含まれていない場合）
-                  character: modeSettings.character && 
-                    (modeSettings.character.includes('AIっぽさ') || modeSettings.character.includes('#や*'))
+                  character: (modeSettings.character && typeof modeSettings.character === 'string' &&
+                    (modeSettings.character.includes('AIっぽさ') || modeSettings.character.includes('#や*')))
                       ? modeSettings.character
-                      : modeSettings.character + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない'
+                      : (modeSettings.character && typeof modeSettings.character === 'string' ? modeSettings.character : '') + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない',
+                  // minLengthとmaxLengthも確実に含める
+                  minLength: modeSettings.minLength || 50,
+                  maxLength: modeSettings.maxLength || 150
                 };
               }
             });
+            // 保存された設定を完全に置き換える（デフォルト値とマージしない）
             setAllSettings((prev: any) => {
-              // 既存の設定とマージ（保存された設定を優先）
               const merged = { ...prev };
               Object.keys(migratedSettings).forEach((mode: string) => {
-                merged[mode] = { ...prev[mode], ...migratedSettings[mode] };
+                // 保存された設定を完全に使用（デフォルト値は上書き）
+                merged[mode] = migratedSettings[mode];
               });
               return merged;
             });
