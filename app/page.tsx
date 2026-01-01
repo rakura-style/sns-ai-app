@@ -5,7 +5,7 @@ import {
   TrendingUp, BarChart3, RefreshCcw, Send, Copy, Check, Sparkles, Zap,
   Loader2, Settings, Pencil, ChevronRight, Lightbulb, Upload,
   ChevronDown, User as UserIcon, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock, CreditCard, LogOut,
-  Clock, Calendar, X as XIcon, Trash2, BookOpen, Menu
+  X as XIcon, Trash2, BookOpen, Menu
 } from 'lucide-react';
 
 // 🔥 Firebase認証・DB読み込み
@@ -21,7 +21,7 @@ import {
   onAuthStateChanged,
   User
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // グローバル定数: アプリID
 const getAppId = () => {
@@ -665,169 +665,8 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
   const [showPostModal, setShowPostModal] = useState(false);
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [scheduledDateTime, setScheduledDateTime] = useState('');
-  const [isScheduling, setIsScheduling] = useState(false);
-  const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
   const [selectedDestinations, setSelectedDestinations] = useState<PostDestination[]>([]);
 
-  // 予約投稿一覧を取得
-  useEffect(() => {
-    if (!user) return;
-
-    const scheduledPostsRef = collection(db, 'users', user.uid, 'scheduledPosts');
-    const q = query(
-      scheduledPostsRef,
-      where('posted', '==', false)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const posts = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          scheduledAt: data.scheduledAt?.toDate?.() || new Date(data.scheduledAt),
-        };
-      });
-      // クライアント側でソート（予約時刻の昇順）
-      posts.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
-      setScheduledPosts(posts);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // 予約時刻のチェックと通知
-  useEffect(() => {
-    if (scheduledPosts.length === 0 || !user) return;
-
-    const checkInterval = setInterval(async () => {
-      const now = new Date();
-      
-      for (const post of scheduledPosts) {
-        const scheduledTime = new Date(post.scheduledAt);
-        
-        // デバッグ用ログ
-        console.log('予約投稿チェック:', {
-          現在時刻: now.toLocaleString('ja-JP'),
-          予約時刻: scheduledTime.toLocaleString('ja-JP'),
-          差分秒: Math.floor((scheduledTime.getTime() - now.getTime()) / 1000)
-        });
-        
-        // 予約時刻の1分前から通知可能
-        const notifyTime = new Date(scheduledTime.getTime() - 60000);
-        
-        if (now >= notifyTime && now < scheduledTime && !post.notified) {
-          // 通知を送信
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('予約投稿の時刻です', {
-              body: post.content.substring(0, 50) + '...',
-              icon: '/next.svg',
-              tag: `scheduled-post-${post.id}`,
-            });
-          } else if ('Notification' in window && Notification.permission !== 'denied') {
-            Notification.requestPermission().then(permission => {
-              if (permission === 'granted') {
-                new Notification('予約投稿の時刻です', {
-                  body: post.content.substring(0, 50) + '...',
-                  icon: '/next.svg',
-                  tag: `scheduled-post-${post.id}`,
-                });
-              }
-            });
-          }
-        }
-
-        // 予約時刻になったら自動で投稿先に投稿
-        // 注意: サーバー側でもチェックしているが、クライアント側でも補助的にチェック
-        if (now >= scheduledTime && !post.posted) {
-          const destinations = post.destinations || ['x'];
-          
-          // FirestoreからX API認証情報を取得して投稿を試みる（補助的な処理）
-          for (const destination of destinations) {
-            if (destination === 'x') {
-              try {
-                // FirestoreからX API認証情報を取得
-                const userDocRef = doc(db, 'users', user.uid);
-                const userDocSnap = await getDoc(userDocRef);
-                
-                if (userDocSnap.exists()) {
-                  const userData = userDocSnap.data();
-                  const xApiKey = userData.xApiKey;
-                  const xApiKeySecret = userData.xApiKeySecret;
-                  const xAccessToken = userData.xAccessToken;
-                  const xAccessTokenSecret = userData.xAccessTokenSecret;
-                  
-                  if (xApiKey && xApiKeySecret && xAccessToken && xAccessTokenSecret) {
-                    // API経由で投稿
-                    const token = await user.getIdToken();
-                    const response = await fetch('/api/x/post', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                      },
-                      body: JSON.stringify({
-                        content: post.content,
-                        apiKey: xApiKey,
-                        apiKeySecret: xApiKeySecret,
-                        accessToken: xAccessToken,
-                        accessTokenSecret: xAccessTokenSecret,
-                      }),
-                    });
-                    
-                    const data = await response.json();
-                    if (data.success) {
-                      // 投稿済みフラグを更新
-                      const postRef = doc(db, 'users', user.uid, 'scheduledPosts', post.id);
-                      await setDoc(postRef, { posted: true }, { merge: true });
-                      
-                      if ('Notification' in window && Notification.permission === 'granted') {
-                        new Notification('予約投稿が完了しました（X）', {
-                          body: 'Xへの投稿が正常に完了しました。',
-                          icon: '/next.svg',
-                          tag: `scheduled-post-x-${post.id}`,
-                        });
-                      }
-                    }
-                  } else {
-                    // 認証情報がない場合はクリップボードにコピー
-                    navigator.clipboard.writeText(post.content).then(() => {
-                      if ('Notification' in window && Notification.permission === 'granted') {
-                        new Notification('予約投稿の時刻です（X）', {
-                          body: 'X設定が必要です。投稿内容をクリップボードにコピーしました。',
-                          icon: '/next.svg',
-                          tag: `scheduled-post-x-${post.id}`,
-                        });
-                      }
-                    });
-                  }
-                }
-              } catch (error) {
-                console.error('予約投稿エラー（クライアント側）:', error);
-                // エラー時はクリップボードにコピー
-                try {
-                  await navigator.clipboard.writeText(post.content);
-                  if ('Notification' in window && Notification.permission === 'granted') {
-                    new Notification('予約投稿の時刻です（X）', {
-                      body: '投稿内容をクリップボードにコピーしました。Xで貼り付けて投稿してください。',
-                      icon: '/next.svg',
-                      tag: `scheduled-post-x-${post.id}`,
-                    });
-                  }
-                } catch (clipboardError) {
-                  console.error('クリップボードへのコピーに失敗しました');
-                }
-              }
-            }
-          }
-        }
-      }
-    }, 10000); // 10秒ごとにチェック
-
-    return () => clearInterval(checkInterval);
-  }, [scheduledPosts, user]);
 
   const handleCopy = () => {
     if (!content) return;
@@ -876,93 +715,6 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
     }
   };
 
-  // 予約投稿を保存
-  const handleSchedulePost = async () => {
-    if (!content || !scheduledDateTime || !user) return;
-
-    try {
-      setIsScheduling(true);
-      const token = await user.getIdToken();
-
-      // Xの文字数制限をチェック（予約投稿は常にXに投稿）
-      const xCharCount = calculateXCharacterCount(content);
-      if (xCharCount > X_CHARACTER_LIMIT) {
-        const shouldContinue = confirm(
-          `Xの文字数制限（${X_CHARACTER_LIMIT}文字）を超えています。\n` +
-          `現在の文字数: ${xCharCount}文字（全角文字は2文字として計算）\n\n` +
-          `このまま予約投稿すると、時刻になってもXには投稿できません。\n` +
-          `予約投稿をキャンセルして書き直しますか？`
-        );
-        
-        if (shouldContinue) {
-          setIsScheduling(false);
-          return;
-        }
-      }
-
-      // 日時をISO形式に変換（日本時間を考慮）
-      // datetime-local inputは現地時間を返すので、そのままDateオブジェクトに変換
-      const scheduledDate = new Date(scheduledDateTime);
-      const now = new Date();
-      
-      // 現在時刻との比較（1分の猶予を持たせる）
-      if (scheduledDate.getTime() <= now.getTime() + 60000) {
-        alert('予約時刻は現在時刻より少なくとも1分以上先の日時を指定してください');
-        setIsScheduling(false);
-        return;
-      }
-
-      const response = await fetch('/api/scheduled-posts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          content,
-          scheduledAt: scheduledDate.toISOString(),
-          destinations: ['x'], // 予約投稿は常にXに投稿
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || '予約投稿の保存に失敗しました');
-      }
-
-      alert('予約投稿を設定しました');
-      setShowScheduleModal(false);
-      setScheduledDateTime('');
-    } catch (error: any) {
-      console.error('Schedule post error:', error);
-      alert('エラー: ' + error.message);
-    } finally {
-      setIsScheduling(false);
-    }
-  };
-
-  // 予約投稿を削除
-  const handleDeleteScheduledPost = async (postId: string) => {
-    if (!user || !confirm('この予約投稿を削除しますか？')) return;
-
-    try {
-      const token = await user.getIdToken();
-      const response = await fetch(`/api/scheduled-posts?id=${postId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('削除に失敗しました');
-      }
-    } catch (error: any) {
-      console.error('Delete scheduled post error:', error);
-      alert('エラー: ' + error.message);
-    }
-  };
 
   // 🔥 API経由でStripeチェックアウトURLを取得する処理
   const handleUpgrade = async () => {
@@ -1138,156 +890,11 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
                 <Send size={16} />
                 投稿する
               </button>
-              <button
-                onClick={() => {
-                  if (!xAccessToken) {
-                    setShowPostModal(false);
-                    alert('X設定が必要です。設定メニューからX API認証情報を設定してください。');
-                    return;
-                  }
-                  setShowPostModal(false);
-                  setShowScheduleModal(true);
-                }}
-                disabled={!xAccessToken}
-                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Clock size={16} />
-                予約投稿（未実装）
-              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 予約投稿モーダル */}
-      {showScheduleModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Clock size={20} className="text-[#066099]" />
-                予約投稿を設定
-              </h3>
-              <button 
-                onClick={() => {
-                  setShowScheduleModal(false);
-                  setScheduledDateTime('');
-                }}
-                className="text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                <XIcon size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              {/* 投稿内容の確認 */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
-                  <Sparkles size={12} />
-                  投稿内容（確認）
-                </label>
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 max-h-48 overflow-y-auto">
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{content}</p>
-                </div>
-                {(() => {
-                  const xCharCount = calculateXCharacterCount(content);
-                  return (
-                    <p className={`text-xs mt-2 ${xCharCount > X_CHARACTER_LIMIT ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
-                      文字数: {xCharCount} / {X_CHARACTER_LIMIT}文字（Xの制限・全角は2文字）
-                    </p>
-                  );
-                })()}
-              </div>
-              
-              {/* 投稿日時選択 */}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
-                  <Calendar size={12} />
-                  投稿実行日時
-                </label>
-                <input
-                  type="datetime-local"
-                  value={scheduledDateTime}
-                  onChange={(e) => setScheduledDateTime(e.target.value)}
-                  min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
-                  className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-slate-50 focus:bg-white transition-colors text-black"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  【予約投稿はまだ使えません。】予約投稿は1分以上先の時間としてください。
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => {
-                  setShowScheduleModal(false);
-                  setScheduledDateTime('');
-                }}
-                className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={handleSchedulePost}
-                disabled={!scheduledDateTime || isScheduling}
-                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isScheduling ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />}
-                {isScheduling ? '設定中...' : '予約投稿を設定'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 予約投稿一覧 */}
-      {scheduledPosts.length > 0 && (
-        <div className="border-t border-slate-200 bg-slate-50 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
-              <Clock size={12} />
-              予約投稿一覧 ({scheduledPosts.length})
-            </h4>
-          </div>
-          <div className="space-y-2 max-h-40 overflow-y-auto">
-            {scheduledPosts.map((post) => (
-              <div key={post.id} className="bg-white rounded-lg p-3 border border-slate-200 text-xs">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-slate-500">
-                        {new Date(post.scheduledAt).toLocaleString('ja-JP', {
-                          year: 'numeric',
-                          month: '2-digit',
-                          day: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </p>
-                      <div className="flex gap-1 flex-wrap">
-                        {(post.destinations || ['x']).map((dest: PostDestination) => (
-                          <span key={dest} className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {getDestinationLabel(dest)}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-slate-700 line-clamp-2">{post.content}</p>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteScheduledPost(post.id)}
-                    className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                    title="削除"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
