@@ -142,7 +142,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     投稿内容から、このユーザーの以下の特徴を推測・言語化してください。
     - style: 文体・口調・語尾の傾向
     - emoji: 絵文字の使用傾向
-    - character: 投稿者の性格・特徴・興味をじっくり分析し、100文字以上でしっかりと傾向を分析してまとめる
+    - character: 投稿者の性格・特徴・興味をじっくり分析し、300文字以上でしっかりと傾向を分析してまとめる
       
     【タスク2: テーマ提案】
     エンゲージメント、favorite_count、view_countが多い投稿の傾向（勝ちパターン）じっくり分析し、
