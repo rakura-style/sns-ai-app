@@ -1279,14 +1279,38 @@ export default function SNSGeneratorApp() {
     // Firestoreに保存（計算済みのfinalCsvDataを使用）
     if (user) {
         try {
+            // データサイズをチェック（Firestoreのドキュメントサイズ制限は約1MB）
+            const dataSize = new Blob([finalCsvData]).size;
+            const maxSize = 1000000; // 1MB
+            
+            if (dataSize > maxSize) {
+                const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
+                alert(`CSVデータが大きすぎます（${sizeInMB}MB）。Firestoreの制限（1MB）を超えているため保存できません。\n\nデータを分割するか、不要な列を削除してください。`);
+                console.error("CSVデータサイズ超過:", dataSize, "bytes");
+                return;
+            }
+            
+            console.log(`CSVデータサイズ: ${(dataSize / 1024).toFixed(2)}KB`);
+            
             await setDoc(doc(db, 'users', user.uid), {
                 csvData: finalCsvData,
                 csvUploadDate: dateStr
             }, { merge: true });
             console.log("CSVデータを保存しました");
-        } catch (err) {
+        } catch (err: any) {
             console.error("CSV保存失敗:", err);
-            alert("CSVデータの保存に失敗しました。");
+            
+            // エラーの詳細を確認
+            let errorMessage = "CSVデータの保存に失敗しました。";
+            if (err.code === 'resource-exhausted' || err.message?.includes('size')) {
+                errorMessage = "CSVデータが大きすぎます。Firestoreの制限（1MB）を超えているため保存できません。\n\nデータを分割するか、不要な列を削除してください。";
+            } else if (err.code === 'deadline-exceeded') {
+                errorMessage = "保存処理がタイムアウトしました。データが大きすぎる可能性があります。\n\nデータを分割するか、不要な列を削除してください。";
+            } else if (err.message) {
+                errorMessage = `CSVデータの保存に失敗しました: ${err.message}`;
+            }
+            
+            alert(errorMessage);
         }
     }
     
