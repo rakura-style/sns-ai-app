@@ -1318,10 +1318,16 @@ export default function SNSGeneratorApp() {
             });
             // 保存された設定を完全に置き換える（デフォルト値とマージしない）
             setAllSettings((prev: any) => {
-              const merged = { ...prev };
+              const merged: any = {
+                mypost: prev.mypost,
+                trend: prev.trend,
+                rewrite: prev.rewrite
+              };
               Object.keys(migratedSettings).forEach((mode: string) => {
                 // 保存された設定を完全に使用（デフォルト値は上書き）
-                merged[mode] = migratedSettings[mode];
+                if (mode === 'mypost' || mode === 'trend' || mode === 'rewrite') {
+                  merged[mode] = migratedSettings[mode];
+                }
               });
               return merged;
             });
@@ -1436,15 +1442,35 @@ export default function SNSGeneratorApp() {
           const migratedSettings = {
             ...analysisResult.settings,
             persona: analysisResult.settings.persona || analysisResult.settings.style || '私・投稿主',
-            character: analysisResult.settings.character && 
-              (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*'))
+            character: (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' &&
+              (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*')))
                 ? analysisResult.settings.character
-                : analysisResult.settings.character + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない'
+                : (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' ? analysisResult.settings.character : '') + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない',
+            // minLengthとmaxLengthも確実に含める
+            minLength: analysisResult.settings.minLength || 50,
+            maxLength: analysisResult.settings.maxLength || 150
           };
           setAllSettings(prev => ({
             ...prev,
             mypost: { ...prev.mypost, ...migratedSettings }
           }));
+          
+          // マイ投稿分析後のパーソナリティ設定をFirestoreに保存
+          try {
+            const userRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userRef);
+            const currentData = userDoc.exists() ? userDoc.data() : {};
+            const currentSettings = currentData.settings || {};
+            
+            await setDoc(userRef, {
+              settings: {
+                ...currentSettings,
+                mypost: migratedSettings
+              }
+            }, { merge: true });
+          } catch (err) {
+            console.error("パーソナリティ設定の保存に失敗:", err);
+          }
         }
       } else if (mode === 'trend') {
         const themes = await generateTrendThemes(token, userId);
