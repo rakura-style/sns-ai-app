@@ -633,7 +633,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
       <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-slate-700 font-bold text-sm">
         <Settings size={16} className="text-[#066099]" /><span>パーソナリティ設定</span>
       </div>
-      <ComboboxInput label="一人称・名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私・らくらスタイル", "私・投稿主", "僕・らくらスタイル", "僕・投稿主", "俺・らくらスタイル", "俺・投稿主", "自分・らくらスタイル", "自分・投稿主", "わたくし・らくらスタイル", "わたくし・投稿主", "あたし・らくらスタイル", "あたし・投稿主"]} placeholder="例: 私・らくらスタイル" />
+      <ComboboxInput label="一人称・名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私・投稿主",  "僕・投稿主","俺・投稿主", "自分・投稿主", "わたくし・投稿主", "あたし・投稿主"]} placeholder="例: 私・らくらスタイル" />
       <ComboboxInput label="絵文字の使い方" icon={Smile} value={settings.emoji} onChange={(val: string) => handleChange('emoji', val)} options={["適度に使用（文末に1つなど）", "多用する（賑やかに）", "一切使用しない", "特定の絵文字を好む（✨🚀）", "顔文字（( ^ω^ )）を使用"]} placeholder="例: 適度に使用" />
       <ComboboxInput label="性格・特徴" icon={UserIcon} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "30代エンジニア\n技術トレンドに敏感\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "熱血広報担当\n自社製品への愛が強い\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "トレンドマーケター\n分析的で冷静な視点\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "毒舌批評家\n本質を突くのが得意\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "丁寧な暮らし系\n穏やかで情緒的\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない"]} placeholder="例: 30代エンジニア" multiline={true} />
       
@@ -1450,26 +1450,37 @@ export default function SNSGeneratorApp() {
             minLength: analysisResult.settings.minLength || 50,
             maxLength: analysisResult.settings.maxLength || 150
           };
+          // 状態を更新
           setAllSettings(prev => ({
             ...prev,
             mypost: { ...prev.mypost, ...migratedSettings }
           }));
           
           // マイ投稿分析後のパーソナリティ設定をFirestoreに保存
+          // 既存の設定とマージして、mypostモードの設定を更新
           try {
             const userRef = doc(db, 'users', user.uid);
             const userDoc = await getDoc(userRef);
             const currentData = userDoc.exists() ? userDoc.data() : {};
             const currentSettings = currentData.settings || {};
             
+            // 既存のmypost設定とマージ（分析結果を優先）
+            const updatedMypostSettings = {
+              ...(currentSettings.mypost || {}),
+              ...migratedSettings
+            };
+            
             await setDoc(userRef, {
               settings: {
                 ...currentSettings,
-                mypost: migratedSettings
+                mypost: updatedMypostSettings
               }
             }, { merge: true });
+            
+            console.log("パーソナリティ設定を保存しました:", updatedMypostSettings);
           } catch (err) {
             console.error("パーソナリティ設定の保存に失敗:", err);
+            alert("パーソナリティ設定の保存に失敗しました。設定は画面に表示されていますが、リロードすると元に戻る可能性があります。");
           }
         }
       } else if (mode === 'trend') {
