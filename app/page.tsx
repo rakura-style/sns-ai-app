@@ -612,8 +612,16 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
     // Firestoreに保存
     if (user) {
       try {
-        await setDoc(doc(db, 'users', user.uid), {
-          [`settings.${mode}`]: updatedSettings
+        const userRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userRef);
+        const currentData = userDoc.exists() ? userDoc.data() : {};
+        const currentSettings = currentData.settings || {};
+        
+        await setDoc(userRef, {
+          settings: {
+            ...currentSettings,
+            [mode]: updatedSettings
+          }
         }, { merge: true });
       } catch (err) {
         console.error("パーソナリティ設定の保存に失敗:", err);
@@ -1305,10 +1313,14 @@ export default function SNSGeneratorApp() {
                 };
               }
             });
-            setAllSettings((prev: any) => ({
-              ...prev,
-              ...migratedSettings
-            }));
+            setAllSettings((prev: any) => {
+              // 既存の設定とマージ（保存された設定を優先）
+              const merged = { ...prev };
+              Object.keys(migratedSettings).forEach((mode: string) => {
+                merged[mode] = { ...prev[mode], ...migratedSettings[mode] };
+              });
+              return merged;
+            });
           }
         }
       } catch (e) {
