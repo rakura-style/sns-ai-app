@@ -140,9 +140,9 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
 
     【タスク1: パーソナリティ分析】
     投稿内容から、このユーザーの以下の特徴を推測・言語化してください。
-    - style: 文体・口調・語尾の傾向
+    - persona: 一人称・名前（例: 私、僕、俺、名前など）
     - emoji: 絵文字の使用傾向
-    - character: 投稿者の性格・特徴・興味をじっくり分析し、300文字以上でしっかりと傾向を分析してまとめる
+    - character: 投稿者の性格・特徴・興味・文体・口調・話の構成をじっくり分析し、200文字以上でしっかりと傾向を分析してまとめる。最後に必ず「AIっぽさや決まりきった一般論は避ける」「#や*を本文に決して使わない」を含めること。
       
     【タスク2: テーマ提案】
     エンゲージメント、favorite_count、view_countが多い投稿の傾向（勝ちパターン）じっくり分析し、
@@ -151,7 +151,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     出力は必ず以下の **JSON形式のみ** で返してください。
     {
       "settings": {
-        "style": "...",
+        "persona": "...",
         "emoji": "...",
         "character": "..."
       },
@@ -210,8 +210,8 @@ const generateTrendThemes = async (token: string, userId: string) => {
 const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string) => {
   const personaInstruction = `
     【パーソナリティ設定】
-    - 文体・口調: ${settings.style}
-    - 絵文字: ${settings.emoji}
+    - 一人称・名前: ${settings.persona || settings.style || '私'}
+    - 絵文字の使い方: ${settings.emoji}
     - 性格・特徴: ${settings.character}
 
     【重要: 出力ルール（必ず守ること）】
@@ -625,9 +625,9 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
       <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-slate-700 font-bold text-sm">
         <Settings size={16} className="text-[#066099]" /><span>パーソナリティ設定</span>
       </div>
-      <ComboboxInput label="文体・口調" icon={MessageCircle} value={settings.style} onChange={(val: string) => handleChange('style', val)} options={["親しみやすい（です・ます調）", "プロフェッショナル（だ・である調）", "ハイテンション・カジュアル", "辛口・批評的", "ポエム・エモーショナル", "簡潔・箇条書き中心"]} placeholder="例: 親しみやすい" />
+      <ComboboxInput label="一人称・名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私", "僕", "俺", "自分", "わたくし", "あたし", "名前を使う（例: たろう）"]} placeholder="例: 私" />
       <ComboboxInput label="絵文字の使い方" icon={Smile} value={settings.emoji} onChange={(val: string) => handleChange('emoji', val)} options={["適度に使用（文末に1つなど）", "多用する（賑やかに）", "一切使用しない", "特定の絵文字を好む（✨🚀）", "顔文字（( ^ω^ )）を使用"]} placeholder="例: 適度に使用" />
-      <ComboboxInput label="性格・特徴" icon={UserIcon} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している", "30代エンジニア\n技術トレンドに敏感", "熱血広報担当\n自社製品への愛が強い", "トレンドマーケター\n分析的で冷静な視点", "毒舌批評家\n本質を突くのが得意", "丁寧な暮らし系\n穏やかで情緒的"]} placeholder="例: 30代エンジニア" multiline={true} />
+      <ComboboxInput label="性格・特徴" icon={UserIcon} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "30代エンジニア\n技術トレンドに敏感\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "熱血広報担当\n自社製品への愛が強い\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "トレンドマーケター\n分析的で冷静な視点\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "毒舌批評家\n本質を突くのが得意\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "丁寧な暮らし系\n穏やかで情緒的\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない"]} placeholder="例: 30代エンジニア" multiline={true} />
       
       {/* 文字数設定エリア */}
       <div className="pt-2 border-t border-slate-100">
@@ -1526,9 +1526,9 @@ export default function SNSGeneratorApp() {
   const [isPostingToX, setIsPostingToX] = useState(false);
   
   const [allSettings, setAllSettings] = useState({
-    mypost: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 },
-    trend: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 },
-    rewrite: { style: '親しみやすい（です・ます調）', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。', minLength: 50, maxLength: 150 }
+    mypost: { persona: '私', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
+    trend: { persona: '私', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 },
+    rewrite: { persona: '私', emoji: '要点を強調するために使用', character: '一人称は私。\nSNS初心者。\n丁寧な言葉遣いで、分かりやすく簡潔に表現する。\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない', minLength: 50, maxLength: 150 }
   });
 
   // 投稿先設定（デフォルトはX）
@@ -1680,11 +1680,27 @@ export default function SNSGeneratorApp() {
           if (data.xApiKeySecret) setXApiKeySecret(data.xApiKeySecret);
           if (data.xAccessToken) setXAccessToken(data.xAccessToken);
           if (data.xAccessTokenSecret) setXAccessTokenSecret(data.xAccessTokenSecret);
-          // パーソナリティ設定をロード
+          // パーソナリティ設定をロード（既存のstyleをpersonaに変換）
           if (data.settings) {
+            const migratedSettings: any = {};
+            Object.keys(data.settings).forEach((mode: string) => {
+              const modeSettings = data.settings[mode];
+              if (modeSettings) {
+                migratedSettings[mode] = {
+                  ...modeSettings,
+                  // 既存のstyleをpersonaに変換（互換性のため）
+                  persona: modeSettings.persona || modeSettings.style || '私',
+                  // characterの最後に注意事項を追加（まだ含まれていない場合）
+                  character: modeSettings.character && 
+                    (modeSettings.character.includes('AIっぽさ') || modeSettings.character.includes('#や*'))
+                      ? modeSettings.character
+                      : modeSettings.character + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない'
+                };
+              }
+            });
             setAllSettings((prev: any) => ({
               ...prev,
-              ...data.settings
+              ...migratedSettings
             }));
           }
         }
@@ -1793,9 +1809,18 @@ export default function SNSGeneratorApp() {
         const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId);
         setMyPostThemes(analysisResult.themes || []); 
         if (analysisResult.settings) {
+          // styleをpersonaに変換し、characterの最後に注意事項を追加
+          const migratedSettings = {
+            ...analysisResult.settings,
+            persona: analysisResult.settings.persona || analysisResult.settings.style || '私',
+            character: analysisResult.settings.character && 
+              (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*'))
+                ? analysisResult.settings.character
+                : analysisResult.settings.character + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない'
+          };
           setAllSettings(prev => ({
             ...prev,
-            mypost: { ...prev.mypost, ...analysisResult.settings }
+            mypost: { ...prev.mypost, ...migratedSettings }
           }));
         }
       } else if (mode === 'trend') {
