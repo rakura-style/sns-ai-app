@@ -10,7 +10,7 @@ import {
 
 // 🔥 Firebase認証・DB読み込み
 // 相対パスで確実に lib/firebase.ts を読み込む
-import { auth, db, storage } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 
 import { 
   GoogleAuthProvider, 
@@ -523,7 +523,7 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
               </div>
               マニュアル
             </button>
-
+            
             <div className="h-px bg-slate-100 my-1 mx-2"></div>
 
             <button 
@@ -676,7 +676,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
 
 const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX, xAccessToken, showPostAnalysis }: any) => {
   const [copied, setCopied] = useState(false);
-  const [isUpgradeLoading, setIsUpgradeLoading] = useState(false);
+  const [isUpgradeLoading, setIsUpgradeLoading] = useState(false); 
   const [showPostModal, setShowPostModal] = useState(false);
   const [selectedDestinations, setSelectedDestinations] = useState<PostDestination[]>([]);
 
@@ -786,7 +786,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
               </button>
             </>
           )}
-          <button onClick={handleCopy} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${copied ? 'bg-green-50 text-green-600' : 'text-slate-500 hover:text-[#066099] hover:bg-sky-50'}`}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'コピー完了' : 'コピー'}</button>
+        <button onClick={handleCopy} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${copied ? 'bg-green-50 text-green-600' : 'text-slate-500 hover:text-[#066099] hover:bg-sky-50'}`}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'コピー完了' : 'コピー'}</button>
         </div>
       </div>
       <div className="flex-1 p-6 relative">
@@ -1022,90 +1022,118 @@ export default function SNSGeneratorApp() {
     }, 0);
   };
 
-  // Firebase StorageからCSVを読み込む
-  const loadCsvFromStorage = async (userId: string): Promise<string | null> => {
-    try {
-      const { ref, getBytes } = await import('firebase/storage');
-      const csvRef = ref(storage, `users/${userId}/csvData.csv`);
-      const bytes = await getBytes(csvRef);
-      // バイト配列を文字列に変換（UTF-8）
-      const csvData = new TextDecoder('utf-8').decode(bytes);
-      return csvData;
-    } catch (error: any) {
-      console.error("Storage読み込みエラー:", error);
-      if (error.code === 'storage/object-not-found') {
-        return null; // ファイルが存在しない
+  // CSVを分割してFirestoreに保存する関数
+  const saveCsvToFirestore = async (userId: string, csvData: string, dateStr: string): Promise<string> => {
+    const ONE_GB = 1024 * 1024 * 1024; // 1GB
+    const CHUNK_SIZE = 900 * 1024 * 1024; // 900MB（Firestoreの1MB制限を考慮して余裕を持たせる）
+    const dataSize = new Blob([csvData]).size;
+    
+    if (dataSize >= ONE_GB) {
+      // 1GB以上の場合は分割して保存
+      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024 / 1024).toFixed(2)} GB → 分割して保存`);
+      
+      // CSVをヘッダーとデータ行に分割
+      const lines = csvData.split('\n');
+      if (lines.length < 2) {
+        throw new Error('CSVデータが不正です');
       }
-      throw error;
+      
+      const header = lines[0];
+      const dataLines = lines.slice(1);
+      
+      // チャンクに分割（各チャンクは900MB以下）
+      const chunks: string[] = [];
+      let currentChunk = header + '\n';
+      let currentSize = new Blob([currentChunk]).size;
+      
+      for (const line of dataLines) {
+        const lineWithNewline = line + '\n';
+        const lineSize = new Blob([lineWithNewline]).size;
+        
+        // 現在のチャンクに追加すると900MBを超える場合
+        if (currentSize + lineSize > CHUNK_SIZE && currentChunk !== header + '\n') {
+          // 現在のチャンクを保存
+          chunks.push(currentChunk);
+          currentChunk = header + '\n';
+          currentSize = new Blob([currentChunk]).size;
+        }
+        
+        currentChunk += lineWithNewline;
+        currentSize += lineSize;
+      }
+      
+      // 最後のチャンクを追加
+      if (currentChunk !== header + '\n') {
+        chunks.push(currentChunk);
+      }
+      
+      console.log(`${chunks.length}個のチャンクに分割しました`);
+      
+      // 各チャンクをFirestoreに保存
+      const saveData: any = {
+        csvUploadDate: dateStr,
+        csvUpdatedTime: dateStr,
+        csvChunkCount: chunks.length,
+        csvIsSplit: true
+      };
+      
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkKey = i === 0 ? 'csvData' : `csvData_${i}`;
+        saveData[chunkKey] = chunks[i];
+      }
+      
+      await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+      
+      return dateStr;
+    } else {
+      // 1GB未満は通常通り保存
+      await setDoc(doc(db, 'users', userId), {
+        csvData: csvData,
+        csvUploadDate: dateStr,
+        csvUpdatedTime: dateStr,
+        csvIsSplit: false
+      }, { merge: true });
+      
+      return dateStr;
     }
   };
 
-  // Firebase StorageにCSVを保存（リジューム可能なアップロードを使用）
-  const saveCsvToStorage = async (userId: string, csvData: string, retryCount: number = 0): Promise<string> => {
-    const MAX_RETRIES = 3;
-    const { ref, uploadBytesResumable, getMetadata } = await import('firebase/storage');
-    const csvRef = ref(storage, `users/${userId}/csvData.csv`);
-    
-    try {
-      // 文字列をバイト配列に変換
-      const encoder = new TextEncoder();
-      const bytes = encoder.encode(csvData);
-      
-      // リジューム可能なアップロードを作成
-      const uploadTask = uploadBytesResumable(csvRef, bytes, {
-        contentType: 'text/csv',
-        cacheControl: 'public, max-age=3600'
-      });
-      
-      // アップロードを実行（Promiseでラップ）
-      await new Promise<void>((resolve, reject) => {
-        uploadTask.on(
-          'state_changed',
-          (snapshot) => {
-            // 進捗をログ出力（オプション）
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            if (progress % 25 === 0 || progress === 100) {
-              console.log(`アップロード進捗: ${progress.toFixed(1)}%`);
-            }
-          },
-          (error) => {
-            // エラーが発生した場合
-            console.error("アップロードエラー:", error);
-            reject(error);
-          },
-          () => {
-            // アップロード完了
-            resolve();
-          }
-        );
-      });
-      
-      // メタデータ（更新日時）を取得
-      const metadata = await getMetadata(csvRef);
-      const updatedTime = metadata.updated || new Date().toISOString();
-      
-      return updatedTime;
-    } catch (error: any) {
-      console.error(`Storage保存エラー (試行 ${retryCount + 1}/${MAX_RETRIES}):`, error);
-      
-      // リトライ可能なエラーの場合、リトライを試みる
-      if (retryCount < MAX_RETRIES && (
-        error.code === 'storage/retry-limit-exceeded' ||
-        error.code === 'storage/network-request-failed' ||
-        error.code === 'storage/unauthenticated' ||
-        error.message?.includes('network') ||
-        error.message?.includes('timeout')
-      )) {
-        // 指数バックオフでリトライ（1秒、2秒、4秒）
-        const delay = Math.pow(2, retryCount) * 1000;
-        console.log(`${delay}ms後にリトライします...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return saveCsvToStorage(userId, csvData, retryCount + 1);
+  // 分割されたCSVを結合して読み込む関数
+  const loadCsvFromFirestore = (data: any): string | null => {
+    if (data.csvIsSplit && data.csvChunkCount) {
+      // 分割されている場合は結合
+      const chunks: string[] = [];
+      for (let i = 0; i < data.csvChunkCount; i++) {
+        const chunkKey = i === 0 ? 'csvData' : `csvData_${i}`;
+        if (data[chunkKey]) {
+          chunks.push(data[chunkKey]);
+        }
       }
       
-      // リトライ不可能なエラー、または最大リトライ回数に達した場合
-      throw error;
+      if (chunks.length > 0) {
+        // ヘッダー行を取得（最初のチャンクから）
+        const firstChunk = chunks[0];
+        const firstLines = firstChunk.split('\n');
+        const header = firstLines[0];
+        
+        // 全チャンクからデータ行を結合
+        let combinedData = header + '\n';
+        for (const chunk of chunks) {
+          const lines = chunk.split('\n');
+          // ヘッダー行を除いて結合
+          if (lines.length > 1) {
+            combinedData += lines.slice(1).join('\n') + '\n';
+          }
+        }
+        
+        return combinedData.trim();
+      }
+    } else if (data.csvData) {
+      // 分割されていない場合はそのまま返す
+      return data.csvData;
     }
+    
+    return null;
   };
 
   // CSV行をパースするヘルパー関数（カンマ区切り、ダブルクォート対応）
@@ -1472,39 +1500,17 @@ export default function SNSGeneratorApp() {
         setCsvData(finalCsvData);
       }
       
-      const now = new Date();
-      const dateStr = now.toLocaleString('ja-JP', { 
-        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-      });
-      setCsvUploadDate(dateStr);
-      
-      // データサイズをチェック
-      const dataSize = new Blob([finalCsvData]).size;
-      const ONE_MB = 1024 * 1024;
-      
-      let updatedTime: string;
-      
-      if (dataSize >= ONE_MB) {
-        // 1MB以上はStorageに保存
-        console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → Storageに保存`);
-        updatedTime = await saveCsvToStorage(user.uid, finalCsvData);
+        const now = new Date();
+        const dateStr = now.toLocaleString('ja-JP', { 
+          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+        });
+        setCsvUploadDate(dateStr);
         
-        // Firestoreにはメタデータのみ保存
-        await setDoc(doc(db, 'users', user.uid), {
-          csvUpdatedTime: updatedTime, // Storageの更新日時
-          csvUploadDate: dateStr,
-          csvStoredInStorage: true // Storageに保存されているフラグ
-        }, { merge: true });
-      } else {
-        // 1MB未満はFirestoreに保存（後方互換性）
-        console.log(`CSVデータサイズ: ${(dataSize / 1024).toFixed(2)} KB → Firestoreに保存`);
-        updatedTime = dateStr;
-        await setDoc(doc(db, 'users', user.uid), {
-          csvData: finalCsvData,
-          csvUploadDate: dateStr,
-          csvUpdatedTime: updatedTime
-        }, { merge: true });
-      }
+      // Firestoreに保存（分割機能付き）
+      const dataSize = new Blob([finalCsvData]).size;
+      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → Firestoreに保存`);
+      
+      const updatedTime = await saveCsvToFirestore(user.uid, finalCsvData, dateStr);
       
       // ローカルストレージキャッシュを更新（非同期で実行）
       saveCsvToCache(user.uid, finalCsvData, updatedTime);
@@ -1516,12 +1522,10 @@ export default function SNSGeneratorApp() {
       
       // エラーメッセージを改善
       let errorMessage = "CSVデータの保存に失敗しました。";
-      if (err.code === 'storage/retry-limit-exceeded') {
-        errorMessage = "CSVデータの保存に失敗しました。\n\nネットワーク接続が不安定な可能性があります。\nしばらく待ってから再度お試しください。";
-      } else if (err.code === 'storage/network-request-failed') {
-        errorMessage = "CSVデータの保存に失敗しました。\n\nネットワーク接続を確認してください。";
-      } else if (err.code === 'storage/quota-exceeded') {
-        errorMessage = "CSVデータの保存に失敗しました。\n\nストレージの容量が不足しています。";
+      if (err.code === 'resource-exhausted' || err.message?.includes('size')) {
+        errorMessage = "CSVデータが大きすぎます。\n\nデータを分割するか、不要な列を削除してください。";
+      } else if (err.code === 'deadline-exceeded') {
+        errorMessage = "保存処理がタイムアウトしました。\n\nデータが大きすぎる可能性があります。";
       } else if (err.message) {
         errorMessage = `CSVデータの保存に失敗しました: ${err.message}`;
       }
@@ -1566,49 +1570,16 @@ export default function SNSGeneratorApp() {
                 console.log("ローカルストレージキャッシュから読み込み（最新）");
               } else {
                 // キャッシュが古い、またはメタデータがない
-                console.log("キャッシュが古いため、Storageから再ダウンロード");
+                console.log("キャッシュが古いため、Firestoreから再読み込み");
               }
             }
             
-            // 4. キャッシュがない、または古い場合はStorageから読み込み
+            // 4. キャッシュがない、または古い場合はFirestoreから読み込み
             if (!csvContent) {
-              // まずFirestoreから小さいCSVを試す（後方互換性）
-              if (data.csvData) {
-                const dataSize = new Blob([data.csvData]).size;
-                if (dataSize < 1000000) { // 1MB未満
-                  csvContent = data.csvData;
-                  csvMetadata = data.csvUploadDate || data.csvUpdatedTime || new Date().toISOString();
-                  console.log("Firestoreから読み込み（小さいファイル）");
-                }
-              }
-              
-              // 1MB以上、またはFirestoreにない場合はStorageから読み込み
-              if (!csvContent || (data.csvStoredInStorage && new Blob([csvContent]).size >= 1000000)) {
-                try {
-                  const storageData = await loadCsvFromStorage(user.uid);
-                  if (storageData) {
-                    csvContent = storageData;
-                    // メタデータを取得（Storageから）
-                    const { ref, getMetadata } = await import('firebase/storage');
-                    const csvRef = ref(storage, `users/${user.uid}/csvData.csv`);
-                    const metadata = await getMetadata(csvRef);
-                    csvMetadata = metadata.updated || new Date().toISOString();
-                    console.log("Storageから読み込み");
-                  } else if (data.csvData) {
-                    // Storageにない場合はFirestoreから（後方互換性）
-                    csvContent = data.csvData;
-                    csvMetadata = data.csvUploadDate || data.csvUpdatedTime || new Date().toISOString();
-                    console.log("Storageにないため、Firestoreから読み込み");
-                  }
-                } catch (storageError: any) {
-                  console.error("Storage読み込みエラー:", storageError);
-                  // Storageエラーの場合、Firestoreから読み込みを試す
-                  if (data.csvData) {
-                    csvContent = data.csvData;
-                    csvMetadata = data.csvUploadDate || data.csvUpdatedTime || new Date().toISOString();
-                    console.log("Storageエラーのため、Firestoreから読み込み");
-                  }
-                }
+              csvContent = loadCsvFromFirestore(data);
+              if (csvContent) {
+                csvMetadata = data.csvUploadDate || data.csvUpdatedTime || new Date().toISOString();
+                console.log("Firestoreから読み込み");
               }
               
               // キャッシュに保存
@@ -1987,29 +1958,29 @@ export default function SNSGeneratorApp() {
                   <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
                 </svg>
               </a>
-            </div>
-            {user ? (
-              <div className="flex items-center gap-3">
+          </div>
+          {user ? (
+            <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-500">{user.email}</span>
-                {isSubscribed && (
-                  <span className="text-[10px] font-bold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <Check size={10} strokeWidth={3} /> 契約中
-                  </span>
-                )}
-                <SettingsDropdown 
-                  user={user} 
-                  isSubscribed={isSubscribed} 
-                  onLogout={handleLogout}
-                  onManageSubscription={handleManageSubscription}
-                  onUpgrade={handleUpgradeFromMenu}
-                  isPortalLoading={isPortalLoading}
+              {isSubscribed && (
+                <span className="text-[10px] font-bold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Check size={10} strokeWidth={3} /> 契約中
+                </span>
+              )}
+              <SettingsDropdown 
+                user={user} 
+                isSubscribed={isSubscribed} 
+                onLogout={handleLogout}
+                onManageSubscription={handleManageSubscription}
+                onUpgrade={handleUpgradeFromMenu}
+                isPortalLoading={isPortalLoading}
                   onOpenFacebookSettings={() => setShowFacebookSettings(true)}
                   onOpenXSettings={() => setShowXSettings(true)}
-                />
-              </div>
-            ) : (
-              <button onClick={handleGoogleLogin} className="text-xs bg-[#066099] text-white px-4 py-2 rounded-lg hover:bg-[#055080] font-bold">ログイン</button>
-            )}
+              />
+            </div>
+          ) : (
+            <button onClick={handleGoogleLogin} className="text-xs bg-[#066099] text-white px-4 py-2 rounded-lg hover:bg-[#055080] font-bold">ログイン</button>
+          )}
           </div>
 
           {/* スマホ表示（md未満）: ハンバーガーメニュー */}
@@ -2114,7 +2085,7 @@ export default function SNSGeneratorApp() {
                       {isCsvLoading ? (
                         <Loader2 size={16} className="animate-spin text-[#066099]" />
                       ) : (
-                        <Upload size={16} />
+                      <Upload size={16} />
                       )}
                     </button>
                     <div className="h-4 w-px bg-slate-300 mx-1"></div>
@@ -2485,31 +2456,31 @@ export default function SNSGeneratorApp() {
               ) : (
                 // マイ投稿分析の投稿分析を選択している場合は非表示、文章リライトを選択しているときは表示
                 activeMode === 'rewrite' && (
-                  <div className="relative">
-                      <textarea 
-                        className="w-full h-24 p-3 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#066099] focus:border-[#066099] outline-none transition-all resize-none shadow-sm"
-                        value={manualInput}
-                        onChange={(e) => setManualInput(e.target.value)}
-                        placeholder="ここにリライトしたい文章を入力..."
-                      />
-                      <div className="absolute bottom-2 right-2 text-xs text-slate-400 pointer-events-none">
-                        <Pencil size={12} className="inline mr-1"/>
-                        入力中
-                      </div>
-                  </div>
+                <div className="relative">
+                    <textarea 
+                      className="w-full h-24 p-3 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#066099] focus:border-[#066099] outline-none transition-all resize-none shadow-sm"
+                      value={manualInput}
+                      onChange={(e) => setManualInput(e.target.value)}
+                      placeholder="ここにリライトしたい文章を入力..."
+                    />
+                    <div className="absolute bottom-2 right-2 text-xs text-slate-400 pointer-events-none">
+                      <Pencil size={12} className="inline mr-1"/>
+                      入力中
+                    </div>
+                </div>
                 )
               )}
 
               {/* 過去の投稿分析を表示している場合は、投稿生成ボタンを非表示 */}
               {!(activeMode === 'mypost' && showPostAnalysis) && (
-                <button
-                  onClick={handleGeneratePost}
-                  disabled={isPostLoading || (!manualInput && !selectedTheme)}
-                  className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                >
-                  {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                  {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
-                </button>
+              <button
+                onClick={handleGeneratePost}
+                disabled={isPostLoading || (!manualInput && !selectedTheme)}
+                className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+              >
+                {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
+              </button>
               )}
             </div>
 
