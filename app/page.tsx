@@ -1888,27 +1888,32 @@ export default function SNSGeneratorApp() {
         let inQuotes = false;
         let textStartIndex = 0;
         let textEndIndex = row.length;
+        let foundTextStart = false;
         
-        // text列の開始位置を特定
-        if (textColumnIndex > 0) {
-          for (let k = 0; k < row.length; k++) {
-            const char = row[k];
-            const nextChar = row[k + 1];
-            
-            if (char === '"') {
-              if (inQuotes && nextChar === '"') {
-                k++; // エスケープされたダブルクォート
-              } else {
-                inQuotes = !inQuotes;
-              }
-            } else if (char === ',' && !inQuotes) {
-              if (currentColumnIndex === textColumnIndex - 1) {
-                textStartIndex = k + 1;
-                break;
-              }
-              currentColumnIndex++;
+        // text列の開始位置を特定（text列より前の列をスキップ）
+        for (let k = 0; k < row.length; k++) {
+          const char = row[k];
+          const nextChar = k + 1 < row.length ? row[k + 1] : null;
+          
+          if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+              k++; // エスケープされたダブルクォート
+            } else {
+              inQuotes = !inQuotes;
             }
+          } else if (char === ',' && !inQuotes) {
+            if (currentColumnIndex === textColumnIndex - 1) {
+              textStartIndex = k + 1;
+              foundTextStart = true;
+              break;
+            }
+            currentColumnIndex++;
           }
+        }
+        
+        // text列の開始位置が見つからなかった場合（text列が最初の列の場合）
+        if (!foundTextStart && textColumnIndex === 0) {
+          textStartIndex = 0;
         }
         
         // text列の終了位置を特定（最初の数値列の開始位置）
@@ -1917,7 +1922,7 @@ export default function SNSGeneratorApp() {
         
         for (let k = textStartIndex; k < row.length; k++) {
           const char = row[k];
-          const nextChar = row[k + 1];
+          const nextChar = k + 1 < row.length ? row[k + 1] : null;
           
           if (char === '"') {
             if (inQuotes && nextChar === '"') {
@@ -1935,10 +1940,12 @@ export default function SNSGeneratorApp() {
         }
         
         // text列の内容を抽出
-        textValue = row.slice(textStartIndex, textEndIndex);
-        // 先頭と末尾のダブルクォートを除去
-        if (textValue.startsWith('"') && textValue.endsWith('"')) {
-          textValue = textValue.slice(1, -1).replace(/""/g, '"');
+        if (textStartIndex < textEndIndex) {
+          textValue = row.slice(textStartIndex, textEndIndex);
+          // 先頭と末尾のダブルクォートを除去
+          if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
+            textValue = textValue.slice(1, -1).replace(/""/g, '"');
+          }
         }
         
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
@@ -2027,28 +2034,34 @@ export default function SNSGeneratorApp() {
       let content = '';
       
       // text列が存在する場合は、必ずtext列を使用（そのまま使用、WordPress処理は不要）
-      if (hasTextColumn) {
+      if (hasTextColumn && textColumnIndex >= 0) {
+        // text列の値を取得（複数のキーを試す）
         const textVal = post['text'] || post['Text'] || post[headers[textColumnIndex]];
-        if (textVal !== undefined && textVal !== '') {
+        
+        if (textVal !== undefined && textVal !== null && textVal !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
           content = String(textVal);
         }
       }
       
       // text列がない、またはtext列が空の場合は、他の列を試す（ブログデータの場合）
-      if (!content) {
+      // hasTextColumnがtrueの場合は、text列以外は使用しない（XのCSVデータの場合）
+      if (!content && !hasTextColumn) {
         for (const key of contentKeys) {
           // text列は既に試したのでスキップ
           if (key.toLowerCase() === 'text') continue;
           
           const val = post[key];
-          if (val !== undefined && val !== '') {
-            const rawContent = String(val);
-            // ブログデータ（Content列など）の場合はWordPress処理を適用
-            const extractedContent = extractTextFromWordPress(rawContent);
-            if (extractedContent.trim()) {
-              content = extractedContent;
-              break;
+          if (val !== undefined && val !== null && val !== '') {
+            const rawContent = String(val).trim();
+            // 空でない場合は使用
+            if (rawContent && rawContent.length > 0) {
+              // ブログデータ（Content列など）の場合はWordPress処理を適用
+              const extractedContent = extractTextFromWordPress(rawContent);
+              if (extractedContent.trim()) {
+                content = extractedContent;
+                break;
+              }
             }
           }
         }
