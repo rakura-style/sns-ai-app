@@ -1025,7 +1025,7 @@ export default function SNSGeneratorApp() {
   // CSVを分割してFirestoreに保存する関数
   const saveCsvToFirestore = async (userId: string, csvData: string, dateStr: string): Promise<string> => {
     const FIRESTORE_MAX_FIELD_SIZE = 1048487; // Firestoreの1つのフィールドの最大サイズ（約1MB）
-    const CHUNK_SIZE = 900 * 1024; // 900KB（余裕を持たせる）
+    const CHUNK_SIZE = 800 * 1024; // 800KB（余裕を持たせる）
     const dataSize = new Blob([csvData]).size;
     
     // 1MB以上の場合は分割して保存
@@ -1041,7 +1041,7 @@ export default function SNSGeneratorApp() {
       const header = lines[0];
       const dataLines = lines.slice(1);
       
-      // チャンクに分割（各チャンクは900KB以下）
+      // チャンクに分割（各チャンクは800KB以下）
       const chunks: string[] = [];
       let currentChunk = header + '\n';
       let currentSize = new Blob([currentChunk]).size;
@@ -1050,7 +1050,7 @@ export default function SNSGeneratorApp() {
         const lineWithNewline = line + '\n';
         const lineSize = new Blob([lineWithNewline]).size;
         
-        // 現在のチャンクに追加すると900KBを超える場合
+        // 現在のチャンクに追加すると800KBを超える場合
         if (currentSize + lineSize > CHUNK_SIZE && currentChunk !== header + '\n') {
           // 現在のチャンクを保存
           chunks.push(currentChunk);
@@ -1072,7 +1072,10 @@ export default function SNSGeneratorApp() {
       // 各チャンクのサイズを確認（デバッグ用）
       for (let i = 0; i < chunks.length; i++) {
         const chunkSize = new Blob([chunks[i]]).size;
-        console.log(`チャンク${i}: ${(chunkSize / 1024).toFixed(2)} KB`);
+        if (i < 5 || i === chunks.length - 1) {
+          // 最初の5つと最後のチャンクのみログ出力（大量のログを避ける）
+          console.log(`チャンク${i}: ${(chunkSize / 1024).toFixed(2)} KB`);
+        }
         if (chunkSize > FIRESTORE_MAX_FIELD_SIZE) {
           throw new Error(`チャンク${i}が大きすぎます: ${(chunkSize / 1024 / 1024).toFixed(2)} MB`);
         }
@@ -1517,6 +1520,21 @@ export default function SNSGeneratorApp() {
         
       // Firestoreに保存（分割機能付き）
       const dataSize = new Blob([finalCsvData]).size;
+      const TEN_MB = 10 * 1024 * 1024; // 10MB
+      const FIFTEEN_MB = 15 * 1024 * 1024; // 15MB
+      
+      // 15MB以上の場合はアップロード不可
+      if (dataSize >= FIFTEEN_MB) {
+        const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
+        throw new Error(`CSVデータが大きすぎます（${sizeInMB} MB）。\n\n15MB以上のCSVはアップロードできません。\nデータを分割するか、不要な列を削除してください。`);
+      }
+      
+      // 10MB以上15MB未満の場合は警告を表示
+      if (dataSize >= TEN_MB) {
+        const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
+        alert(`CSVデータが大きいです（${sizeInMB} MB）。\n\n処理に時間がかかる可能性があります。`);
+      }
+      
       console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → Firestoreに保存`);
       
       const updatedTime = await saveCsvToFirestore(user.uid, finalCsvData, dateStr);
