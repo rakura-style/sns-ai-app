@@ -1971,12 +1971,12 @@ export default function SNSGeneratorApp() {
       
       // text列が存在する場合は、必ずtext列を使用（そのまま使用、WordPress処理は不要）
       if (hasTextColumn) {
-        const textVal = post['text'] || post['Text'];
+        const textVal = post['text'] || post['Text'] || post[headers[textColumnIndex]];
         if (textVal !== undefined && textVal !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
           const textContent = String(textVal).trim();
-          // カンマだけや空白だけの場合は無視
-          if (textContent && !textContent.match(/^[,,\s]+$/)) {
+          // カンマだけや空白だけの場合は無視（ただし、ハッシュタグだけの場合は後で除外）
+          if (textContent && textContent.length > 0) {
             content = textContent;
           }
         }
@@ -1992,7 +1992,7 @@ export default function SNSGeneratorApp() {
           if (val !== undefined && val !== '') {
             const rawContent = String(val).trim();
             // カンマだけや空白だけの場合は無視
-            if (rawContent && !rawContent.match(/^[,,\s]+$/)) {
+            if (rawContent && rawContent.length > 0) {
               // ブログデータ（Content列など）の場合はWordPress処理を適用
               const extractedContent = extractTextFromWordPress(rawContent);
               if (extractedContent.trim()) {
@@ -2014,18 +2014,26 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // contentが空でない、かつカンマだけや空白だけでない場合のみ投稿を追加
-      if (content && content.trim() && !content.match(/^[,,\s]+$/)) {
-        posts.push({
-          id: `post-${i}`,
-          title,
-          content,
-          likes,
-          views,
-          engagement,
-          date,
-          rawData: post
-        });
+      // contentが空でない、かつハッシュタグだけやカンマだけでない場合のみ投稿を追加
+      if (content && content.trim()) {
+        const trimmedContent = content.trim();
+        // ハッシュタグだけ（#と空白のみ）やカンマだけの場合は除外
+        const isOnlyHashtags = trimmedContent.match(/^[#\s,]+$/);
+        // ただし、ハッシュタグと本文が混在している場合は含める
+        const hasTextAfterHashtags = trimmedContent.match(/^[#\s,]+[^\s#]/);
+        
+        if (!isOnlyHashtags || hasTextAfterHashtags) {
+          posts.push({
+            id: `post-${i}`,
+            title,
+            content,
+            likes,
+            views,
+            engagement,
+            date,
+            rawData: post
+          });
+        }
       }
     }
     
