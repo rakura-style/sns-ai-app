@@ -1884,11 +1884,11 @@ export default function SNSGeneratorApp() {
         let textValue = '';
         
         // 元の行データから直接text列を抽出（parseCsvRowで分割される前に取得）
+        // text列の内容は、'IDの数字',から,jaの間の文字列
         let currentColumnIndex = 0;
         let inQuotes = false;
         let textStartIndex = 0;
         let textEndIndex = row.length;
-        let foundTextStart = false;
         
         // text列の開始位置を特定（text列より前の列をスキップ）
         for (let k = 0; k < row.length; k++) {
@@ -1902,23 +1902,22 @@ export default function SNSGeneratorApp() {
               inQuotes = !inQuotes;
             }
           } else if (char === ',' && !inQuotes) {
+            // text列の前の列の後のカンマを見つけたら、text列の開始位置を設定
             if (currentColumnIndex === textColumnIndex - 1) {
-              textStartIndex = k + 1;
-              foundTextStart = true;
+              textStartIndex = k + 1; // カンマの次の文字から開始
               break;
             }
             currentColumnIndex++;
           }
         }
         
-        // text列の開始位置が見つからなかった場合（text列が最初の列の場合）
-        if (!foundTextStart && textColumnIndex === 0) {
+        // text列が最初の列の場合
+        if (textColumnIndex === 0) {
           textStartIndex = 0;
         }
         
         // text列の終了位置を特定（text列の次の列の前のカンマの位置）
-        // text列の内容は、'IDの数字',から,jaの間の文字列
-        // つまり、text列の次の列（textColumnIndex + 1）の前のカンマを見つける
+        // textStartIndexから開始して、最初のカンマ（text列の次の列の前のカンマ）を見つける
         inQuotes = false;
         
         for (let k = textStartIndex; k < row.length; k++) {
@@ -1943,23 +1942,20 @@ export default function SNSGeneratorApp() {
           textEndIndex = row.length;
         }
         
-        // デバッグログ（最初の5行のみ）
-        if (i <= 5) {
-          console.log(`行${i}: textStartIndex =`, textStartIndex, 'textEndIndex =', textEndIndex, 'textValue =', row.substring(textStartIndex, textEndIndex));
-        }
-        
         // text列の内容を抽出
-        if (textStartIndex < textEndIndex) {
+        if (textStartIndex < textEndIndex && textStartIndex < row.length) {
           textValue = row.slice(textStartIndex, textEndIndex);
           // 先頭と末尾のダブルクォートを除去
           if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
             textValue = textValue.slice(1, -1).replace(/""/g, '"');
           }
+          // 前後の空白を除去
+          textValue = textValue.trim();
         }
         
         // デバッグログ（最初の5行のみ）
         if (i <= 5) {
-          console.log(`行${i}: textValue =`, textValue, 'textStartIndex =', textStartIndex, 'textEndIndex =', textEndIndex, 'row =', row.substring(0, 100));
+          console.log(`行${i}: textColumnIndex =`, textColumnIndex, 'textStartIndex =', textStartIndex, 'textEndIndex =', textEndIndex, 'textValue =', textValue, 'row.substring(textStartIndex, textEndIndex) =', row.substring(textStartIndex, textEndIndex));
         }
         
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
@@ -2044,10 +2040,10 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // 投稿内容を取得（XのCSVデータの場合は'text'列を最優先）
+      // 投稿内容を取得（XのCSVデータの場合は'text'列のみを使用）
       let content = '';
       
-      // text列が存在する場合は、必ずtext列を使用（そのまま使用、WordPress処理は不要）
+      // text列が存在する場合は、必ずtext列のみを使用（他の列は無視）
       if (hasTextColumn && textColumnIndex >= 0) {
         // text列の値を取得（複数のキーを試す）
         const textVal = post['text'] || post['Text'] || post[headers[textColumnIndex]];
@@ -2059,18 +2055,11 @@ export default function SNSGeneratorApp() {
         
         if (textVal !== undefined && textVal !== null && textVal !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
-          content = String(textVal);
-        } else {
-          // デバッグログ（textValが空の場合）
-          if (i <= 5) {
-            console.log(`行${i}: textValが空です。post =`, Object.keys(post), 'headers =', headers);
-          }
+          content = String(textVal).trim();
         }
-      }
-      
-      // text列がない、またはtext列が空の場合は、他の列を試す（ブログデータの場合）
-      // hasTextColumnがtrueの場合は、text列以外は使用しない（XのCSVデータの場合）
-      if (!content && !hasTextColumn) {
+        // hasTextColumnがtrueの場合、text列が空でも他の列は使用しない
+      } else {
+        // text列がない場合のみ、他の列を試す（ブログデータの場合）
         for (const key of contentKeys) {
           // text列は既に試したのでスキップ
           if (key.toLowerCase() === 'text') continue;
