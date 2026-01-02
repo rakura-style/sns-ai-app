@@ -940,6 +940,7 @@ export default function SNSGeneratorApp() {
   const [csvImportMode, setCsvImportMode] = useState<'replace' | 'append'>('replace');
   const [showCsvImportModal, setShowCsvImportModal] = useState(false);
   const [pendingCsvData, setPendingCsvData] = useState<string>('');
+  const [isCsvLoading, setIsCsvLoading] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -984,38 +985,41 @@ export default function SNSGeneratorApp() {
     return null;
   };
 
-  // ローカルストレージにキャッシュを保存
+  // ローカルストレージにキャッシュを保存（非同期で実行してUIをブロックしない）
   const saveCsvToCache = (userId: string, data: string, metadata: string) => {
-    try {
-      // UTF-8エンコードしてからBase64エンコード（非ASCII文字も安全に保存）
-      const utf8Bytes = new TextEncoder().encode(data);
-      // 大きな配列でも安全に処理するため、チャンクに分割
-      let binaryString = '';
-      const chunkSize = 8192; // 8KBずつ処理
-      for (let i = 0; i < utf8Bytes.length; i += chunkSize) {
-        const chunk = utf8Bytes.slice(i, i + chunkSize);
-        binaryString += String.fromCharCode(...chunk);
-      }
-      const encodedData = btoa(binaryString);
-      localStorage.setItem(CSV_CACHE_KEY(userId), encodedData);
-      localStorage.setItem(CSV_METADATA_KEY(userId), metadata);
-    } catch (e) {
-      console.error("キャッシュ保存エラー:", e);
-      // localStorageの容量制限（通常5-10MB）に達した場合
-      if (e instanceof DOMException && (e.code === 22 || e.code === 1014)) {
-        console.warn("ローカルストレージの容量が不足しています。古いキャッシュを削除します。");
-        // 古いキャッシュを削除（必要に応じて実装）
-        try {
-          localStorage.removeItem(CSV_CACHE_KEY(userId));
-          localStorage.removeItem(CSV_METADATA_KEY(userId));
-        } catch (clearError) {
-          console.error("キャッシュ削除エラー:", clearError);
+    // 非同期で実行してUIをブロックしない
+    setTimeout(() => {
+      try {
+        // UTF-8エンコードしてからBase64エンコード（非ASCII文字も安全に保存）
+        const utf8Bytes = new TextEncoder().encode(data);
+        // 大きな配列でも安全に処理するため、チャンクに分割
+        let binaryString = '';
+        const chunkSize = 8192; // 8KBずつ処理
+        for (let i = 0; i < utf8Bytes.length; i += chunkSize) {
+          const chunk = utf8Bytes.slice(i, i + chunkSize);
+          binaryString += String.fromCharCode(...chunk);
         }
-      } else {
-        // その他のエラーの場合、キャッシュを保存しない（エラーを無視）
-        console.warn("キャッシュの保存をスキップしました:", e);
+        const encodedData = btoa(binaryString);
+        localStorage.setItem(CSV_CACHE_KEY(userId), encodedData);
+        localStorage.setItem(CSV_METADATA_KEY(userId), metadata);
+      } catch (e) {
+        console.error("キャッシュ保存エラー:", e);
+        // localStorageの容量制限（通常5-10MB）に達した場合
+        if (e instanceof DOMException && (e.code === 22 || e.code === 1014)) {
+          console.warn("ローカルストレージの容量が不足しています。古いキャッシュを削除します。");
+          // 古いキャッシュを削除（必要に応じて実装）
+          try {
+            localStorage.removeItem(CSV_CACHE_KEY(userId));
+            localStorage.removeItem(CSV_METADATA_KEY(userId));
+          } catch (clearError) {
+            console.error("キャッシュ削除エラー:", clearError);
+          }
+        } else {
+          // その他のエラーの場合、キャッシュを保存しない（エラーを無視）
+          console.warn("キャッシュの保存をスキップしました:", e);
+        }
       }
-    }
+    }, 0);
   };
 
   // Firebase StorageからCSVを読み込む
@@ -1085,42 +1089,56 @@ export default function SNSGeneratorApp() {
     return values;
   };
 
-  // CSVをパースして投稿データの配列に変換（改行を含むフィールドに対応）
+  // CSVをパースして投稿データの配列に変換（改行を含むフィールドに対応、最適化版）
   const parseCsvToPosts = (csvText: string): any[] => {
     if (!csvText) return [];
     
-    // 改行を含むフィールドに対応したCSVパース
+    // 改行を含むフィールドに対応したCSVパース（最適化版）
     const rows: string[] = [];
     let currentRow = '';
     let inQuotes = false;
+    const textLength = csvText.length;
     
-    for (let i = 0; i < csvText.length; i++) {
+    // 文字列連結を最適化（配列にpushして最後にjoin）
+    const rowParts: string[] = [];
+    
+    for (let i = 0; i < textLength; i++) {
       const char = csvText[i];
-      const nextChar = csvText[i + 1];
+      const nextChar = i + 1 < textLength ? csvText[i + 1] : null;
       
       if (char === '"') {
         // エスケープされたダブルクォート（""）の処理
         if (inQuotes && nextChar === '"') {
-          currentRow += '"';
+          rowParts.push('"');
           i++; // 次の文字をスキップ
         } else {
           inQuotes = !inQuotes;
-          currentRow += char;
+          // クォート自体は値に含めない（最初と最後のクォートのみ）
         }
       } else if (char === '\n' && !inQuotes) {
         // クォート外の改行は行の区切り
-        if (currentRow.trim()) {
-          rows.push(currentRow);
+        if (rowParts.length > 0 || currentRow.trim()) {
+          rows.push(currentRow + rowParts.join(''));
         }
         currentRow = '';
+        rowParts.length = 0; // 配列をクリア
       } else {
-        currentRow += char;
+        // 文字列連結を最適化（小さなチャンクは直接連結、大きなチャンクは配列にpush）
+        if (rowParts.length === 0 && currentRow.length < 1000) {
+          currentRow += char;
+        } else {
+          if (currentRow) {
+            rowParts.push(currentRow);
+            currentRow = '';
+          }
+          rowParts.push(char);
+        }
       }
     }
     
     // 最後の行を追加
-    if (currentRow.trim()) {
-      rows.push(currentRow);
+    if (rowParts.length > 0 || currentRow.trim()) {
+      rows.push(currentRow + rowParts.join(''));
     }
     
     if (rows.length < 2) return [];
@@ -1137,31 +1155,45 @@ export default function SNSGeneratorApp() {
       return header;
     });
     
-    // データ行をパース
+    // データ行をパース（最適化：事前に配列サイズを確保し、インデックスで直接代入）
     const posts: any[] = [];
+    const rowCount = rows.length - 1;
+    
+    // キー配列を事前に定義（ループ内で毎回作成しない）
+    const likesKeys = ['Likes', 'likes', 'Like', 'いいね', 'Like Count', 'like_count', 'favorite_count', 'Favorite Count'];
+    const viewsKeys = ['Views', 'views', 'View', 'ビュー', 'View Count', 'view_count', 'Impressions', 'impressions', 'インプレッション'];
+    const engagementKeys = ['Engagement', 'engagement', 'エンゲージメント', 'Total Engagement'];
+    const titleKeys = ['Title', 'title', 'タイトル', '見出し', 'Headline'];
+    const contentKeys = ['Post Content', 'Content', 'content', '投稿内容', 'Text', 'text', 'Tweet', 'tweet', '投稿', 'Post'];
+    const dateKeys = ['Date', 'date', '日付', '投稿日', 'Posted At'];
+    
     for (let i = 1; i < rows.length; i++) {
       const values = parseCsvRow(rows[i]);
       
       // オブジェクトに変換
       const post: any = {};
-      headers.forEach((header: string, index: number) => {
+      const headerCount = headers.length;
+      for (let j = 0; j < headerCount; j++) {
+        const header = headers[j];
         // 値は既にparseCsvRowで処理済み（ダブルクォートは除去済み、エスケープも処理済み）
-        let value = values[index] || '';
+        let value = values[j] || '';
         // 念のため、先頭と末尾のダブルクォートを除去（残っている場合）
-        if (value.startsWith('"') && value.endsWith('"') && value.length > 1) {
+        if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
           value = value.slice(1, -1);
         }
         // エスケープされたダブルクォート（""）を単一のダブルクォート（"）に変換
-        value = value.replace(/""/g, '"');
+        if (value.includes('""')) {
+          value = value.replace(/""/g, '"');
+        }
         post[header] = value;
-      });
+      }
       
       // いいね数を抽出
       let likes = 0;
-      const likesKeys = ['Likes', 'likes', 'Like', 'いいね', 'Like Count', 'like_count', 'favorite_count', 'Favorite Count'];
       for (const key of likesKeys) {
-        if (post[key] !== undefined && post[key] !== '') {
-          const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
+        const val = post[key];
+        if (val !== undefined && val !== '') {
+          const num = parseInt(String(val).replace(/,/g, ''), 10);
           if (!isNaN(num)) {
             likes = num;
             break;
@@ -1171,10 +1203,10 @@ export default function SNSGeneratorApp() {
       
       // ビュー数を抽出
       let views = 0;
-      const viewsKeys = ['Views', 'views', 'View', 'ビュー', 'View Count', 'view_count', 'Impressions', 'impressions', 'インプレッション'];
       for (const key of viewsKeys) {
-        if (post[key] !== undefined && post[key] !== '') {
-          const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
+        const val = post[key];
+        if (val !== undefined && val !== '') {
+          const num = parseInt(String(val).replace(/,/g, ''), 10);
           if (!isNaN(num)) {
             views = num;
             break;
@@ -1184,10 +1216,10 @@ export default function SNSGeneratorApp() {
       
       // エンゲージメント数値を抽出（Engagement等の列から、いいねとビューが別々の場合は合算）
       let engagement = 0;
-      const engagementKeys = ['Engagement', 'engagement', 'エンゲージメント', 'Total Engagement'];
       for (const key of engagementKeys) {
-        if (post[key] !== undefined && post[key] !== '') {
-          const num = parseInt(post[key].toString().replace(/,/g, ''), 10);
+        const val = post[key];
+        if (val !== undefined && val !== '') {
+          const num = parseInt(String(val).replace(/,/g, ''), 10);
           if (!isNaN(num)) {
             engagement = num;
             break;
@@ -1200,32 +1232,32 @@ export default function SNSGeneratorApp() {
       }
       
       // タイトルを取得
-      const titleKeys = ['Title', 'title', 'タイトル', '見出し', 'Headline'];
       let title = '';
       for (const key of titleKeys) {
-        if (post[key] !== undefined && post[key] !== '') {
-          title = post[key].toString();
+        const val = post[key];
+        if (val !== undefined && val !== '') {
+          title = String(val);
           break;
         }
       }
       
       // 投稿内容を取得（Post Content, Content, 投稿内容等の列から、改行も含めて全部読み込む）
-      const contentKeys = ['Post Content', 'Content', 'content', '投稿内容', 'Text', 'text', 'Tweet', 'tweet', '投稿', 'Post'];
       let content = '';
       for (const key of contentKeys) {
-        if (post[key] !== undefined && post[key] !== '') {
+        const val = post[key];
+        if (val !== undefined && val !== '') {
           // 改行を含めて全部読み込む（toString()でそのまま取得）
-          content = post[key].toString();
+          content = String(val);
           break;
         }
       }
       
       // 日付を取得
-      const dateKeys = ['Date', 'date', '日付', '投稿日', 'Posted At'];
       let date = '';
       for (const key of dateKeys) {
-        if (post[key] !== undefined && post[key] !== '') {
-          date = post[key].toString();
+        const val = post[key];
+        if (val !== undefined && val !== '') {
+          date = String(val);
           break;
         }
       }
@@ -1352,45 +1384,51 @@ export default function SNSGeneratorApp() {
   const applyCsvData = async (csvText: string, mode: 'replace' | 'append') => {
     if (!user) return;
     
-    const parsed = parseCsvToPosts(csvText);
-    
-    // 保存するCSVデータを先に計算（状態に依存しない）
-    let finalCsvData: string;
-    if (mode === 'append') {
-      // 追加モード：既存データに追加
-      const existingLines = csvData.split('\n');
-      const newLines = csvText.split('\n');
-      if (existingLines.length > 0 && newLines.length > 1) {
-        // ヘッダー行は最初のものを使い、データ行を結合
-        finalCsvData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
-      } else {
-        finalCsvData = csvText;
-      }
-    } else {
-      // 書き換えモード：既存データを置き換え
-      finalCsvData = csvText;
-    }
-    
-    // 状態を更新（メモリキャッシュ）
-    if (mode === 'append') {
-      setParsedPosts(prev => [...prev, ...parsed]);
-      setCsvData(finalCsvData);
-    } else {
-      setParsedPosts(parsed);
-      setCsvData(finalCsvData);
-    }
-    
-    const now = new Date();
-    const dateStr = now.toLocaleString('ja-JP', { 
-      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-    });
-    setCsvUploadDate(dateStr);
-    
-    // データサイズをチェック
-    const dataSize = new Blob([finalCsvData]).size;
-    const ONE_MB = 1024 * 1024;
+    setIsCsvLoading(true);
+    const startTime = performance.now();
     
     try {
+      // CSVパース処理
+      const parsed = parseCsvToPosts(csvText);
+      
+      console.log(`CSVパース完了: ${parsed.length}件 (${((performance.now() - startTime) / 1000).toFixed(2)}秒)`);
+      
+      // 保存するCSVデータを先に計算（状態に依存しない）
+      let finalCsvData: string;
+      if (mode === 'append') {
+        // 追加モード：既存データに追加
+        const existingLines = csvData.split('\n');
+        const newLines = csvText.split('\n');
+        if (existingLines.length > 0 && newLines.length > 1) {
+          // ヘッダー行は最初のものを使い、データ行を結合
+          finalCsvData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
+        } else {
+          finalCsvData = csvText;
+        }
+      } else {
+        // 書き換えモード：既存データを置き換え
+        finalCsvData = csvText;
+      }
+      
+      // 状態を更新（メモリキャッシュ）
+      if (mode === 'append') {
+        setParsedPosts(prev => [...prev, ...parsed]);
+        setCsvData(finalCsvData);
+      } else {
+        setParsedPosts(parsed);
+        setCsvData(finalCsvData);
+      }
+      
+      const now = new Date();
+      const dateStr = now.toLocaleString('ja-JP', { 
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+      });
+      setCsvUploadDate(dateStr);
+      
+      // データサイズをチェック
+      const dataSize = new Blob([finalCsvData]).size;
+      const ONE_MB = 1024 * 1024;
+      
       let updatedTime: string;
       
       if (dataSize >= ONE_MB) {
@@ -1415,17 +1453,19 @@ export default function SNSGeneratorApp() {
         }, { merge: true });
       }
       
-      // ローカルストレージキャッシュを更新
+      // ローカルストレージキャッシュを更新（非同期で実行）
       saveCsvToCache(user.uid, finalCsvData, updatedTime);
       
-      console.log("CSVデータを保存しました");
+      const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
+      console.log(`CSVデータを保存しました (合計: ${totalTime}秒)`);
     } catch (err: any) {
       console.error("CSV保存失敗:", err);
       alert(`CSVデータの保存に失敗しました: ${err.message}`);
+    } finally {
+      setIsCsvLoading(false);
+      setShowCsvImportModal(false);
+      setPendingCsvData('');
     }
-    
-    setShowCsvImportModal(false);
-    setPendingCsvData('');
   };
 
   useEffect(() => {
@@ -1999,8 +2039,17 @@ export default function SNSGeneratorApp() {
                       className="hidden" 
                       accept=".csv, .txt" 
                     />
-                    <button onClick={handleCsvImportClick} className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors" title="CSV読込">
-                      <Upload size={16} />
+                    <button 
+                      onClick={handleCsvImportClick} 
+                      disabled={isCsvLoading}
+                      className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative" 
+                      title={isCsvLoading ? "CSV処理中..." : "CSV読込"}
+                    >
+                      {isCsvLoading ? (
+                        <Loader2 size={16} className="animate-spin text-[#066099]" />
+                      ) : (
+                        <Upload size={16} />
+                      )}
                     </button>
                     <div className="h-4 w-px bg-slate-300 mx-1"></div>
                     <button 
@@ -2279,7 +2328,8 @@ export default function SNSGeneratorApp() {
                           setShowCsvImportModal(false);
                           setPendingCsvData('');
                         }}
-                        className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                        disabled={isCsvLoading}
+                        className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         キャンセル
                       </button>
@@ -2289,10 +2339,20 @@ export default function SNSGeneratorApp() {
                             applyCsvData(pendingCsvData, csvImportMode);
                           }
                         }}
-                        className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-2"
+                        disabled={isCsvLoading}
+                        className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <Upload size={16} />
-                        取込み実行
+                        {isCsvLoading ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            処理中...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            取込み実行
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
