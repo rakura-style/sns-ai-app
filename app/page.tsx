@@ -1640,7 +1640,8 @@ export default function SNSGeneratorApp() {
         setBlogUrl('');
       }
       setBlogImportProgress('');
-      setShowBlogImport(false);
+      // ブログ取り込み後も過去の投稿分析ボタンを表示するため、showBlogImportは閉じない
+      // setShowBlogImport(false);
     } catch (error: any) {
       console.error('Blog import error:', error);
       alert(`ブログの取り込みに失敗しました: ${error.message}`);
@@ -1883,11 +1884,9 @@ export default function SNSGeneratorApp() {
         const textValue = values.slice(textColumnIndex, firstNumericIndex).join(',');
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
         post[headers[textColumnIndex]] = textValue;
-        if (headers[textColumnIndex].toLowerCase() === 'text') {
-          // 'text'と'Text'の両方で設定（大文字小文字の違いに対応）
-          post['text'] = textValue;
-          post['Text'] = textValue;
-        }
+        // 'text'と'Text'の両方で設定（大文字小文字の違いに対応）
+        post['text'] = textValue;
+        post['Text'] = textValue;
       }
       
       // すべての列を処理
@@ -3262,7 +3261,7 @@ export default function SNSGeneratorApp() {
                         <p className="text-xs font-bold text-slate-700 mb-2">取り込んだURL一覧:</p>
                         <div className="space-y-1 max-h-32 overflow-y-auto">
                           {blogUrls.map((url: string, index: number) => (
-                            <div key={index} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
+                            <div key={index} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded gap-2">
                               <div className="flex-1 min-w-0">
                                 <p className="text-slate-600 truncate" title={url}>
                                   {index + 1}. {url}
@@ -3273,6 +3272,16 @@ export default function SNSGeneratorApp() {
                                   </p>
                                 )}
                               </div>
+                              <button
+                                onClick={async () => {
+                                  setBlogUrl(url);
+                                  await handleBlogImport(true);
+                                }}
+                                disabled={isBlogImporting}
+                                className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                              >
+                                {isBlogImporting ? '更新中...' : '更新'}
+                              </button>
                             </div>
                           ))}
                         </div>
