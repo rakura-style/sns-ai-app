@@ -39,65 +39,121 @@ function extractTextFromHTML(html: string): string {
 // 記事のURLを抽出する関数（階下も含む）
 function extractPostUrls(html: string, baseUrl: string): string[] {
   const urls: string[] = [];
-  const urlPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
-  const matches = html.matchAll(urlPattern);
+  const urlSet = new Set<string>(); // 重複チェック用
   
-  for (const match of matches) {
-    let url = match[1];
-    
-    // 相対URLを絶対URLに変換
-    if (url.startsWith('/')) {
-      try {
-        const urlObj = new URL(baseUrl);
-        url = `${urlObj.protocol}//${urlObj.host}${url}`;
-      } catch (e) {
+  // 複数のパターンでURLを抽出
+  // パターン1: <a>タグのhref属性
+  const urlPattern1 = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
+  // パターン2: data-href属性
+  const urlPattern2 = /data-href=["']([^"']+)["']/gi;
+  // パターン3: JSON-LD構造化データ内のURL
+  const urlPattern3 = /"url":\s*["']([^"']+)["']/gi;
+  
+  const patterns = [urlPattern1, urlPattern2, urlPattern3];
+  
+  for (const pattern of patterns) {
+    const matches = html.matchAll(pattern);
+    for (const match of matches) {
+      let url = match[1];
+      
+      // URLの正規化
+      url = url.trim();
+      if (!url || url === '#' || url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:')) {
         continue;
       }
-    } else if (url.startsWith('./') || url.startsWith('../')) {
-      try {
-        const base = new URL(baseUrl);
-        url = new URL(url, base).href;
-      } catch (e) {
-        continue;
+      
+      // 相対URLを絶対URLに変換
+      if (url.startsWith('/')) {
+        try {
+          const urlObj = new URL(baseUrl);
+          url = `${urlObj.protocol}//${urlObj.host}${url}`;
+        } catch (e) {
+          continue;
+        }
+      } else if (url.startsWith('./') || url.startsWith('../')) {
+        try {
+          const base = new URL(baseUrl);
+          url = new URL(url, base).href;
+        } catch (e) {
+          continue;
+        }
+      } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        // 相対パス（例: google/3158/ や google/3158）
+        try {
+          const base = new URL(baseUrl);
+          // baseUrlのパスを取得（末尾のスラッシュを統一）
+          let basePath = base.pathname;
+          if (!basePath.endsWith('/')) {
+            basePath = basePath + '/';
+          }
+          // 相対パスを結合
+          const fullPath = basePath + url;
+          // パスの正規化（連続するスラッシュを1つに、末尾のスラッシュを除去）
+          let normalizedPath = fullPath.replace(/\/+/g, '/');
+          if (normalizedPath.endsWith('/') && normalizedPath !== '/') {
+            normalizedPath = normalizedPath.slice(0, -1);
+          }
+          url = `${base.protocol}//${base.host}${normalizedPath}`;
+        } catch (e) {
+          continue;
+        }
       }
-    }
-    
-    // baseUrlで始まるURLのみを対象（階下も含む）
-    if (url && url.startsWith(baseUrl)) {
-      // 除外パターン
-      const excludePatterns = [
-        '/category/',
-        '/tag/',
-        '/author/',
-        '/page/',
-        '/feed',
-        '/wp-admin',
-        '/wp-content',
-        '/wp-includes',
-        '/search',
-        '/?',
-        '#',
-        'mailto:',
-        'tel:',
-        '.jpg',
-        '.jpeg',
-        '.png',
-        '.gif',
-        '.pdf',
-        '.zip',
-        '.css',
-        '.js',
-      ];
       
-      const shouldExclude = excludePatterns.some(pattern => url.toLowerCase().includes(pattern));
+      // URLの正規化（末尾のスラッシュを統一）
+      if (url.endsWith('/')) {
+        url = url.slice(0, -1);
+      }
       
-      // baseUrl自体やbaseUrl/は除外（一覧ページ自体は記事ではない）
-      // ただし、baseUrl/xxx/のような階下のURLは含める
-      const isBaseUrl = url === baseUrl || url === baseUrl + '/';
-      const isArticleUrl = !isBaseUrl && url.length > baseUrl.length;
-      
-      if (!shouldExclude && isArticleUrl && !urls.includes(url)) {
-        urls.push(url);
+      // baseUrlで始まるURLのみを対象（階下も含む）
+      if (url && url.startsWith(baseUrl)) {
+        // 除外パターン
+        const excludePatterns = [
+          '/category/',
+          '/tag/',
+          '/author/',
+          '/page/',
+          '/feed',
+          '/wp-admin',
+          '/wp-content',
+          '/wp-includes',
+          '/search',
+          '/?',
+          '#',
+          'mailto:',
+          'tel:',
+          '.jpg',
+          '.jpeg',
+          '.png',
+          '.gif',
+          '.pdf',
+          '.zip',
+          '.css',
+          '.js',
+          '.svg',
+          '.ico',
+          '.woff',
+          '.woff2',
+          '.ttf',
+          '.eot',
+        ];
+        
+        const shouldExclude = excludePatterns.some(pattern => url.toLowerCase().includes(pattern));
+        
+        // baseUrl自体やbaseUrl/は除外（一覧ページ自体は記事ではない）
+        // ただし、baseUrl/xxx/のような階下のURLは含める
+        const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        const isBaseUrl = url === normalizedBaseUrl || url === normalizedBaseUrl + '/';
+        const isArticleUrl = !isBaseUrl && url.length > normalizedBaseUrl.length;
+        
+        // 階下のURLであることを確認（baseUrlより長いパスを持つ）
+        const urlPath = new URL(url).pathname;
+        const basePath = new URL(normalizedBaseUrl).pathname;
+        const isSubPath = urlPath.startsWith(basePath) && urlPath.length > basePath.length;
+        
+        if (!shouldExclude && isArticleUrl && isSubPath && !urlSet.has(url)) {
+          urls.push(url);
+          urlSet.add(url);
+        }
       }
     }
   }
@@ -305,13 +361,17 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
         const html = await response.text();
         const urls = extractPostUrls(html, baseUrl);
         
+        const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
         for (const url of urls) {
-          if (url.startsWith(baseUrl) && url !== baseUrl && url !== baseUrl + '/') {
-            articleUrls.add(url);
+          const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+          
+          if (normalizedUrl.startsWith(normalizedBaseUrl) && normalizedUrl !== normalizedBaseUrl) {
+            articleUrls.add(normalizedUrl);
+            if (articleUrls.size >= maxPosts) break;
           }
         }
         
-        console.log(`一覧ページから${urls.length}件の記事URLを取得`);
+        console.log(`一覧ページから${urls.length}件の記事URLを取得（合計: ${articleUrls.size}件）`);
       }
     } catch (error) {
       console.error(`一覧ページ取得エラー (${baseUrl}):`, error);
@@ -347,9 +407,12 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
             const html = await response.text();
             const urls = extractPostUrls(html, baseUrl);
             
+            const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
             for (const url of urls) {
-              if (url.startsWith(baseUrl) && url !== baseUrl && url !== baseUrl + '/') {
-                articleUrls.add(url);
+              const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+              
+              if (normalizedUrl.startsWith(normalizedBaseUrl) && normalizedUrl !== normalizedBaseUrl) {
+                articleUrls.add(normalizedUrl);
                 if (articleUrls.size >= maxPosts) break;
               }
             }
@@ -393,17 +456,25 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
           const xml = await response.text();
           // サイトマップから記事URLを抽出
           const urlMatches = xml.matchAll(/<loc>([^<]+)<\/loc>/g);
+          const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
           for (const match of urlMatches) {
-            const url = match[1].trim();
-            if (url && url.startsWith(baseUrl)) {
+            let url = match[1].trim();
+            if (!url) continue;
+            
+            // URLの正規化（末尾のスラッシュを統一）
+            if (url.endsWith('/')) {
+              url = url.slice(0, -1);
+            }
+            
+            if (url && url.startsWith(normalizedBaseUrl)) {
               // カテゴリやタグページは除外
               if (!url.includes('/category/') && 
                   !url.includes('/tag/') && 
                   !url.includes('/author/') &&
                   !url.includes('/page/') &&
-                  url !== baseUrl &&
-                  url !== baseUrl + '/') {
+                  url !== normalizedBaseUrl) {
                 articleUrls.add(url);
+                if (articleUrls.size >= maxPosts) break;
               }
             }
           }
