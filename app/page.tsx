@@ -235,9 +235,9 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
 
     【重要: 出力ルール（必ず守ること）】
     1. 文字数: **絶対に${settings.minLength}文字以上、${settings.maxLength}文字以内**にしてください。これは厳密な要件です。文字数を数えて必ず範囲内に収めてください。
-    2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。
-       - Markdownの見出し記号（#）や強調（**）は不要です。
-       - 箇条書き等の装飾にもこれらを使わないでください。
+    2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは絶対に厳守してください。
+       - Markdownの見出し記号（#）や強調（**）、箇条書き（-）は不要です。これは絶対に厳守してください。
+       - 箇条書き等の装飾にもこれらを使わないでください。これは絶対に厳守してください。
     3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。文中の使用は禁止です。
     4. 文字数確認: 生成後、必ず文字数を確認し、範囲外の場合は調整してください。
 
@@ -2129,84 +2129,148 @@ export default function SNSGeneratorApp() {
     setIsCsvLoading(true);
     const startTime = performance.now();
     
+    // 変数を外側で定義（スコープの問題を解決）
+    let parsed: any[] = [];
+    let parsedCsvData = csvText;
+    let finalCsvData: string = '';
+    let truncatedData: string = '';
+    let dataSize: number = 0;
+    let isTruncated = false;
+    
     try {
-      // CSVパース処理
-      const parsed = parseCsvToPosts(csvText);
+      // CSVパース処理（エラーが発生しても可能な限り取り込む）
+      try {
+        parsed = parseCsvToPosts(csvText);
+        parsedCsvData = csvText;
+      } catch (parseError: any) {
+        console.warn("CSVパースエラー（部分的な取り込みを試みます）:", parseError);
+        // パースエラーが発生した場合、行ごとに処理を試みる
+        const lines = csvText.split('\n');
+        if (lines.length > 1) {
+          const header = lines[0];
+          const dataLines: string[] = [];
+          for (let i = 1; i < lines.length; i++) {
+            try {
+              const testParsed = parseCsvToPosts(header + '\n' + lines[i]);
+              if (testParsed.length > 0) {
+                dataLines.push(lines[i]);
+                parsed.push(...testParsed);
+              }
+            } catch (e) {
+              // この行はスキップ
+              console.warn(`行${i + 1}をスキップしました`);
+            }
+          }
+          parsedCsvData = header + '\n' + dataLines.join('\n');
+        }
+      }
       
       console.log(`CSVパース完了: ${parsed.length}件 (${((performance.now() - startTime) / 1000).toFixed(2)}秒)`);
       
       // 保存するCSVデータを先に計算（状態に依存しない）
-      let finalCsvData: string;
       if (mode === 'append') {
         // 追加モード：既存データに追加
         const existingLines = csvData.split('\n');
-        const newLines = csvText.split('\n');
+        const newLines = parsedCsvData.split('\n');
         if (existingLines.length > 0 && newLines.length > 1) {
           // ヘッダー行は最初のものを使い、データ行を結合
           finalCsvData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
         } else {
-          finalCsvData = csvText;
+          finalCsvData = parsedCsvData;
         }
       } else {
         // 書き換えモード：既存データを置き換え
-        finalCsvData = csvText;
+        finalCsvData = parsedCsvData;
+      }
+      
+      // サイズ制限をチェック（15MB以上の場合、15MBまで取り込む）
+      const MAX_SIZE = 15 * 1024 * 1024; // 15MB
+      dataSize = new Blob([finalCsvData]).size;
+      truncatedData = finalCsvData;
+      
+      if (dataSize >= MAX_SIZE) {
+        // 15MBを超える場合、15MBまで取り込む
+        const lines = finalCsvData.split('\n');
+        if (lines.length > 1) {
+          const header = lines[0];
+          const dataLines = lines.slice(1);
+          let truncatedLines = [header];
+          let currentSize = new Blob([header + '\n']).size;
+          
+          for (const line of dataLines) {
+            const lineWithNewline = line + '\n';
+            const lineSize = new Blob([lineWithNewline]).size;
+            
+            if (currentSize + lineSize > MAX_SIZE) {
+              isTruncated = true;
+              break;
+            }
+            
+            truncatedLines.push(line);
+            currentSize += lineSize;
+          }
+          
+          truncatedData = truncatedLines.join('\n');
+          dataSize = new Blob([truncatedData]).size;
+          
+          // 切り詰めたデータで再パース
+          try {
+            parsed = parseCsvToPosts(truncatedData);
+          } catch (e) {
+            console.warn("切り詰めたデータのパースエラー:", e);
+          }
+        }
       }
       
       // 状態を更新（メモリキャッシュ）
       if (mode === 'append') {
         setParsedPosts(prev => [...prev, ...parsed]);
-        setCsvData(finalCsvData);
+        setCsvData(truncatedData);
       } else {
         setParsedPosts(parsed);
-        setCsvData(finalCsvData);
+        setCsvData(truncatedData);
       }
       
-        const now = new Date();
-        const dateStr = now.toLocaleString('ja-JP', { 
-          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-        });
-        setCsvUploadDate(dateStr);
+      const now = new Date();
+      const dateStr = now.toLocaleString('ja-JP', { 
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+      });
+      setCsvUploadDate(dateStr);
+      
+      // Firestoreに保存（分割機能付き、エラーが発生しても可能な限り保存）
+      try {
+        const updatedTime = await saveCsvToFirestore(user.uid, truncatedData, dateStr);
         
-      // Firestoreに保存（分割機能付き）
-      const dataSize = new Blob([finalCsvData]).size;
-      const TEN_MB = 10 * 1024 * 1024; // 10MB
-      const FIFTEEN_MB = 15 * 1024 * 1024; // 15MB
-      
-      // 15MB以上の場合はアップロード不可
-      if (dataSize >= FIFTEEN_MB) {
+        // ローカルストレージキャッシュを更新（非同期で実行、エラーは無視）
+        saveCsvToCache(user.uid, truncatedData, updatedTime);
+        
+        const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
         const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
-        throw new Error(`CSVデータが大きすぎます（${sizeInMB} MB）。\n\n15MB以上のCSVはアップロードできません。\nデータを分割するか、不要な列を削除してください。`);
-      }
-      
-      // 10MB以上15MB未満の場合は警告を表示
-      if (dataSize >= TEN_MB) {
+        console.log(`CSVデータを保存しました (${parsed.length}件, ${sizeInMB} MB, 合計: ${totalTime}秒)`);
+        
+        // 成功メッセージを表示
+        if (isTruncated) {
+          alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n元のデータが大きすぎたため、一部のデータは取り込まれていません。`);
+        } else {
+          alert(`${parsed.length}件のデータ（${sizeInMB} MB）を取り込みました。`);
+        }
+      } catch (saveError: any) {
+        console.error("Firestore保存エラー（部分的な保存を試みます）:", saveError);
+        
+        // 保存エラーが発生した場合でも、メモリ上のデータは保持
         const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
-        alert(`CSVデータが大きいです（${sizeInMB} MB）。\n\n処理に時間がかかる可能性があります。`);
+        alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n保存時にエラーが発生しましたが、メモリ上にはデータが保持されています。`);
       }
-      
-      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → Firestoreに保存`);
-      
-      const updatedTime = await saveCsvToFirestore(user.uid, finalCsvData, dateStr);
-      
-      // ローカルストレージキャッシュを更新（非同期で実行）
-      saveCsvToCache(user.uid, finalCsvData, updatedTime);
-      
-      const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
-      console.log(`CSVデータを保存しました (合計: ${totalTime}秒)`);
     } catch (err: any) {
-      console.error("CSV保存失敗:", err);
+      console.error("CSV処理エラー:", err);
       
-      // エラーメッセージを改善
-      let errorMessage = "CSVデータの保存に失敗しました。";
-      if (err.code === 'resource-exhausted' || err.message?.includes('size')) {
-        errorMessage = "CSVデータが大きすぎます。\n\nデータを分割するか、不要な列を削除してください。";
-      } else if (err.code === 'deadline-exceeded') {
-        errorMessage = "保存処理がタイムアウトしました。\n\nデータが大きすぎる可能性があります。";
-      } else if (err.message) {
-        errorMessage = `CSVデータの保存に失敗しました: ${err.message}`;
+      // パースできたデータがあれば、それを使用
+      if (parsed.length > 0) {
+        const sizeInMB = (dataSize > 0 ? dataSize : new Blob([truncatedData || csvData]).size) / 1024 / 1024;
+        alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB.toFixed(2)} MB）を取り込みました。\n\n一部のデータは取り込まれていない可能性があります。`);
+      } else {
+        alert(`CSVデータの取り込みに失敗しました: ${err.message || '不明なエラー'}`);
       }
-      
-      alert(errorMessage);
     } finally {
       setIsCsvLoading(false);
       setShowCsvImportModal(false);
