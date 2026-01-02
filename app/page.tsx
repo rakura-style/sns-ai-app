@@ -950,10 +950,33 @@ export default function SNSGeneratorApp() {
   // ローカルストレージからキャッシュを読み込む
   const loadCsvFromCache = (userId: string): { data: string; metadata: string } | null => {
     try {
-      const cachedData = localStorage.getItem(CSV_CACHE_KEY(userId));
+      const cachedDataEncoded = localStorage.getItem(CSV_CACHE_KEY(userId));
       const cachedMetadata = localStorage.getItem(CSV_METADATA_KEY(userId));
-      if (cachedData && cachedMetadata) {
-        return { data: cachedData, metadata: cachedMetadata };
+      if (cachedDataEncoded && cachedMetadata) {
+        try {
+          // Base64デコード
+          const binaryString = atob(cachedDataEncoded);
+          // UTF-8デコード
+          const utf8Bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            utf8Bytes[i] = binaryString.charCodeAt(i);
+          }
+          const decodedData = new TextDecoder('utf-8').decode(utf8Bytes);
+          return { data: decodedData, metadata: cachedMetadata };
+        } catch (decodeError) {
+          console.error("キャッシュデコードエラー:", decodeError);
+          // デコードに失敗した場合、古い形式（Base64エンコードされていない）の可能性がある
+          // その場合はそのまま返す（後方互換性）
+          try {
+            return { data: cachedDataEncoded, metadata: cachedMetadata };
+          } catch (fallbackError) {
+            console.error("フォールバック読み込みも失敗:", fallbackError);
+            // キャッシュが破損している可能性があるので削除
+            localStorage.removeItem(CSV_CACHE_KEY(userId));
+            localStorage.removeItem(CSV_METADATA_KEY(userId));
+            return null;
+          }
+        }
       }
     } catch (e) {
       console.error("キャッシュ読み込みエラー:", e);
@@ -964,7 +987,17 @@ export default function SNSGeneratorApp() {
   // ローカルストレージにキャッシュを保存
   const saveCsvToCache = (userId: string, data: string, metadata: string) => {
     try {
-      localStorage.setItem(CSV_CACHE_KEY(userId), data);
+      // UTF-8エンコードしてからBase64エンコード（非ASCII文字も安全に保存）
+      const utf8Bytes = new TextEncoder().encode(data);
+      // 大きな配列でも安全に処理するため、チャンクに分割
+      let binaryString = '';
+      const chunkSize = 8192; // 8KBずつ処理
+      for (let i = 0; i < utf8Bytes.length; i += chunkSize) {
+        const chunk = utf8Bytes.slice(i, i + chunkSize);
+        binaryString += String.fromCharCode(...chunk);
+      }
+      const encodedData = btoa(binaryString);
+      localStorage.setItem(CSV_CACHE_KEY(userId), encodedData);
       localStorage.setItem(CSV_METADATA_KEY(userId), metadata);
     } catch (e) {
       console.error("キャッシュ保存エラー:", e);
@@ -978,6 +1011,9 @@ export default function SNSGeneratorApp() {
         } catch (clearError) {
           console.error("キャッシュ削除エラー:", clearError);
         }
+      } else {
+        // その他のエラーの場合、キャッシュを保存しない（エラーを無視）
+        console.warn("キャッシュの保存をスキップしました:", e);
       }
     }
   };
