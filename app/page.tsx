@@ -1040,19 +1040,72 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // Firebase StorageにCSVを保存
-  const saveCsvToStorage = async (userId: string, csvData: string): Promise<string> => {
-    const { ref, uploadString, getMetadata } = await import('firebase/storage');
+  // Firebase StorageにCSVを保存（リジューム可能なアップロードを使用）
+  const saveCsvToStorage = async (userId: string, csvData: string, retryCount: number = 0): Promise<string> => {
+    const MAX_RETRIES = 3;
+    const { ref, uploadBytesResumable, getMetadata } = await import('firebase/storage');
     const csvRef = ref(storage, `users/${userId}/csvData.csv`);
     
-    // CSVデータを保存
-    await uploadString(csvRef, csvData, 'raw');
-    
-    // メタデータ（更新日時）を取得
-    const metadata = await getMetadata(csvRef);
-    const updatedTime = metadata.updated || new Date().toISOString();
-    
-    return updatedTime;
+    try {
+      // 文字列をバイト配列に変換
+      const encoder = new TextEncoder();
+      const bytes = encoder.encode(csvData);
+      
+      // リジューム可能なアップロードを作成
+      const uploadTask = uploadBytesResumable(csvRef, bytes, {
+        contentType: 'text/csv',
+        cacheControl: 'public, max-age=3600'
+      });
+      
+      // アップロードを実行（Promiseでラップ）
+      await new Promise<void>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            // 進捗をログ出力（オプション）
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            if (progress % 25 === 0 || progress === 100) {
+              console.log(`アップロード進捗: ${progress.toFixed(1)}%`);
+            }
+          },
+          (error) => {
+            // エラーが発生した場合
+            console.error("アップロードエラー:", error);
+            reject(error);
+          },
+          () => {
+            // アップロード完了
+            resolve();
+          }
+        );
+      });
+      
+      // メタデータ（更新日時）を取得
+      const metadata = await getMetadata(csvRef);
+      const updatedTime = metadata.updated || new Date().toISOString();
+      
+      return updatedTime;
+    } catch (error: any) {
+      console.error(`Storage保存エラー (試行 ${retryCount + 1}/${MAX_RETRIES}):`, error);
+      
+      // リトライ可能なエラーの場合、リトライを試みる
+      if (retryCount < MAX_RETRIES && (
+        error.code === 'storage/retry-limit-exceeded' ||
+        error.code === 'storage/network-request-failed' ||
+        error.code === 'storage/unauthenticated' ||
+        error.message?.includes('network') ||
+        error.message?.includes('timeout')
+      )) {
+        // 指数バックオフでリトライ（1秒、2秒、4秒）
+        const delay = Math.pow(2, retryCount) * 1000;
+        console.log(`${delay}ms後にリトライします...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return saveCsvToStorage(userId, csvData, retryCount + 1);
+      }
+      
+      // リトライ不可能なエラー、または最大リトライ回数に達した場合
+      throw error;
+    }
   };
 
   // CSV行をパースするヘルパー関数（カンマ区切り、ダブルクォート対応）
@@ -1460,7 +1513,20 @@ export default function SNSGeneratorApp() {
       console.log(`CSVデータを保存しました (合計: ${totalTime}秒)`);
     } catch (err: any) {
       console.error("CSV保存失敗:", err);
-      alert(`CSVデータの保存に失敗しました: ${err.message}`);
+      
+      // エラーメッセージを改善
+      let errorMessage = "CSVデータの保存に失敗しました。";
+      if (err.code === 'storage/retry-limit-exceeded') {
+        errorMessage = "CSVデータの保存に失敗しました。\n\nネットワーク接続が不安定な可能性があります。\nしばらく待ってから再度お試しください。";
+      } else if (err.code === 'storage/network-request-failed') {
+        errorMessage = "CSVデータの保存に失敗しました。\n\nネットワーク接続を確認してください。";
+      } else if (err.code === 'storage/quota-exceeded') {
+        errorMessage = "CSVデータの保存に失敗しました。\n\nストレージの容量が不足しています。";
+      } else if (err.message) {
+        errorMessage = `CSVデータの保存に失敗しました: ${err.message}`;
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsCsvLoading(false);
       setShowCsvImportModal(false);
