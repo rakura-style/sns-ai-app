@@ -555,7 +555,7 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
             >
               <div className="bg-slate-100 p-1 rounded text-slate-600">
                 <XIcon size={14} />
-              </div>
+          </div>
               Xデータをクリア
             </button>
             
@@ -565,7 +565,7 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
             >
               <div className="bg-slate-100 p-1 rounded text-slate-600">
                 <XIcon size={14} />
-              </div>
+        </div>
               URLデータをクリア
             </button>
           </div>
@@ -1887,17 +1887,36 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // 投稿内容を取得（XのCSVデータの場合は'text'列、ブログデータの場合は'Content'列を優先）
+      // 投稿内容を取得（XのCSVデータの場合は'text'列を最優先）
       let content = '';
-      for (const key of contentKeys) {
-        const val = post[key];
-        if (val !== undefined && val !== '') {
-          // WordPressのブロックコメントとHTMLタグを除去してテキストのみを抽出
-          const rawContent = String(val);
+      
+      // text列が存在する場合は、必ずtext列を使用（他の列は無視）
+      if (hasTextColumn) {
+        const textVal = post['text'] || post['Text'];
+        if (textVal !== undefined && textVal !== '') {
+          const rawContent = String(textVal);
           content = extractTextFromWordPress(rawContent);
-          // ハッシュタグだけの場合はスキップ（次のキーを試す）
-          if (content.trim() && !content.trim().match(/^[#\s]+$/)) {
-            break;
+          // text列が存在する場合は、内容に関わらずtext列を使用（他の列はチェックしない）
+        }
+      }
+      
+      // text列がない、またはtext列が空の場合は、他の列を試す（ブログデータの場合）
+      if (!content) {
+        for (const key of contentKeys) {
+          // text列は既に試したのでスキップ
+          if (key.toLowerCase() === 'text') continue;
+          
+          const val = post[key];
+          if (val !== undefined && val !== '') {
+            // WordPressのブロックコメントとHTMLタグを除去してテキストのみを抽出
+            const rawContent = String(val);
+            const extractedContent = extractTextFromWordPress(rawContent);
+            // ハッシュタグだけの場合はスキップ（次のキーを試す）
+            const trimmedContent = extractedContent.trim();
+            if (trimmedContent && !trimmedContent.match(/^[#\s]+$/)) {
+              content = extractedContent;
+              break;
+            }
           }
         }
       }
@@ -2790,9 +2809,9 @@ export default function SNSGeneratorApp() {
                         {isCsvLoading ? (
                           <Loader2 size={16} className="animate-spin text-[#066099]" />
                         ) : (
-                        <Upload size={16} />
+                      <Upload size={16} />
                         )}
-                      </button>
+                    </button>
                       {csvData && csvData !== 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200' && (
                         <span className="text-xs text-slate-600 font-medium">
                           ({(() => {
