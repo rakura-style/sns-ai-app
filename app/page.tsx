@@ -438,9 +438,20 @@ const MobileMenu = ({ user, isSubscribed, onGoogleLogin, onLogout, onManageSubsc
 };
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, csvCacheExpiry, blogCacheExpiry }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  
+  // 日付をフォーマットする関数
+  const formatDate = (timestamp: number | null): string => {
+    if (!timestamp) return 'なし';
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  };
 
   useEffect(() => {
     function handleClickOutside(event: any) {
@@ -535,6 +546,15 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
               </div>
               ログアウト
             </button>
+          </div>
+          
+          <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 space-y-1">
+            <p className="text-[10px] text-slate-500">
+              CSVキャッシュ有効期限: {formatDate(csvCacheExpiry)}
+            </p>
+            <p className="text-[10px] text-slate-500">
+              ブログキャッシュ有効期限: {formatDate(blogCacheExpiry)}
+            </p>
           </div>
         </div>
       )}
@@ -942,11 +962,22 @@ export default function SNSGeneratorApp() {
   const [pendingCsvData, setPendingCsvData] = useState<string>('');
   const [isCsvLoading, setIsCsvLoading] = useState(false);
   
+  // ブログ取り込み用の状態
+  const [blogUrl, setBlogUrl] = useState('');
+  const [isBlogImporting, setIsBlogImporting] = useState(false);
+  const [blogImportProgress, setBlogImportProgress] = useState('');
+  const [blogCacheInfo, setBlogCacheInfo] = useState<{ cachedAt: number; fromCache: boolean; isExpired?: boolean } | null>(null);
+  const [showBlogImport, setShowBlogImport] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // CSVキャッシュ用のユーティリティ関数
   const CSV_CACHE_KEY = (userId: string) => `csv_cache_${userId}`;
   const CSV_METADATA_KEY = (userId: string) => `csv_metadata_${userId}`;
+  const CSV_EXPIRY_KEY = (userId: string) => `csv_expiry_${userId}`;
+  
+  // CSVキャッシュの有効期限（1年）- 表示用のみ（自動更新はしない）
+  const CSV_CACHE_DURATION_MS = 365 * 24 * 60 * 60 * 1000; // 1年
 
   // ローカルストレージからキャッシュを読み込む
   const loadCsvFromCache = (userId: string): { data: string; metadata: string } | null => {
@@ -976,6 +1007,7 @@ export default function SNSGeneratorApp() {
             try {
               localStorage.removeItem(CSV_CACHE_KEY(userId));
               localStorage.removeItem(CSV_METADATA_KEY(userId));
+              localStorage.removeItem(CSV_EXPIRY_KEY(userId));
             } catch (clearError) {
               console.error("キャッシュ削除エラー:", clearError);
             }
@@ -1049,8 +1081,10 @@ export default function SNSGeneratorApp() {
         }
         
         const encodedData = btoa(binaryString);
+        const expiryDate = Date.now() + CSV_CACHE_DURATION_MS; // 1年後の期限日
         localStorage.setItem(CSV_CACHE_KEY(userId), encodedData);
         localStorage.setItem(CSV_METADATA_KEY(userId), metadata);
+        localStorage.setItem(CSV_EXPIRY_KEY(userId), expiryDate.toString());
       } catch (e) {
         console.error("キャッシュ保存エラー:", e);
         // localStorageの容量制限（通常5-10MB）に達した場合
@@ -1120,6 +1154,7 @@ export default function SNSGeneratorApp() {
       console.log(`${chunks.length}個のチャンクに分割しました（各チャンクは約800KB）`);
       
       // 各チャンクのサイズを確認（デバッグ用）
+      let hasOversizedChunk = false;
       for (let i = 0; i < chunks.length; i++) {
         const chunkSize = new Blob([chunks[i]]).size;
         if (i < 5 || i === chunks.length - 1) {
@@ -1127,8 +1162,14 @@ export default function SNSGeneratorApp() {
           console.log(`チャンク${i}: ${(chunkSize / 1024).toFixed(2)} KB`);
         }
         if (chunkSize > FIRESTORE_MAX_FIELD_SIZE) {
-          throw new Error(`チャンク${i}が大きすぎます: ${(chunkSize / 1024 / 1024).toFixed(2)} MB`);
+          hasOversizedChunk = true;
+          console.error(`警告: チャンク${i}が大きすぎます: ${(chunkSize / 1024 / 1024).toFixed(2)} MB`);
         }
+      }
+      
+      // 大きすぎるチャンクがある場合のみエラーをスロー（成功時はエラーを出さない）
+      if (hasOversizedChunk) {
+        throw new Error('一部のチャンクがFirestoreのサイズ制限を超えています。データを確認してください。');
       }
       
       // 各チャンクをFirestoreに保存
@@ -1159,6 +1200,200 @@ export default function SNSGeneratorApp() {
       }, { merge: true });
       
       return dateStr;
+    }
+  };
+
+  // ブログキャッシュの有効期限（1年）- 表示用のみ（自動更新はしない）
+  const BLOG_CACHE_DURATION_MS = 365 * 24 * 60 * 60 * 1000; // 1年
+
+  // ブログキャッシュから取得（期限切れでもキャッシュを返す - 手動更新のみ）
+  const getBlogCache = async (userId: string, blogUrl: string): Promise<{ csv: string; cachedAt: number; isExpired: boolean } | null> => {
+    try {
+      const cacheRef = doc(db, 'users', userId, 'blogCache', encodeURIComponent(blogUrl));
+      const cacheSnap = await getDoc(cacheRef);
+      
+      if (cacheSnap.exists()) {
+        const cacheData = cacheSnap.data();
+        const cachedAt = cacheData.cachedAt || 0;
+        const now = Date.now();
+        const isExpired = now - cachedAt >= BLOG_CACHE_DURATION_MS;
+        
+        if (isExpired) {
+          const daysSinceCache = Math.floor((now - cachedAt) / (24 * 60 * 60 * 1000));
+          console.log(`ブログキャッシュから読み込み（期限切れ: ${daysSinceCache}日前のキャッシュ）`);
+        } else {
+          const daysRemaining = Math.floor((BLOG_CACHE_DURATION_MS - (now - cachedAt)) / (24 * 60 * 60 * 1000));
+          console.log(`ブログキャッシュから読み込み（有効期限: あと${daysRemaining}日）`);
+        }
+        
+        return {
+          csv: cacheData.csv,
+          cachedAt: cachedAt,
+          isExpired: isExpired,
+        };
+      }
+    } catch (error) {
+      console.error('ブログキャッシュ読み込みエラー:', error);
+    }
+    
+    return null;
+  };
+
+  // ブログキャッシュを保存
+  const saveBlogCache = async (userId: string, blogUrl: string, csv: string): Promise<void> => {
+    try {
+      const cacheRef = doc(db, 'users', userId, 'blogCache', encodeURIComponent(blogUrl));
+      await setDoc(cacheRef, {
+        csv: csv,
+        cachedAt: Date.now(),
+        blogUrl: blogUrl,
+      }, { merge: true });
+      console.log('ブログ記事をキャッシュに保存しました');
+    } catch (error) {
+      console.error('ブログキャッシュ保存エラー:', error);
+    }
+  };
+
+  // CSVキャッシュの期限日を取得
+  const getCsvCacheExpiry = (userId: string): number | null => {
+    try {
+      const expiryStr = localStorage.getItem(CSV_EXPIRY_KEY(userId));
+      if (expiryStr) {
+        return parseInt(expiryStr, 10);
+      }
+    } catch (error) {
+      console.error('CSVキャッシュ期限取得エラー:', error);
+    }
+    return null;
+  };
+
+  // ブログキャッシュの期限日を取得（最新のブログキャッシュから計算）
+  const getBlogCacheExpiry = (): number | null => {
+    if (blogCacheInfo && blogCacheInfo.cachedAt) {
+      return blogCacheInfo.cachedAt + BLOG_CACHE_DURATION_MS;
+    }
+    return null;
+  };
+
+  // キャッシュの有効期限を表示する関数（設定内でのみ使用）
+  const getCacheStatus = (cachedAt: number, isExpired: boolean): string => {
+    const now = Date.now();
+    const daysSinceCache = Math.floor((now - cachedAt) / (24 * 60 * 60 * 1000));
+    const daysRemaining = 365 - daysSinceCache;
+    
+    if (isExpired) {
+      return `キャッシュ期限切れ（${daysSinceCache}日前のデータ）`;
+    } else if (daysRemaining > 0) {
+      return `キャッシュ有効（あと${daysRemaining}日）`;
+    } else {
+      return 'キャッシュ期限切れ';
+    }
+  };
+
+  // ブログ取り込み関数（キャッシュ対応）
+  const handleBlogImport = async (forceRefresh: boolean = false) => {
+    if (!blogUrl || !user) return;
+    
+    setIsBlogImporting(true);
+    setBlogImportProgress(forceRefresh ? 'ブログから記事を取得中...' : 'キャッシュを確認中...');
+    
+    try {
+      // 強制更新でない場合、キャッシュをチェック（期限切れでもキャッシュを使用）
+      let csv: string | null = null;
+      let cachedAt: number = 0;
+      let fromCache = false;
+      let isExpired = false;
+      
+      if (!forceRefresh) {
+        const cache = await getBlogCache(user.uid, blogUrl.trim());
+        if (cache) {
+          csv = cache.csv;
+          cachedAt = cache.cachedAt;
+          fromCache = true;
+          isExpired = cache.isExpired;
+        }
+      }
+      
+      // キャッシュがない、または強制更新の場合、ブログから取得
+      if (!csv) {
+        setBlogImportProgress('ブログから記事を取得中...');
+        
+        const response = await fetch('/api/blog/import', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            blogUrl: blogUrl.trim(),
+            maxPosts: 50,
+            forceRefresh: forceRefresh,
+            userId: user.uid,
+          }),
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || 'ブログの取り込みに失敗しました');
+        }
+        
+        if (!data.csv) {
+          throw new Error('CSVデータの取得に失敗しました');
+        }
+        
+        if (!data.csv) {
+          throw new Error('CSVデータの取得に失敗しました');
+        }
+        
+        csv = data.csv;
+        cachedAt = data.cachedAt;
+        fromCache = false;
+      }
+      
+      // csvがnullでないことを確認
+      if (!csv) {
+        throw new Error('CSVデータの取得に失敗しました');
+      }
+      
+      // キャッシュに保存（非同期、エラーを無視）- csvがnullでないことを確認済み
+      if (!fromCache) {
+        saveBlogCache(user.uid, blogUrl.trim(), csv).catch(error => {
+          console.error('キャッシュ保存に失敗しましたが、処理は続行します:', error);
+        });
+      }
+      
+      // キャッシュ情報を保存
+      setBlogCacheInfo({
+        cachedAt: cachedAt,
+        fromCache: fromCache,
+        isExpired: isExpired,
+      });
+      
+      if (fromCache) {
+        setBlogImportProgress(`キャッシュから${csv.split('\n').length - 1}件の記事を読み込みました`);
+      } else {
+        setBlogImportProgress(`${csv.split('\n').length - 1}件の記事を取得しました。CSVに変換中...`);
+      }
+      
+      // 取得したCSVを既存のCSV取込み機能に渡す
+      if (parsedPosts.length > 0) {
+        setPendingCsvData(csv);
+        setShowCsvImportModal(true);
+      } else {
+        await applyCsvData(csv, 'replace');
+      }
+      
+      if (!fromCache) {
+        setBlogUrl('');
+      }
+      setBlogImportProgress('');
+      setShowBlogImport(false);
+    } catch (error: any) {
+      console.error('Blog import error:', error);
+      alert(`ブログの取り込みに失敗しました: ${error.message}`);
+    } finally {
+      setIsBlogImporting(false);
+      setBlogImportProgress('');
     }
   };
 
@@ -1198,6 +1433,46 @@ export default function SNSGeneratorApp() {
     }
     
     return null;
+  };
+
+  // WordPressのブロックコメントとHTMLタグを除去してテキストのみを抽出する関数
+  const extractTextFromWordPress = (html: string): string => {
+    if (!html) return '';
+    
+    let text = html;
+    
+    // WordPressのブロックコメントを除去（<!-- wp:xxx --> や <!-- /wp:xxx -->）
+    text = text.replace(/<!--\s*\/?wp:[^>]+-->/g, '');
+    
+    // HTMLタグを除去
+    text = text.replace(/<[^>]+>/g, '');
+    
+    // HTMLエンティティをデコード（ブラウザ環境の場合）
+    if (typeof document !== 'undefined') {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = text;
+      text = textarea.value;
+    } else {
+      // Node.js環境の場合（サーバーサイド）
+      text = text
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&#8217;/g, "'")
+        .replace(/&#8211;/g, '–')
+        .replace(/&#8212;/g, '—')
+        .replace(/&#8230;/g, '…');
+    }
+    
+    // 連続する空白や改行を整理
+    text = text.replace(/\s+/g, ' ').trim();
+    text = text.replace(/\n\s*\n/g, '\n');
+    
+    return text;
   };
 
   // CSV行をパースするヘルパー関数（カンマ区切り、ダブルクォート対応）
@@ -1391,8 +1666,9 @@ export default function SNSGeneratorApp() {
       for (const key of contentKeys) {
         const val = post[key];
         if (val !== undefined && val !== '') {
-          // 改行を含めて全部読み込む（toString()でそのまま取得）
-          content = String(val);
+          // WordPressのブロックコメントとHTMLタグを除去してテキストのみを抽出
+          const rawContent = String(val);
+          content = extractTextFromWordPress(rawContent);
           break;
         }
       }
@@ -2053,8 +2329,10 @@ export default function SNSGeneratorApp() {
                 onManageSubscription={handleManageSubscription}
                 onUpgrade={handleUpgradeFromMenu}
                 isPortalLoading={isPortalLoading}
-                  onOpenFacebookSettings={() => setShowFacebookSettings(true)}
-                  onOpenXSettings={() => setShowXSettings(true)}
+                onOpenFacebookSettings={() => setShowFacebookSettings(true)}
+                onOpenXSettings={() => setShowXSettings(true)}
+                csvCacheExpiry={user ? getCsvCacheExpiry(user.uid) : null}
+                blogCacheExpiry={getBlogCacheExpiry()}
               />
             </div>
           ) : (
@@ -2165,6 +2443,18 @@ export default function SNSGeneratorApp() {
                         <Loader2 size={16} className="animate-spin text-[#066099]" />
                       ) : (
                       <Upload size={16} />
+                      )}
+                    </button>
+                    <button 
+                      onClick={() => setShowBlogImport(!showBlogImport)}
+                      disabled={isBlogImporting}
+                      className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative" 
+                      title="ブログ取り込み"
+                    >
+                      {isBlogImporting ? (
+                        <Loader2 size={16} className="animate-spin text-[#066099]" />
+                      ) : (
+                        <BookOpen size={16} />
                       )}
                     </button>
                     <div className="h-4 w-px bg-slate-300 mx-1"></div>
@@ -2375,6 +2665,93 @@ export default function SNSGeneratorApp() {
                     }
                     return null;
                   })()}
+                </div>
+              )}
+
+              {/* ブログ取り込みUI */}
+              {showBlogImport && activeMode === 'mypost' && (
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 mb-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <BookOpen size={16} className="text-[#066099]" />
+                      ブログ取り込み
+                    </h3>
+                    <button
+                      onClick={() => {
+                        setShowBlogImport(false);
+                        setBlogUrl('');
+                        setBlogCacheInfo(null);
+                      }}
+                      className="text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      <XIcon size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="ブログURLを入力（例: https://example.com）"
+                        value={blogUrl}
+                        onChange={(e) => setBlogUrl(e.target.value)}
+                        className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                        disabled={isBlogImporting}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !isBlogImporting && blogUrl.trim()) {
+                            handleBlogImport(false);
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={() => handleBlogImport(false)}
+                        disabled={isBlogImporting || !blogUrl.trim()}
+                        className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {isBlogImporting ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            処理中...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            取り込み
+                          </>
+                        )}
+                      </button>
+                      {(blogCacheInfo?.fromCache || blogCacheInfo?.isExpired) && (
+                        <button
+                          onClick={() => handleBlogImport(true)}
+                          disabled={isBlogImporting}
+                          className="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                          title="キャッシュを無視して最新の記事を取得"
+                        >
+                          <RefreshCcw size={14} />
+                          更新
+                        </button>
+                      )}
+                    </div>
+                    
+                    {blogImportProgress && (
+                      <p className="text-sm text-slate-600">{blogImportProgress}</p>
+                    )}
+                    
+                    {blogCacheInfo && (
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <Check size={12} className="text-green-600" />
+                        <span>
+                          {blogCacheInfo.fromCache 
+                            ? 'キャッシュから読み込みました'
+                            : '最新の記事を取得しました（次回からはキャッシュを使用します）'}
+                        </span>
+                      </div>
+                    )}
+                    
+                    <p className="text-xs text-slate-500">
+                      ※ ブログの記事をテキスト形式で取り込みます。
+                    </p>
+                  </div>
                 </div>
               )}
 
