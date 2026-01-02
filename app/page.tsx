@@ -957,15 +957,31 @@ export default function SNSGeneratorApp() {
         try {
           // Base64デコード
           const binaryString = atob(cachedDataEncoded);
-          // UTF-8デコード
+          
+          // UTF-8デコード（大きなデータでも安全に処理）
           const utf8Bytes = new Uint8Array(binaryString.length);
           for (let i = 0; i < binaryString.length; i++) {
             utf8Bytes[i] = binaryString.charCodeAt(i);
           }
+          
           const decodedData = new TextDecoder('utf-8').decode(utf8Bytes);
           return { data: decodedData, metadata: cachedMetadata };
-        } catch (decodeError) {
+        } catch (decodeError: any) {
           console.error("キャッシュデコードエラー:", decodeError);
+          
+          // エラーの詳細を確認
+          if (decodeError.message?.includes('JSON') || decodeError.message?.includes('Unterminated')) {
+            // JSONパースエラーの場合、キャッシュが破損している可能性が高い
+            console.warn("キャッシュが破損している可能性があります。キャッシュを削除します。");
+            try {
+              localStorage.removeItem(CSV_CACHE_KEY(userId));
+              localStorage.removeItem(CSV_METADATA_KEY(userId));
+            } catch (clearError) {
+              console.error("キャッシュ削除エラー:", clearError);
+            }
+            return null;
+          }
+          
           // デコードに失敗した場合、古い形式（Base64エンコードされていない）の可能性がある
           // その場合はそのまま返す（後方互換性）
           try {
@@ -979,8 +995,19 @@ export default function SNSGeneratorApp() {
           }
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("キャッシュ読み込みエラー:", e);
+      
+      // JSONパースエラーの場合、キャッシュを削除
+      if (e.message?.includes('JSON') || e.message?.includes('Unterminated')) {
+        console.warn("JSONパースエラーが発生しました。キャッシュを削除します。");
+        try {
+          localStorage.removeItem(CSV_CACHE_KEY(userId));
+          localStorage.removeItem(CSV_METADATA_KEY(userId));
+        } catch (clearError) {
+          console.error("キャッシュ削除エラー:", clearError);
+        }
+      }
     }
     return null;
   };
@@ -992,13 +1019,35 @@ export default function SNSGeneratorApp() {
       try {
         // UTF-8エンコードしてからBase64エンコード（非ASCII文字も安全に保存）
         const utf8Bytes = new TextEncoder().encode(data);
-        // 大きな配列でも安全に処理するため、チャンクに分割
+        
+        // 大きな配列でも安全に処理するため、より効率的な方法を使用
+        // String.fromCharCodeは大きな配列でスタックオーバーフローを起こす可能性があるため、
+        // より安全な方法で処理
         let binaryString = '';
         const chunkSize = 8192; // 8KBずつ処理
-        for (let i = 0; i < utf8Bytes.length; i += chunkSize) {
-          const chunk = utf8Bytes.slice(i, i + chunkSize);
-          binaryString += String.fromCharCode(...chunk);
+        
+        // 大きなデータの場合は、より安全な方法で処理
+        if (utf8Bytes.length > 1000000) { // 1MB以上の場合
+          // 大きなデータは、直接Uint8Arrayから処理
+          const chunks: string[] = [];
+          for (let i = 0; i < utf8Bytes.length; i += chunkSize) {
+            const chunk = utf8Bytes.slice(i, i + chunkSize);
+            // 小さなチャンクごとにString.fromCharCodeを適用
+            let chunkString = '';
+            for (let j = 0; j < chunk.length; j++) {
+              chunkString += String.fromCharCode(chunk[j]);
+            }
+            chunks.push(chunkString);
+          }
+          binaryString = chunks.join('');
+        } else {
+          // 小さなデータは従来の方法で処理
+          for (let i = 0; i < utf8Bytes.length; i += chunkSize) {
+            const chunk = utf8Bytes.slice(i, i + chunkSize);
+            binaryString += String.fromCharCode(...chunk);
+          }
         }
+        
         const encodedData = btoa(binaryString);
         localStorage.setItem(CSV_CACHE_KEY(userId), encodedData);
         localStorage.setItem(CSV_METADATA_KEY(userId), metadata);
