@@ -21,7 +21,7 @@ import {
   onAuthStateChanged,
   User
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 
 // グローバル定数: アプリID
 const getAppId = () => {
@@ -438,7 +438,7 @@ const MobileMenu = ({ user, isSubscribed, onGoogleLogin, onLogout, onManageSubsc
 };
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, csvCacheExpiry, blogCacheExpiry, csvUploadDate, blogUploadDate }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, csvCacheExpiry, blogCacheExpiry, csvUploadDate, blogUploadDate, blogUrls, blogUrlDates, onClearCsvData, onClearBlogData }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   
@@ -546,23 +546,58 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
               </div>
               ログアウト
             </button>
+            
+            <div className="h-px bg-slate-100 my-1 mx-2"></div>
+            
+            <button 
+              onClick={() => { onClearCsvData(); setIsOpen(false); }}
+              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <div className="bg-slate-100 p-1 rounded text-slate-600">
+                <XIcon size={14} />
+              </div>
+              Xデータをクリア
+            </button>
+            
+            <button 
+              onClick={() => { onClearBlogData(); setIsOpen(false); }}
+              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <div className="bg-slate-100 p-1 rounded text-slate-600">
+                <XIcon size={14} />
+              </div>
+              URLデータをクリア
+            </button>
           </div>
           
           <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 space-y-1">
-            <p className="text-[10px] text-slate-500">
-              CSVキャッシュ有効期限: {formatDate(csvCacheExpiry)}
-            </p>
-            <p className="text-[10px] text-slate-500">
-              ブログキャッシュ有効期限: {formatDate(blogCacheExpiry)}
-            </p>
             {csvUploadDate && (
               <p className="text-[10px] text-slate-500">
-                XのCSV取込み日時: {csvUploadDate}
+                Xデータ取込み日時: {csvUploadDate}
               </p>
             )}
-            {blogUploadDate && (
+            {csvCacheExpiry && (
               <p className="text-[10px] text-slate-500">
-                ブログ・note取込み日時: {blogUploadDate}
+                Xデータ有効期限: {formatDate(csvCacheExpiry)}
+              </p>
+            )}
+            {blogUrls && blogUrls.length > 0 && (
+              <>
+                {blogUrls.map((url: string, index: number) => (
+                  <div key={index} className="space-y-0.5">
+                    <p className="text-[10px] text-slate-500 truncate" title={url}>
+                      URL取込み日時 ({index + 1}): {blogUrlDates[url] || '不明'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 truncate" title={url}>
+                      {url}
+                    </p>
+                  </div>
+                ))}
+              </>
+            )}
+            {blogCacheExpiry && (
+              <p className="text-[10px] text-slate-500">
+                URLデータ有効期限: {formatDate(blogCacheExpiry)}
               </p>
             )}
           </div>
@@ -983,6 +1018,8 @@ export default function SNSGeneratorApp() {
   
   // ブログ取り込み用の状態
   const [blogUrl, setBlogUrl] = useState('');
+  const [blogUrls, setBlogUrls] = useState<string[]>([]); // 取り込んだURLの一覧
+  const [blogUrlDates, setBlogUrlDates] = useState<{ [url: string]: string }>({}); // 各URLの取込み日時
   const [isBlogImporting, setIsBlogImporting] = useState(false);
   const [blogImportProgress, setBlogImportProgress] = useState('');
   const [blogCacheInfo, setBlogCacheInfo] = useState<{ cachedAt: number; fromCache: boolean; isExpired?: boolean } | null>(null);
@@ -1525,6 +1562,44 @@ export default function SNSGeneratorApp() {
       await saveBlogDataToFirestore(user.uid, finalBlogData, dateStr);
       setBlogData(finalBlogData);
       setBlogUploadDate(dateStr);
+      
+      // 取り込んだURLを記録
+      const importedUrl = blogUrl.trim();
+      if (!fromCache && importedUrl) {
+        setBlogUrls(prev => {
+          if (!prev.includes(importedUrl)) {
+            return [...prev, importedUrl];
+          }
+          return prev;
+        });
+        setBlogUrlDates(prev => ({
+          ...prev,
+          [importedUrl]: dateStr
+        }));
+        
+        // FirestoreにURLの一覧と取込み日時を保存
+        const userRef = doc(db, 'users', user.uid);
+        const currentData = await getDoc(userRef);
+        const existingUrls = currentData.exists() ? (currentData.data().blogUrls || []) : [];
+        const existingUrlDates = currentData.exists() ? (currentData.data().blogUrlDates || {}) : {};
+        
+        if (!existingUrls.includes(importedUrl)) {
+          await setDoc(userRef, {
+            blogUrls: [...existingUrls, importedUrl],
+            blogUrlDates: {
+              ...existingUrlDates,
+              [importedUrl]: dateStr
+            }
+          }, { merge: true });
+        } else {
+          await setDoc(userRef, {
+            blogUrlDates: {
+              ...existingUrlDates,
+              [importedUrl]: dateStr
+            }
+          }, { merge: true });
+        }
+      }
       
       if (!fromCache) {
         setBlogUrl('');
@@ -2112,6 +2187,15 @@ export default function SNSGeneratorApp() {
           }
           
           if (data.blogUploadDate) setBlogUploadDate(data.blogUploadDate);
+          
+          // 取り込んだURLの一覧を読み込み
+          if (data.blogUrls && Array.isArray(data.blogUrls)) {
+            setBlogUrls(data.blogUrls);
+          }
+          if (data.blogUrlDates && typeof data.blogUrlDates === 'object') {
+            setBlogUrlDates(data.blogUrlDates);
+          }
+          
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
           else setIsSubscribed(false);
@@ -2186,6 +2270,86 @@ export default function SNSGeneratorApp() {
     
     setParsedPosts(posts);
   }, [csvData, blogData, useCsvData, useBlogData]);
+
+  // XのCSVデータをクリア
+  const handleClearCsvData = async () => {
+    if (!user) return;
+    
+    if (!confirm('XのCSVデータをクリアしますか？この操作は取り消せません。')) {
+      return;
+    }
+    
+    try {
+      const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+      setCsvData(defaultCsv);
+      setCsvUploadDate(null);
+      setParsedPosts([]);
+      
+      // Firestoreから削除
+      await setDoc(doc(db, 'users', user.uid), {
+        csvData: null,
+        csvUploadDate: null,
+        csvUpdatedTime: null,
+        csvIsSplit: false,
+        csvChunkCount: null
+      }, { merge: true });
+      
+      // ローカルストレージから削除
+      localStorage.removeItem(CSV_CACHE_KEY(user.uid));
+      localStorage.removeItem(CSV_METADATA_KEY(user.uid));
+      localStorage.removeItem(CSV_EXPIRY_KEY(user.uid));
+      
+      alert('XのCSVデータをクリアしました');
+    } catch (error) {
+      console.error('CSVデータのクリアに失敗:', error);
+      alert('CSVデータのクリアに失敗しました');
+    }
+  };
+
+  // ブログ・noteデータをクリア
+  const handleClearBlogData = async () => {
+    if (!user) return;
+    
+    if (!confirm('URLデータをクリアしますか？この操作は取り消せません。')) {
+      return;
+    }
+    
+    try {
+      setBlogData('');
+      setBlogUploadDate(null);
+      setBlogUrls([]);
+      setBlogUrlDates({});
+      setParsedPosts([]);
+      
+      // Firestoreから削除
+      await setDoc(doc(db, 'users', user.uid), {
+        blogData: null,
+        blogUploadDate: null,
+        blogUpdatedTime: null,
+        blogIsSplit: false,
+        blogChunkCount: null,
+        blogUrls: [],
+        blogUrlDates: {}
+      }, { merge: true });
+      
+      // ブログキャッシュも削除
+      if (blogUrls.length > 0) {
+        for (const url of blogUrls) {
+          try {
+            const cacheRef = doc(db, 'users', user.uid, 'blogCache', encodeURIComponent(url));
+            await deleteDoc(cacheRef);
+          } catch (error) {
+            console.error(`ブログキャッシュ削除エラー (${url}):`, error);
+          }
+        }
+      }
+      
+      alert('URLデータをクリアしました');
+    } catch (error) {
+      console.error('URLデータのクリアに失敗:', error);
+      alert('URLデータのクリアに失敗しました');
+    }
+  };
 
   // Facebook App IDを保存
   const saveFacebookAppId = async () => {
@@ -2513,6 +2677,12 @@ export default function SNSGeneratorApp() {
                 onOpenXSettings={() => setShowXSettings(true)}
                 csvCacheExpiry={user ? getCsvCacheExpiry(user.uid) : null}
                 blogCacheExpiry={getBlogCacheExpiry()}
+                csvUploadDate={csvUploadDate}
+                blogUploadDate={blogUploadDate}
+                blogUrls={blogUrls}
+                blogUrlDates={blogUrlDates}
+                onClearCsvData={handleClearCsvData}
+                onClearBlogData={handleClearBlogData}
               />
             </div>
           ) : (
@@ -2992,6 +3162,29 @@ export default function SNSGeneratorApp() {
                     <p className="text-xs text-slate-500">
                       ※ ブログの記事をテキスト形式で取り込みます。
                     </p>
+                    
+                    {/* 取り込んだURLの一覧 */}
+                    {blogUrls && blogUrls.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-200">
+                        <p className="text-xs font-bold text-slate-700 mb-2">取り込んだURL一覧:</p>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {blogUrls.map((url: string, index: number) => (
+                            <div key={index} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-slate-600 truncate" title={url}>
+                                  {index + 1}. {url}
+                                </p>
+                                {blogUrlDates[url] && (
+                                  <p className="text-slate-400 text-[10px]">
+                                    取込み日時: {blogUrlDates[url]}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
