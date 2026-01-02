@@ -1948,6 +1948,11 @@ export default function SNSGeneratorApp() {
           }
         }
         
+        // デバッグログ（最初の5行のみ）
+        if (i <= 5) {
+          console.log(`行${i}: textValue =`, textValue, 'textStartIndex =', textStartIndex, 'textEndIndex =', textEndIndex, 'row =', row.substring(0, 100));
+        }
+        
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
         post[headers[textColumnIndex]] = textValue;
         post['text'] = textValue;
@@ -2038,9 +2043,19 @@ export default function SNSGeneratorApp() {
         // text列の値を取得（複数のキーを試す）
         const textVal = post['text'] || post['Text'] || post[headers[textColumnIndex]];
         
+        // デバッグログ（最初の5行のみ）
+        if (i <= 5) {
+          console.log(`行${i}: hasTextColumn =`, hasTextColumn, 'textColumnIndex =', textColumnIndex, 'textVal =', textVal, 'post[text] =', post['text'], 'post[Text] =', post['Text'], 'post[headers[textColumnIndex]] =', post[headers[textColumnIndex]]);
+        }
+        
         if (textVal !== undefined && textVal !== null && textVal !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
           content = String(textVal);
+        } else {
+          // デバッグログ（textValが空の場合）
+          if (i <= 5) {
+            console.log(`行${i}: textValが空です。post =`, Object.keys(post), 'headers =', headers);
+          }
         }
       }
       
