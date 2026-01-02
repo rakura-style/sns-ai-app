@@ -79,14 +79,24 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
         '#',
         'mailto:',
         'tel:',
+        '.jpg',
+        '.jpeg',
+        '.png',
+        '.gif',
+        '.pdf',
+        '.zip',
+        '.css',
+        '.js',
       ];
       
-      const shouldExclude = excludePatterns.some(pattern => url.includes(pattern));
+      const shouldExclude = excludePatterns.some(pattern => url.toLowerCase().includes(pattern));
       
-      if (!shouldExclude && 
-          url !== baseUrl && 
-          url !== baseUrl + '/' &&
-          !urls.includes(url)) {
+      // baseUrl自体やbaseUrl/は除外（一覧ページ自体は記事ではない）
+      // ただし、baseUrl/xxx/のような階下のURLは含める
+      const isBaseUrl = url === baseUrl || url === baseUrl + '/';
+      const isArticleUrl = !isBaseUrl && url.length > baseUrl.length;
+      
+      if (!shouldExclude && isArticleUrl && !urls.includes(url)) {
         urls.push(url);
       }
     }
@@ -281,16 +291,41 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
   }
   
   // 方法2: 記事一覧ページから取得（階下も含む）
+  // 指定されたURL自体が一覧ページの場合、そのページから階下の記事URLを収集
   if (articleUrls.size < maxPosts) {
+    // まず、指定されたbaseUrl自体から記事URLを収集
+    try {
+      const response = await fetch(baseUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+      
+      if (response.ok) {
+        const html = await response.text();
+        const urls = extractPostUrls(html, baseUrl);
+        
+        for (const url of urls) {
+          if (url.startsWith(baseUrl) && url !== baseUrl && url !== baseUrl + '/') {
+            articleUrls.add(url);
+          }
+        }
+        
+        console.log(`一覧ページから${urls.length}件の記事URLを取得`);
+      }
+    } catch (error) {
+      console.error(`一覧ページ取得エラー (${baseUrl}):`, error);
+    }
+    
+    // 追加の一覧ページパターンも試す
     const listPages = [
-      `${baseUrl}/`,
       `${baseUrl}/blog/`,
       `${baseUrl}/posts/`,
       `${baseUrl}/articles/`,
     ];
     
     // ページネーションも考慮（最大5ページまで）
-    for (let page = 1; page <= 5; page++) {
+    for (let page = 1; page <= 5 && articleUrls.size < maxPosts; page++) {
       const pageUrls = [
         `${baseUrl}/page/${page}/`,
         `${baseUrl}/blog/page/${page}/`,
@@ -298,7 +333,7 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
       ];
       
       for (const listUrl of pageUrls) {
-        if (visitedUrls.has(listUrl)) continue;
+        if (visitedUrls.has(listUrl) || articleUrls.size >= maxPosts) continue;
         visitedUrls.add(listUrl);
         
         try {
@@ -313,8 +348,9 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
             const urls = extractPostUrls(html, baseUrl);
             
             for (const url of urls) {
-              if (url.startsWith(baseUrl)) {
+              if (url.startsWith(baseUrl) && url !== baseUrl && url !== baseUrl + '/') {
                 articleUrls.add(url);
+                if (articleUrls.size >= maxPosts) break;
               }
             }
             

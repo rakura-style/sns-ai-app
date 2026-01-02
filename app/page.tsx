@@ -1727,7 +1727,15 @@ export default function SNSGeneratorApp() {
     const viewsKeys = ['Views', 'views', 'View', 'ビュー', 'View Count', 'view_count', 'Impressions', 'impressions', 'インプレッション'];
     const engagementKeys = ['Engagement', 'engagement', 'エンゲージメント', 'Total Engagement'];
     const titleKeys = ['Title', 'title', 'タイトル', '見出し', 'Headline'];
-    const contentKeys = ['Post Content', 'Content', 'content', '投稿内容', 'Text', 'text', 'Tweet', 'tweet', '投稿', 'Post'];
+    // XのCSVデータとブログデータを区別するため、データソースを判定
+    // ヘッダーに'text'がある場合はXのCSVデータ、'Content'がある場合はブログデータと判定
+    const hasTextColumn = headers.some((h: string) => h.toLowerCase() === 'text');
+    const hasContentColumn = headers.some((h: string) => h.toLowerCase() === 'content');
+    
+    // XのCSVデータの場合は'text'を優先、ブログデータの場合は'Content'を優先
+    const contentKeys = hasTextColumn 
+      ? ['text', 'Text', 'Tweet', 'tweet', 'Post Content', '投稿内容', '投稿', 'Post']
+      : ['Content', 'content', 'Post Content', '投稿内容', 'Text', 'text', 'Tweet', 'tweet', '投稿', 'Post'];
     const dateKeys = ['Date', 'date', '日付', '投稿日', 'Posted At'];
     
     for (let i = 1; i < rows.length; i++) {
@@ -1804,7 +1812,7 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // 投稿内容を取得（Post Content, Content, 投稿内容等の列から、改行も含めて全部読み込む）
+      // 投稿内容を取得（XのCSVデータの場合は'text'列、ブログデータの場合は'Content'列を優先）
       let content = '';
       for (const key of contentKeys) {
         const val = post[key];
@@ -1812,7 +1820,10 @@ export default function SNSGeneratorApp() {
           // WordPressのブロックコメントとHTMLタグを除去してテキストのみを抽出
           const rawContent = String(val);
           content = extractTextFromWordPress(rawContent);
-          break;
+          // ハッシュタグだけの場合はスキップ（次のキーを試す）
+          if (content.trim() && !content.trim().match(/^[#\s]+$/)) {
+            break;
+          }
         }
       }
       
@@ -2592,10 +2603,6 @@ export default function SNSGeneratorApp() {
                 {activeMode === 'mypost' && (
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-                    <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-xs text-slate-600">
-                      <span className="font-bold">CSV:</span>
-                      {csvUploadDate ? csvUploadDate : "未取込"}
-                    </div>
                     <input 
                       type="file" 
                       ref={fileInputRef} 
