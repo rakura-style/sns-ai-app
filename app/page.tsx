@@ -1883,68 +1883,15 @@ export default function SNSGeneratorApp() {
       if (textColumnIndex >= 0) {
         let textValue = '';
         
-        // 元の行データから直接text列を抽出（parseCsvRowで分割される前に取得）
+        // シンプルな方法：最初のカンマの後から、,jaの前までを取得
         // text列の内容は、'IDの数字',から,jaの間の文字列
-        let currentColumnIndex = 0;
-        let inQuotes = false;
-        let textStartIndex = 0;
-        let textEndIndex = row.length;
+        const firstCommaIndex = row.indexOf(',');
+        const jaCommaIndex = row.indexOf(',ja');
         
-        // text列の開始位置を特定（text列より前の列をスキップ）
-        for (let k = 0; k < row.length; k++) {
-          const char = row[k];
-          const nextChar = k + 1 < row.length ? row[k + 1] : null;
+        if (firstCommaIndex >= 0 && jaCommaIndex > firstCommaIndex) {
+          // 最初のカンマの次の文字から、,jaの前までを抽出
+          textValue = row.slice(firstCommaIndex + 1, jaCommaIndex);
           
-          if (char === '"') {
-            if (inQuotes && nextChar === '"') {
-              k++; // エスケープされたダブルクォート
-            } else {
-              inQuotes = !inQuotes;
-            }
-          } else if (char === ',' && !inQuotes) {
-            // text列の前の列の後のカンマを見つけたら、text列の開始位置を設定
-            if (currentColumnIndex === textColumnIndex - 1) {
-              textStartIndex = k + 1; // カンマの次の文字から開始
-              break;
-            }
-            currentColumnIndex++;
-          }
-        }
-        
-        // text列が最初の列の場合
-        if (textColumnIndex === 0) {
-          textStartIndex = 0;
-        }
-        
-        // text列の終了位置を特定（text列の次の列の前のカンマの位置）
-        // textStartIndexから開始して、最初のカンマ（text列の次の列の前のカンマ）を見つける
-        inQuotes = false;
-        
-        for (let k = textStartIndex; k < row.length; k++) {
-          const char = row[k];
-          const nextChar = k + 1 < row.length ? row[k + 1] : null;
-          
-          if (char === '"') {
-            if (inQuotes && nextChar === '"') {
-              k++;
-            } else {
-              inQuotes = !inQuotes;
-            }
-          } else if (char === ',' && !inQuotes) {
-            // text列の次の列の前のカンマを見つけたら、text列の終了位置を設定
-            textEndIndex = k;
-            break;
-          }
-        }
-        
-        // text列の終了位置が見つからなかった場合（text列が最後の列の場合）、行の終端まで
-        if (textEndIndex === row.length && textStartIndex < row.length) {
-          textEndIndex = row.length;
-        }
-        
-        // text列の内容を抽出
-        if (textStartIndex < textEndIndex && textStartIndex < row.length) {
-          textValue = row.slice(textStartIndex, textEndIndex);
           // 先頭と末尾のダブルクォートを除去
           if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
             textValue = textValue.slice(1, -1).replace(/""/g, '"');
@@ -1955,7 +1902,7 @@ export default function SNSGeneratorApp() {
         
         // デバッグログ（最初の5行のみ）
         if (i <= 5) {
-          console.log(`行${i}: textColumnIndex =`, textColumnIndex, 'textStartIndex =', textStartIndex, 'textEndIndex =', textEndIndex, 'textValue =', textValue, 'row.substring(textStartIndex, textEndIndex) =', row.substring(textStartIndex, textEndIndex));
+          console.log(`行${i}: firstCommaIndex =`, firstCommaIndex, 'jaCommaIndex =', jaCommaIndex, 'textValue =', textValue);
         }
         
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
