@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // .env.localに入れた鍵情報を使います
 const firebaseConfig = {
@@ -18,3 +19,4 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 // 他のファイルで使いやすいようにエクスポート
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);

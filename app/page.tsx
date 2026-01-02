@@ -10,7 +10,7 @@ import {
 
 // 🔥 Firebase認証・DB読み込み
 // 相対パスで確実に lib/firebase.ts を読み込む
-import { auth, db } from '../lib/firebase';
+import { auth, db, storage } from '../lib/firebase';
 
 import { 
   GoogleAuthProvider, 
@@ -943,6 +943,78 @@ export default function SNSGeneratorApp() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // CSVキャッシュ用のユーティリティ関数
+  const CSV_CACHE_KEY = (userId: string) => `csv_cache_${userId}`;
+  const CSV_METADATA_KEY = (userId: string) => `csv_metadata_${userId}`;
+
+  // ローカルストレージからキャッシュを読み込む
+  const loadCsvFromCache = (userId: string): { data: string; metadata: string } | null => {
+    try {
+      const cachedData = localStorage.getItem(CSV_CACHE_KEY(userId));
+      const cachedMetadata = localStorage.getItem(CSV_METADATA_KEY(userId));
+      if (cachedData && cachedMetadata) {
+        return { data: cachedData, metadata: cachedMetadata };
+      }
+    } catch (e) {
+      console.error("キャッシュ読み込みエラー:", e);
+    }
+    return null;
+  };
+
+  // ローカルストレージにキャッシュを保存
+  const saveCsvToCache = (userId: string, data: string, metadata: string) => {
+    try {
+      localStorage.setItem(CSV_CACHE_KEY(userId), data);
+      localStorage.setItem(CSV_METADATA_KEY(userId), metadata);
+    } catch (e) {
+      console.error("キャッシュ保存エラー:", e);
+      // localStorageの容量制限（通常5-10MB）に達した場合
+      if (e instanceof DOMException && (e.code === 22 || e.code === 1014)) {
+        console.warn("ローカルストレージの容量が不足しています。古いキャッシュを削除します。");
+        // 古いキャッシュを削除（必要に応じて実装）
+        try {
+          localStorage.removeItem(CSV_CACHE_KEY(userId));
+          localStorage.removeItem(CSV_METADATA_KEY(userId));
+        } catch (clearError) {
+          console.error("キャッシュ削除エラー:", clearError);
+        }
+      }
+    }
+  };
+
+  // Firebase StorageからCSVを読み込む
+  const loadCsvFromStorage = async (userId: string): Promise<string | null> => {
+    try {
+      const { ref, getBytes } = await import('firebase/storage');
+      const csvRef = ref(storage, `users/${userId}/csvData.csv`);
+      const bytes = await getBytes(csvRef);
+      // バイト配列を文字列に変換（UTF-8）
+      const csvData = new TextDecoder('utf-8').decode(bytes);
+      return csvData;
+    } catch (error: any) {
+      console.error("Storage読み込みエラー:", error);
+      if (error.code === 'storage/object-not-found') {
+        return null; // ファイルが存在しない
+      }
+      throw error;
+    }
+  };
+
+  // Firebase StorageにCSVを保存
+  const saveCsvToStorage = async (userId: string, csvData: string): Promise<string> => {
+    const { ref, uploadString, getMetadata } = await import('firebase/storage');
+    const csvRef = ref(storage, `users/${userId}/csvData.csv`);
+    
+    // CSVデータを保存
+    await uploadString(csvRef, csvData, 'raw');
+    
+    // メタデータ（更新日時）を取得
+    const metadata = await getMetadata(csvRef);
+    const updatedTime = metadata.updated || new Date().toISOString();
+    
+    return updatedTime;
+  };
+
   // CSV行をパースするヘルパー関数（カンマ区切り、ダブルクォート対応）
   const parseCsvRow = (row: string): string[] => {
     const values: string[] = [];
@@ -1242,6 +1314,8 @@ export default function SNSGeneratorApp() {
   };
 
   const applyCsvData = async (csvText: string, mode: 'replace' | 'append') => {
+    if (!user) return;
+    
     const parsed = parseCsvToPosts(csvText);
     
     // 保存するCSVデータを先に計算（状態に依存しない）
@@ -1261,7 +1335,7 @@ export default function SNSGeneratorApp() {
       finalCsvData = csvText;
     }
     
-    // 状態を更新
+    // 状態を更新（メモリキャッシュ）
     if (mode === 'append') {
       setParsedPosts(prev => [...prev, ...parsed]);
       setCsvData(finalCsvData);
@@ -1276,42 +1350,42 @@ export default function SNSGeneratorApp() {
     });
     setCsvUploadDate(dateStr);
     
-    // Firestoreに保存（計算済みのfinalCsvDataを使用）
-    if (user) {
-        try {
-            // データサイズをチェック（Firestoreのドキュメントサイズ制限は約1MB）
-            const dataSize = new Blob([finalCsvData]).size;
-            const maxSize = 1000000; // 1MB
-            
-            if (dataSize > maxSize) {
-                const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
-                alert(`CSVデータが大きすぎます（${sizeInMB}MB）。Firestoreの制限（1MB）を超えているため保存できません。\n\nデータを分割するか、不要な列を削除してください。`);
-                console.error("CSVデータサイズ超過:", dataSize, "bytes");
-                return;
-            }
-            
-            console.log(`CSVデータサイズ: ${(dataSize / 1024).toFixed(2)}KB`);
-            
-            await setDoc(doc(db, 'users', user.uid), {
-                csvData: finalCsvData,
-                csvUploadDate: dateStr
-            }, { merge: true });
-            console.log("CSVデータを保存しました");
-        } catch (err: any) {
-            console.error("CSV保存失敗:", err);
-            
-            // エラーの詳細を確認
-            let errorMessage = "CSVデータの保存に失敗しました。";
-            if (err.code === 'resource-exhausted' || err.message?.includes('size')) {
-                errorMessage = "CSVデータが大きすぎます。Firestoreの制限（1MB）を超えているため保存できません。\n\nデータを分割するか、不要な列を削除してください。";
-            } else if (err.code === 'deadline-exceeded') {
-                errorMessage = "保存処理がタイムアウトしました。データが大きすぎる可能性があります。\n\nデータを分割するか、不要な列を削除してください。";
-            } else if (err.message) {
-                errorMessage = `CSVデータの保存に失敗しました: ${err.message}`;
-            }
-            
-            alert(errorMessage);
-        }
+    // データサイズをチェック
+    const dataSize = new Blob([finalCsvData]).size;
+    const ONE_MB = 1024 * 1024;
+    
+    try {
+      let updatedTime: string;
+      
+      if (dataSize >= ONE_MB) {
+        // 1MB以上はStorageに保存
+        console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → Storageに保存`);
+        updatedTime = await saveCsvToStorage(user.uid, finalCsvData);
+        
+        // Firestoreにはメタデータのみ保存
+        await setDoc(doc(db, 'users', user.uid), {
+          csvUpdatedTime: updatedTime, // Storageの更新日時
+          csvUploadDate: dateStr,
+          csvStoredInStorage: true // Storageに保存されているフラグ
+        }, { merge: true });
+      } else {
+        // 1MB未満はFirestoreに保存（後方互換性）
+        console.log(`CSVデータサイズ: ${(dataSize / 1024).toFixed(2)} KB → Firestoreに保存`);
+        updatedTime = dateStr;
+        await setDoc(doc(db, 'users', user.uid), {
+          csvData: finalCsvData,
+          csvUploadDate: dateStr,
+          csvUpdatedTime: updatedTime
+        }, { merge: true });
+      }
+      
+      // ローカルストレージキャッシュを更新
+      saveCsvToCache(user.uid, finalCsvData, updatedTime);
+      
+      console.log("CSVデータを保存しました");
+    } catch (err: any) {
+      console.error("CSV保存失敗:", err);
+      alert(`CSVデータの保存に失敗しました: ${err.message}`);
     }
     
     setShowCsvImportModal(false);
@@ -1327,11 +1401,88 @@ export default function SNSGeneratorApp() {
         
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.csvData) {
-            setCsvData(data.csvData);
-            const parsed = parseCsvToPosts(data.csvData);
+          
+          // CSVデータの読み込み（キャッシュ優先）
+          let csvContent: string | null = null;
+          let csvMetadata: string | null = null;
+          
+          // 1. メモリキャッシュ（state）をチェック（既に読み込まれている場合）
+          const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+          if (csvData && csvData !== defaultCsv) {
+            csvContent = csvData;
+            console.log("メモリキャッシュから読み込み");
+          } else {
+            // 2. ローカルストレージキャッシュをチェック
+            const cache = loadCsvFromCache(user.uid);
+            if (cache) {
+              // 3. Firestoreのメタデータと比較
+              const firestoreMetadata = data.csvUpdatedTime || data.csvUploadDate;
+              if (firestoreMetadata === cache.metadata) {
+                // キャッシュが最新
+                csvContent = cache.data;
+                csvMetadata = cache.metadata;
+                console.log("ローカルストレージキャッシュから読み込み（最新）");
+              } else {
+                // キャッシュが古い、またはメタデータがない
+                console.log("キャッシュが古いため、Storageから再ダウンロード");
+              }
+            }
+            
+            // 4. キャッシュがない、または古い場合はStorageから読み込み
+            if (!csvContent) {
+              // まずFirestoreから小さいCSVを試す（後方互換性）
+              if (data.csvData) {
+                const dataSize = new Blob([data.csvData]).size;
+                if (dataSize < 1000000) { // 1MB未満
+                  csvContent = data.csvData;
+                  csvMetadata = data.csvUploadDate || data.csvUpdatedTime || new Date().toISOString();
+                  console.log("Firestoreから読み込み（小さいファイル）");
+                }
+              }
+              
+              // 1MB以上、またはFirestoreにない場合はStorageから読み込み
+              if (!csvContent || (data.csvStoredInStorage && new Blob([csvContent]).size >= 1000000)) {
+                try {
+                  const storageData = await loadCsvFromStorage(user.uid);
+                  if (storageData) {
+                    csvContent = storageData;
+                    // メタデータを取得（Storageから）
+                    const { ref, getMetadata } = await import('firebase/storage');
+                    const csvRef = ref(storage, `users/${user.uid}/csvData.csv`);
+                    const metadata = await getMetadata(csvRef);
+                    csvMetadata = metadata.updated || new Date().toISOString();
+                    console.log("Storageから読み込み");
+                  } else if (data.csvData) {
+                    // Storageにない場合はFirestoreから（後方互換性）
+                    csvContent = data.csvData;
+                    csvMetadata = data.csvUploadDate || data.csvUpdatedTime || new Date().toISOString();
+                    console.log("Storageにないため、Firestoreから読み込み");
+                  }
+                } catch (storageError: any) {
+                  console.error("Storage読み込みエラー:", storageError);
+                  // Storageエラーの場合、Firestoreから読み込みを試す
+                  if (data.csvData) {
+                    csvContent = data.csvData;
+                    csvMetadata = data.csvUploadDate || data.csvUpdatedTime || new Date().toISOString();
+                    console.log("Storageエラーのため、Firestoreから読み込み");
+                  }
+                }
+              }
+              
+              // キャッシュに保存
+              if (csvContent && csvMetadata) {
+                saveCsvToCache(user.uid, csvContent, csvMetadata);
+              }
+            }
+          }
+          
+          // CSVデータを設定
+          if (csvContent) {
+            setCsvData(csvContent);
+            const parsed = parseCsvToPosts(csvContent);
             setParsedPosts(parsed);
           }
+          
           if (data.csvUploadDate) setCsvUploadDate(data.csvUploadDate);
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
