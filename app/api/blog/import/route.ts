@@ -114,6 +114,22 @@ function extractTitle(html: string): string {
 
 // 記事の本文を抽出（テキスト形式）
 function extractContent(html: string): string {
+  // note記事の場合
+  if (html.includes('note.com')) {
+    // note記事の本文は通常 .note-article-body または .note-content に含まれる
+    const noteContentMatch = html.match(/<div[^>]*class=["'][^"']*note-article-body[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+    if (noteContentMatch) {
+      const content = extractTextFromHTML(noteContentMatch[1]);
+      if (content.trim()) return content;
+    }
+    
+    const noteContentMatch2 = html.match(/<div[^>]*class=["'][^"']*note-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+    if (noteContentMatch2) {
+      const content = extractTextFromHTML(noteContentMatch2[1]);
+      if (content.trim()) return content;
+    }
+  }
+  
   // WordPressの場合、記事本文は通常 <article> または .entry-content に含まれる
   let content = '';
   
@@ -178,8 +194,53 @@ function extractDate(html: string): string {
   return new Date().toISOString().split('T')[0];
 }
 
+// note記事のURLを収集する関数
+async function collectNoteUrls(noteUrl: string, maxPosts: number = 50): Promise<string[]> {
+  const articleUrls = new Set<string>();
+  
+  try {
+    // noteのURLパターンを解析
+    // https://note.com/username または https://note.com/username/n/nnnnnnnnnnnn
+    const noteMatch = noteUrl.match(/https?:\/\/note\.com\/([^\/]+)/);
+    if (!noteMatch) return [];
+    
+    const username = noteMatch[1];
+    const profileUrl = `https://note.com/${username}`;
+    
+    // プロフィールページから記事URLを取得
+    const response = await fetch(profileUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+    
+    if (response.ok) {
+      const html = await response.text();
+      // note記事のURLパターン: /username/n/nnnnnnnnnnnn
+      const noteUrlPattern = new RegExp(`/${username}/n/([a-zA-Z0-9]+)`, 'g');
+      const matches = html.matchAll(noteUrlPattern);
+      
+      for (const match of matches) {
+        const articleId = match[1];
+        const fullUrl = `https://note.com/${username}/n/${articleId}`;
+        articleUrls.add(fullUrl);
+        if (articleUrls.size >= maxPosts) break;
+      }
+    }
+  } catch (error) {
+    console.error('Note URL収集エラー:', error);
+  }
+  
+  return Array.from(articleUrls);
+}
+
 // 記事URLを収集する関数（RSS、サイトマップ、記事一覧ページから）
 async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promise<string[]> {
+  // noteのURLの場合は専用の関数を使用
+  if (baseUrl.includes('note.com')) {
+    return await collectNoteUrls(baseUrl, maxPosts);
+  }
+  
   const articleUrls = new Set<string>();
   const visitedUrls = new Set<string>();
   

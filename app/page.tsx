@@ -438,7 +438,7 @@ const MobileMenu = ({ user, isSubscribed, onGoogleLogin, onLogout, onManageSubsc
 };
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, csvCacheExpiry, blogCacheExpiry }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, csvCacheExpiry, blogCacheExpiry, csvUploadDate, blogUploadDate }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   
@@ -555,6 +555,16 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
             <p className="text-[10px] text-slate-500">
               ブログキャッシュ有効期限: {formatDate(blogCacheExpiry)}
             </p>
+            {csvUploadDate && (
+              <p className="text-[10px] text-slate-500">
+                XのCSV取込み日時: {csvUploadDate}
+              </p>
+            )}
+            {blogUploadDate && (
+              <p className="text-[10px] text-slate-500">
+                ブログ・note取込み日時: {blogUploadDate}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -947,10 +957,19 @@ export default function SNSGeneratorApp() {
   const [password, setPassword] = useState('');
   const [isLoginMode, setIsLoginMode] = useState(true);
   
+  // XのCSVデータ
   const [csvData, setCsvData] = useState('Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200');
   const [csvUploadDate, setCsvUploadDate] = useState<string | null>(null);
   
-  // マイ投稿分析用の状態
+  // ブログ・noteデータ
+  const [blogData, setBlogData] = useState<string>('');
+  const [blogUploadDate, setBlogUploadDate] = useState<string | null>(null);
+  
+  // 分析用のデータソース選択
+  const [useCsvData, setUseCsvData] = useState<boolean>(true);
+  const [useBlogData, setUseBlogData] = useState<boolean>(false);
+  
+  // マイ投稿分析用の状態（選択されたデータソースから生成）
   const [parsedPosts, setParsedPosts] = useState<any[]>([]);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [sortBy, setSortBy] = useState<string>('engagement-desc');
@@ -1254,6 +1273,110 @@ export default function SNSGeneratorApp() {
     }
   };
 
+  // ブログデータをFirestoreに保存（CSVデータと同様の分割機能付き）
+  const saveBlogDataToFirestore = async (userId: string, blogData: string, dateStr: string): Promise<string> => {
+    const ONE_MB = 1024 * 1024;
+    const CHUNK_SIZE = 800 * 1024;
+    const FIRESTORE_MAX_FIELD_SIZE = 1048487;
+    const dataSize = new Blob([blogData]).size;
+    
+    if (dataSize >= ONE_MB) {
+      console.log(`ブログデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → 800KBずつ自動分割して保存`);
+      
+      const lines = blogData.split('\n');
+      if (lines.length < 2) {
+        throw new Error('ブログデータが不正です');
+      }
+      
+      const header = lines[0];
+      const dataLines = lines.slice(1);
+      const chunks: string[] = [];
+      let currentChunk = header + '\n';
+      let currentSize = new Blob([currentChunk]).size;
+      
+      for (const line of dataLines) {
+        const lineWithNewline = line + '\n';
+        const lineSize = new Blob([lineWithNewline]).size;
+        
+        if (currentSize + lineSize > CHUNK_SIZE && currentChunk !== header + '\n') {
+          chunks.push(currentChunk);
+          currentChunk = header + '\n';
+          currentSize = new Blob([currentChunk]).size;
+        }
+        
+        currentChunk += lineWithNewline;
+        currentSize += lineSize;
+      }
+      
+      if (currentChunk !== header + '\n') {
+        chunks.push(currentChunk);
+      }
+      
+      console.log(`${chunks.length}個のチャンクに分割しました（各チャンクは約800KB）`);
+      
+      let hasOversizedChunk = false;
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkSize = new Blob([chunks[i]]).size;
+        if (i < 5 || i === chunks.length - 1) {
+          console.log(`チャンク${i}: ${(chunkSize / 1024).toFixed(2)} KB`);
+        }
+        if (chunkSize > FIRESTORE_MAX_FIELD_SIZE) {
+          hasOversizedChunk = true;
+          console.error(`警告: チャンク${i}が大きすぎます: ${(chunkSize / 1024 / 1024).toFixed(2)} MB`);
+        }
+      }
+      
+      if (hasOversizedChunk) {
+        throw new Error('一部のチャンクがFirestoreのサイズ制限を超えています。データを確認してください。');
+      }
+      
+      const saveData: any = {
+        blogUploadDate: dateStr,
+        blogUpdatedTime: dateStr,
+        blogChunkCount: chunks.length,
+        blogIsSplit: true
+      };
+      
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkKey = i === 0 ? 'blogData' : `blogData_${i}`;
+        saveData[chunkKey] = chunks[i];
+      }
+      
+      await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+      console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
+      
+      return dateStr;
+    } else {
+      await setDoc(doc(db, 'users', userId), {
+        blogData: blogData,
+        blogUploadDate: dateStr,
+        blogUpdatedTime: dateStr,
+        blogIsSplit: false
+      }, { merge: true });
+      
+      return dateStr;
+    }
+  };
+
+  // ブログデータをFirestoreから読み込み
+  const loadBlogDataFromFirestore = (data: any): string | null => {
+    if (data.blogIsSplit && data.blogChunkCount) {
+      const chunks: string[] = [];
+      for (let i = 0; i < data.blogChunkCount; i++) {
+        const chunkKey = i === 0 ? 'blogData' : `blogData_${i}`;
+        if (data[chunkKey]) {
+          chunks.push(data[chunkKey]);
+        }
+      }
+      if (chunks.length > 0) {
+        return chunks.join('');
+      }
+    } else if (data.blogData) {
+      return data.blogData;
+    }
+    return null;
+  };
+
   // CSVキャッシュの期限日を取得
   const getCsvCacheExpiry = (userId: string): number | null => {
     try {
@@ -1372,16 +1495,36 @@ export default function SNSGeneratorApp() {
       if (fromCache) {
         setBlogImportProgress(`キャッシュから${csv.split('\n').length - 1}件の記事を読み込みました`);
       } else {
-        setBlogImportProgress(`${csv.split('\n').length - 1}件の記事を取得しました。CSVに変換中...`);
+        setBlogImportProgress(`${csv.split('\n').length - 1}件の記事を取得しました。保存中...`);
       }
       
-      // 取得したCSVを既存のCSV取込み機能に渡す
-      if (parsedPosts.length > 0) {
-        setPendingCsvData(csv);
-        setShowCsvImportModal(true);
+      // ブログデータを保存
+      const now = new Date();
+      const dateStr = now.toLocaleString('ja-JP', { 
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+      });
+      
+      // 既存のブログデータがある場合は追加、ない場合は置き換え
+      let finalBlogData: string;
+      if (blogData && blogData.trim()) {
+        // 追加モード：既存データに追加
+        const existingLines = blogData.split('\n');
+        const newLines = csv.split('\n');
+        if (existingLines.length > 0 && newLines.length > 1) {
+          // ヘッダー行は最初のものを使い、データ行を結合
+          finalBlogData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
+        } else {
+          finalBlogData = csv;
+        }
       } else {
-        await applyCsvData(csv, 'replace');
+        // 置き換えモード
+        finalBlogData = csv;
       }
+      
+      // Firestoreに保存
+      await saveBlogDataToFirestore(user.uid, finalBlogData, dateStr);
+      setBlogData(finalBlogData);
+      setBlogUploadDate(dateStr);
       
       if (!fromCache) {
         setBlogUrl('');
@@ -1947,11 +2090,17 @@ export default function SNSGeneratorApp() {
           // CSVデータを設定
           if (csvContent) {
             setCsvData(csvContent);
-            const parsed = parseCsvToPosts(csvContent);
-            setParsedPosts(parsed);
           }
           
           if (data.csvUploadDate) setCsvUploadDate(data.csvUploadDate);
+          
+          // ブログデータの読み込み
+          const blogContent = loadBlogDataFromFirestore(data);
+          if (blogContent) {
+            setBlogData(blogContent);
+          }
+          
+          if (data.blogUploadDate) setBlogUploadDate(data.blogUploadDate);
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
           else setIsSubscribed(false);
@@ -2006,6 +2155,26 @@ export default function SNSGeneratorApp() {
     };
     loadUserData();
   }, [user]);
+
+  // 選択されたデータソースから分析用データを生成
+  useEffect(() => {
+    const posts: any[] = [];
+    
+    if (useCsvData && csvData) {
+      const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+      if (csvData !== defaultCsv) {
+        const csvPosts = parseCsvToPosts(csvData);
+        posts.push(...csvPosts);
+      }
+    }
+    
+    if (useBlogData && blogData) {
+      const blogPosts = parseCsvToPosts(blogData);
+      posts.push(...blogPosts);
+    }
+    
+    setParsedPosts(posts);
+  }, [csvData, blogData, useCsvData, useBlogData]);
 
   // Facebook App IDを保存
   const saveFacebookAppId = async () => {
@@ -2421,7 +2590,8 @@ export default function SNSGeneratorApp() {
                 </h2>
                 
                 {activeMode === 'mypost' && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
                     <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-xs text-slate-600">
                       <span className="font-bold">CSV:</span>
                       {csvUploadDate ? csvUploadDate : "未取込"}
@@ -2433,51 +2603,80 @@ export default function SNSGeneratorApp() {
                       className="hidden" 
                       accept=".csv, .txt" 
                     />
-                    <button 
-                      onClick={handleCsvImportClick} 
-                      disabled={isCsvLoading}
-                      className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative" 
-                      title={isCsvLoading ? "CSV処理中..." : "CSV読込"}
-                    >
-                      {isCsvLoading ? (
-                        <Loader2 size={16} className="animate-spin text-[#066099]" />
-                      ) : (
-                      <Upload size={16} />
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={handleCsvImportClick} 
+                        disabled={isCsvLoading}
+                        className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative group" 
+                        title="XのCSVデータ取込み"
+                      >
+                        {isCsvLoading ? (
+                          <Loader2 size={16} className="animate-spin text-[#066099]" />
+                        ) : (
+                        <Upload size={16} />
+                        )}
+                      </button>
+                      {csvData && csvData !== 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200' && (
+                        <span className="text-xs text-slate-600 font-medium">
+                          ({(() => {
+                            try {
+                              const parsed = parseCsvToPosts(csvData);
+                              return parsed.length;
+                            } catch {
+                              return 0;
+                            }
+                          })()})
+                        </span>
                       )}
-                    </button>
-                    <button 
-                      onClick={() => setShowBlogImport(!showBlogImport)}
-                      disabled={isBlogImporting}
-                      className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative" 
-                      title="ブログ取り込み"
-                    >
-                      {isBlogImporting ? (
-                        <Loader2 size={16} className="animate-spin text-[#066099]" />
-                      ) : (
-                        <BookOpen size={16} />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={() => setShowBlogImport(!showBlogImport)}
+                        disabled={isBlogImporting}
+                        className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative group" 
+                        title="ブログ・noteのURL取込み"
+                      >
+                        {isBlogImporting ? (
+                          <Loader2 size={16} className="animate-spin text-[#066099]" />
+                        ) : (
+                          <BookOpen size={16} />
+                        )}
+                      </button>
+                      {blogData && blogData.trim() && (
+                        <span className="text-xs text-slate-600 font-medium">
+                          ({(() => {
+                            try {
+                              const parsed = parseCsvToPosts(blogData);
+                              return parsed.length;
+                            } catch {
+                              return 0;
+                            }
+                          })()})
+                        </span>
                       )}
-                    </button>
-                    <div className="h-4 w-px bg-slate-300 mx-1"></div>
+                    </div>
+                    <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
                     <button 
                       onClick={() => handleUpdateThemes('mypost')}
                       disabled={isThemesLoading}
-                      className="text-xs bg-[#066099] hover:bg-[#055080] text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm"
+                      className="text-xs bg-[#066099] hover:bg-[#055080] text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto"
                     >
                       {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12}/>}
                       分析・更新
                     </button>
                     {parsedPosts.length > 0 && (
                       <>
-                        <div className="h-4 w-px bg-slate-300 mx-1"></div>
+                        <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
                         <button 
                           onClick={() => setShowPostAnalysis(!showPostAnalysis)}
-                          className="text-xs bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1 font-bold shadow-sm"
+                          className="text-xs bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto"
                         >
                           <BarChart3 size={12} />
                           投稿分析 ({parsedPosts.length})
                         </button>
                       </>
                     )}
+                    </div>
                   </div>
                 )}
                 
@@ -2494,7 +2693,7 @@ export default function SNSGeneratorApp() {
               </div>
 
               {/* マイ投稿分析: 投稿一覧 */}
-              {activeMode === 'mypost' && showPostAnalysis && parsedPosts.length > 0 && (
+              {activeMode === 'mypost' && showPostAnalysis && (
                 <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -2509,8 +2708,41 @@ export default function SNSGeneratorApp() {
                     </button>
                   </div>
                   
-                  {/* 検索・ソート・フィルタ */}
-                  <div className="space-y-2">
+                  {/* データソース選択 */}
+                  <div className="flex flex-col sm:flex-row gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useCsvData}
+                        onChange={(e) => setUseCsvData(e.target.checked)}
+                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                      />
+                      <span className="text-sm text-slate-700">XのCSVデータ</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useBlogData}
+                        onChange={(e) => setUseBlogData(e.target.checked)}
+                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                      />
+                      <span className="text-sm text-slate-700">ブログ・noteデータ</span>
+                    </label>
+                    {!useCsvData && !useBlogData && (
+                      <p className="text-xs text-red-600">データソースを1つ以上選択してください</p>
+                    )}
+                  </div>
+                  
+                  {parsedPosts.length === 0 && (
+                    <p className="text-sm text-slate-400 text-center py-4">
+                      データがありません。CSVまたはブログ・noteデータを取り込んでください。
+                    </p>
+                  )}
+                  
+                  {parsedPosts.length > 0 && (
+                    <>
+                      {/* 検索・ソート・フィルタ */}
+                      <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 relative">
                         <input
@@ -2665,6 +2897,8 @@ export default function SNSGeneratorApp() {
                     }
                     return null;
                   })()}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -2674,7 +2908,7 @@ export default function SNSGeneratorApp() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                       <BookOpen size={16} className="text-[#066099]" />
-                      ブログ取り込み
+                      ブログ・note取り込み
                     </h3>
                     <button
                       onClick={() => {
@@ -2692,7 +2926,7 @@ export default function SNSGeneratorApp() {
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        placeholder="ブログURLを入力（例: https://example.com）"
+                        placeholder="ブログ・note URLを入力（例: https://example.com または https://note.com/username）"
                         value={blogUrl}
                         onChange={(e) => setBlogUrl(e.target.value)}
                         className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
