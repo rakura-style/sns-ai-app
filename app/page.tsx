@@ -1916,9 +1916,9 @@ export default function SNSGeneratorApp() {
           textStartIndex = 0;
         }
         
-        // text列の終了位置を特定（最初の数値列の開始位置）
-        // textStartIndexから開始して、text列内のカンマをスキップし、次の列（数値列）の開始位置を特定
-        currentColumnIndex = textColumnIndex;
+        // text列の終了位置を特定（text列の次の列の前のカンマの位置）
+        // text列の内容は、'IDの数字',から,jaの間の文字列
+        // つまり、text列の次の列（textColumnIndex + 1）の前のカンマを見つける
         inQuotes = false;
         
         for (let k = textStartIndex; k < row.length; k++) {
@@ -1932,21 +1932,20 @@ export default function SNSGeneratorApp() {
               inQuotes = !inQuotes;
             }
           } else if (char === ',' && !inQuotes) {
-            // カンマを見つけたら、次の列に進む
-            currentColumnIndex++;
-            // 数値列に到達したら、text列の終了位置を設定
-            if (currentColumnIndex >= firstNumericIndex) {
-              textEndIndex = k;
-              break;
-            }
-            // text列の次の列が数値列でない場合（例：'ja'列など）、その列をスキップして次の列を探す
-            // ただし、text列の直後の列が数値列でない場合は、その列をスキップして次の列を探す
+            // text列の次の列の前のカンマを見つけたら、text列の終了位置を設定
+            textEndIndex = k;
+            break;
           }
         }
         
         // text列の終了位置が見つからなかった場合（text列が最後の列の場合）、行の終端まで
         if (textEndIndex === row.length && textStartIndex < row.length) {
           textEndIndex = row.length;
+        }
+        
+        // デバッグログ（最初の5行のみ）
+        if (i <= 5) {
+          console.log(`行${i}: textStartIndex =`, textStartIndex, 'textEndIndex =', textEndIndex, 'textValue =', row.substring(textStartIndex, textEndIndex));
         }
         
         // text列の内容を抽出
