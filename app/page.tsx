@@ -1917,6 +1917,7 @@ export default function SNSGeneratorApp() {
         }
         
         // text列の終了位置を特定（最初の数値列の開始位置）
+        // textStartIndexから開始して、text列内のカンマをスキップし、次の列（数値列）の開始位置を特定
         currentColumnIndex = textColumnIndex;
         inQuotes = false;
         
@@ -1931,12 +1932,21 @@ export default function SNSGeneratorApp() {
               inQuotes = !inQuotes;
             }
           } else if (char === ',' && !inQuotes) {
+            // カンマを見つけたら、次の列に進む
             currentColumnIndex++;
+            // 数値列に到達したら、text列の終了位置を設定
             if (currentColumnIndex >= firstNumericIndex) {
               textEndIndex = k;
               break;
             }
+            // text列の次の列が数値列でない場合（例：'ja'列など）、その列をスキップして次の列を探す
+            // ただし、text列の直後の列が数値列でない場合は、その列をスキップして次の列を探す
           }
+        }
+        
+        // text列の終了位置が見つからなかった場合（text列が最後の列の場合）、行の終端まで
+        if (textEndIndex === row.length && textStartIndex < row.length) {
+          textEndIndex = row.length;
         }
         
         // text列の内容を抽出
@@ -2324,12 +2334,12 @@ export default function SNSGeneratorApp() {
         setCsvData(truncatedData);
       }
       
-      const now = new Date();
-      const dateStr = now.toLocaleString('ja-JP', { 
-        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-      });
-      setCsvUploadDate(dateStr);
-      
+        const now = new Date();
+        const dateStr = now.toLocaleString('ja-JP', { 
+          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+        });
+        setCsvUploadDate(dateStr);
+        
       // Firestoreに保存（分割機能付き、エラーが発生しても可能な限り保存）
       try {
         const updatedTime = await saveCsvToFirestore(user.uid, truncatedData, dateStr);
