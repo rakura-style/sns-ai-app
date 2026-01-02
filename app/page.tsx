@@ -1022,15 +1022,16 @@ export default function SNSGeneratorApp() {
     }, 0);
   };
 
-  // CSVを分割してFirestoreに保存する関数
+  // CSVを分割してFirestoreに保存する関数（1MB以上のデータは自動で800KBずつ分割）
   const saveCsvToFirestore = async (userId: string, csvData: string, dateStr: string): Promise<string> => {
+    const ONE_MB = 1024 * 1024; // 1MB
+    const CHUNK_SIZE = 800 * 1024; // 800KB（Firestoreの1MB制限を考慮して余裕を持たせる）
     const FIRESTORE_MAX_FIELD_SIZE = 1048487; // Firestoreの1つのフィールドの最大サイズ（約1MB）
-    const CHUNK_SIZE = 800 * 1024; // 800KB（余裕を持たせる）
     const dataSize = new Blob([csvData]).size;
     
-    // 1MB以上の場合は分割して保存
-    if (dataSize >= FIRESTORE_MAX_FIELD_SIZE) {
-      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → 分割して保存`);
+    // 1MB以上の場合は自動で800KBずつ分割して保存
+    if (dataSize >= ONE_MB) {
+      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → 800KBずつ自動分割して保存`);
       
       // CSVをヘッダーとデータ行に分割
       const lines = csvData.split('\n');
@@ -1067,7 +1068,7 @@ export default function SNSGeneratorApp() {
         chunks.push(currentChunk);
       }
       
-      console.log(`${chunks.length}個のチャンクに分割しました`);
+      console.log(`${chunks.length}個のチャンクに分割しました（各チャンクは約800KB）`);
       
       // 各チャンクのサイズを確認（デバッグ用）
       for (let i = 0; i < chunks.length; i++) {
@@ -1095,6 +1096,8 @@ export default function SNSGeneratorApp() {
       }
       
       await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+      
+      console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
       
       return dateStr;
     } else {
