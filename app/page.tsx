@@ -1890,13 +1890,12 @@ export default function SNSGeneratorApp() {
       // 投稿内容を取得（XのCSVデータの場合は'text'列を最優先）
       let content = '';
       
-      // text列が存在する場合は、必ずtext列を使用（他の列は無視）
+      // text列が存在する場合は、必ずtext列を使用（そのまま使用、WordPress処理は不要）
       if (hasTextColumn) {
         const textVal = post['text'] || post['Text'];
         if (textVal !== undefined && textVal !== '') {
-          const rawContent = String(textVal);
-          content = extractTextFromWordPress(rawContent);
-          // text列が存在する場合は、内容に関わらずtext列を使用（他の列はチェックしない）
+          // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
+          content = String(textVal);
         }
       }
       
@@ -1908,15 +1907,11 @@ export default function SNSGeneratorApp() {
           
           const val = post[key];
           if (val !== undefined && val !== '') {
-            // WordPressのブロックコメントとHTMLタグを除去してテキストのみを抽出
             const rawContent = String(val);
+            // ブログデータ（Content列など）の場合はWordPress処理を適用
             const extractedContent = extractTextFromWordPress(rawContent);
-            // ハッシュタグだけの場合はスキップ（次のキーを試す）
-            const trimmedContent = extractedContent.trim();
-            if (trimmedContent && !trimmedContent.match(/^[#\s]+$/)) {
-              content = extractedContent;
-              break;
-            }
+            content = extractedContent;
+            break;
           }
         }
       }
