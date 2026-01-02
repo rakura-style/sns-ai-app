@@ -94,6 +94,20 @@ export async function POST(req: Request) {
                 { status: 429 }
             );
         }
+        
+        // 🔥 地域制限エラーを検出
+        if (apiError.message?.includes('User location is not supported') || 
+            apiError.message?.includes('location is not supported') ||
+            apiError.status === 400 && apiError.message?.includes('location')) {
+            return new NextResponse(
+                JSON.stringify({ 
+                    error: '地域制限エラー', 
+                    details: 'お使いの地域ではGemini APIが利用できません。VPNを使用するか、サポートされている地域からアクセスしてください。' 
+                }),
+                { status: 400 }
+            );
+        }
+        
         throw apiError; // その他のエラーは外側のcatchへ
     }
 

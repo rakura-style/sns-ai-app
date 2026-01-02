@@ -109,8 +109,14 @@ const callSecureApi = async (prompt: string, token: string, actionType: 'post' |
   
   if (!response.ok) {
     let errorBody = "";
+    let errorData: any = null;
     try {
       errorBody = await response.text();
+      try {
+        errorData = JSON.parse(errorBody);
+      } catch (e) {
+        // JSONパースに失敗した場合は、errorBodyをそのまま使用
+      }
     } catch (e) {
       errorBody = "Failed to read error body";
     }
@@ -120,7 +126,18 @@ const callSecureApi = async (prompt: string, token: string, actionType: 'post' |
         throw new Error("アクセスが集中しており制限がかかりました。\nしばらく時間を置いてから再試行してください。");
     }
 
-    throw new Error(`API Error: ${response.status} - ${errorBody}`);
+    // 地域制限エラーの検出
+    if (response.status === 400 && (
+        errorBody.includes('User location is not supported') ||
+        errorBody.includes('location is not supported') ||
+        errorData?.error === '地域制限エラー'
+    )) {
+        throw new Error("お使いの地域ではGemini APIが利用できません。\n\nVPNを使用するか、サポートされている地域からアクセスしてください。");
+    }
+
+    // エラーメッセージを改善（JSONから詳細を取得）
+    const errorMessage = errorData?.details || errorData?.error || errorBody;
+    throw new Error(`API Error: ${response.status} - ${errorMessage}`);
   }
   
   // 🔥 3. 成功時に利用回数を更新
@@ -1042,8 +1059,18 @@ export default function SNSGeneratorApp() {
       const cachedMetadata = localStorage.getItem(CSV_METADATA_KEY(userId));
       if (cachedDataEncoded && cachedMetadata) {
         try {
-          // Base64デコード
-          const binaryString = atob(cachedDataEncoded);
+          // Base64デコード（エラーをキャッチ）
+          let binaryString: string;
+          try {
+            binaryString = atob(cachedDataEncoded);
+          } catch (base64Error: any) {
+            // Base64デコードエラーの場合、キャッシュが破損している可能性が高い
+            console.warn("Base64デコードエラー。キャッシュを削除します。", base64Error);
+            localStorage.removeItem(CSV_CACHE_KEY(userId));
+            localStorage.removeItem(CSV_METADATA_KEY(userId));
+            localStorage.removeItem(CSV_EXPIRY_KEY(userId));
+            return null;
+          }
           
           // UTF-8デコード（大きなデータでも安全に処理）
           const utf8Bytes = new Uint8Array(binaryString.length);
@@ -1056,9 +1083,13 @@ export default function SNSGeneratorApp() {
         } catch (decodeError: any) {
           console.error("キャッシュデコードエラー:", decodeError);
           
-          // エラーの詳細を確認
-          if (decodeError.message?.includes('JSON') || decodeError.message?.includes('Unterminated')) {
-            // JSONパースエラーの場合、キャッシュが破損している可能性が高い
+          // エラーの詳細を確認（JSONパースエラー、Unterminated stringなど）
+          const errorMessage = decodeError.message || String(decodeError);
+          if (errorMessage.includes('JSON') || 
+              errorMessage.includes('Unterminated') || 
+              errorMessage.includes('Invalid') ||
+              errorMessage.includes('Unexpected')) {
+            // キャッシュが破損している可能性が高い
             console.warn("キャッシュが破損している可能性があります。キャッシュを削除します。");
             try {
               localStorage.removeItem(CSV_CACHE_KEY(userId));
@@ -1070,28 +1101,32 @@ export default function SNSGeneratorApp() {
             return null;
           }
           
-          // デコードに失敗した場合、古い形式（Base64エンコードされていない）の可能性がある
-          // その場合はそのまま返す（後方互換性）
+          // その他のエラーの場合も、キャッシュを削除して安全に処理
+          console.warn("予期しないエラーが発生しました。キャッシュを削除します。");
           try {
-            return { data: cachedDataEncoded, metadata: cachedMetadata };
-          } catch (fallbackError) {
-            console.error("フォールバック読み込みも失敗:", fallbackError);
-            // キャッシュが破損している可能性があるので削除
             localStorage.removeItem(CSV_CACHE_KEY(userId));
             localStorage.removeItem(CSV_METADATA_KEY(userId));
-            return null;
+            localStorage.removeItem(CSV_EXPIRY_KEY(userId));
+          } catch (clearError) {
+            console.error("キャッシュ削除エラー:", clearError);
           }
+          return null;
         }
       }
     } catch (e: any) {
       console.error("キャッシュ読み込みエラー:", e);
       
-      // JSONパースエラーの場合、キャッシュを削除
-      if (e.message?.includes('JSON') || e.message?.includes('Unterminated')) {
+      // すべてのエラーに対してキャッシュを削除
+      const errorMessage = e.message || String(e);
+      if (errorMessage.includes('JSON') || 
+          errorMessage.includes('Unterminated') || 
+          errorMessage.includes('Invalid') ||
+          errorMessage.includes('Unexpected')) {
         console.warn("JSONパースエラーが発生しました。キャッシュを削除します。");
         try {
           localStorage.removeItem(CSV_CACHE_KEY(userId));
           localStorage.removeItem(CSV_METADATA_KEY(userId));
+          localStorage.removeItem(CSV_EXPIRY_KEY(userId));
         } catch (clearError) {
           console.error("キャッシュ削除エラー:", clearError);
         }
@@ -1826,6 +1861,15 @@ export default function SNSGeneratorApp() {
     // text列のインデックスを取得
     const textColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'text');
     
+    // text列が存在する場合、最初の数値列のインデックスを事前に計算（パフォーマンス最適化）
+    let firstNumericIndex = headers.length;
+    if (textColumnIndex >= 0) {
+      const numericIndicesAfterText = Array.from(numericColumnIndices).filter(idx => idx > textColumnIndex);
+      if (numericIndicesAfterText.length > 0) {
+        firstNumericIndex = Math.min(...numericIndicesAfterText);
+      }
+    }
+    
     for (let i = 1; i < rows.length; i++) {
       const values = parseCsvRow(rows[i]);
       
@@ -1835,10 +1879,6 @@ export default function SNSGeneratorApp() {
       
       // text列が存在する場合、text列から数値列の前までを結合
       if (textColumnIndex >= 0) {
-        // text列より後ろの数値列のインデックスを取得
-        const numericIndicesAfterText = Array.from(numericColumnIndices).filter(idx => idx > textColumnIndex);
-        const firstNumericIndex = numericIndicesAfterText.length > 0 ? Math.min(...numericIndicesAfterText) : headerCount;
-        
         // text列から最初の数値列の前までを結合
         const textValue = values.slice(textColumnIndex, firstNumericIndex).join(',');
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
@@ -1857,13 +1897,9 @@ export default function SNSGeneratorApp() {
           // text列は既に処理済み
           continue;
         }
-        if (textColumnIndex >= 0 && j > textColumnIndex) {
-          const numericIndicesAfterText = Array.from(numericColumnIndices).filter(idx => idx > textColumnIndex);
-          const firstNumericIndex = numericIndicesAfterText.length > 0 ? Math.min(...numericIndicesAfterText) : headerCount;
-          if (j < firstNumericIndex) {
-            // text列の結合範囲内はスキップ
-            continue;
-          }
+        if (textColumnIndex >= 0 && j > textColumnIndex && j < firstNumericIndex) {
+          // text列の結合範囲内はスキップ
+          continue;
         }
         
         const header = headers[j];
