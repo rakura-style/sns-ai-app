@@ -1024,13 +1024,13 @@ export default function SNSGeneratorApp() {
 
   // CSVを分割してFirestoreに保存する関数
   const saveCsvToFirestore = async (userId: string, csvData: string, dateStr: string): Promise<string> => {
-    const ONE_GB = 1024 * 1024 * 1024; // 1GB
-    const CHUNK_SIZE = 900 * 1024 * 1024; // 900MB（Firestoreの1MB制限を考慮して余裕を持たせる）
+    const FIRESTORE_MAX_FIELD_SIZE = 1048487; // Firestoreの1つのフィールドの最大サイズ（約1MB）
+    const CHUNK_SIZE = 900 * 1024; // 900KB（余裕を持たせる）
     const dataSize = new Blob([csvData]).size;
     
-    if (dataSize >= ONE_GB) {
-      // 1GB以上の場合は分割して保存
-      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024 / 1024).toFixed(2)} GB → 分割して保存`);
+    // 1MB以上の場合は分割して保存
+    if (dataSize >= FIRESTORE_MAX_FIELD_SIZE) {
+      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → 分割して保存`);
       
       // CSVをヘッダーとデータ行に分割
       const lines = csvData.split('\n');
@@ -1041,7 +1041,7 @@ export default function SNSGeneratorApp() {
       const header = lines[0];
       const dataLines = lines.slice(1);
       
-      // チャンクに分割（各チャンクは900MB以下）
+      // チャンクに分割（各チャンクは900KB以下）
       const chunks: string[] = [];
       let currentChunk = header + '\n';
       let currentSize = new Blob([currentChunk]).size;
@@ -1050,7 +1050,7 @@ export default function SNSGeneratorApp() {
         const lineWithNewline = line + '\n';
         const lineSize = new Blob([lineWithNewline]).size;
         
-        // 現在のチャンクに追加すると900MBを超える場合
+        // 現在のチャンクに追加すると900KBを超える場合
         if (currentSize + lineSize > CHUNK_SIZE && currentChunk !== header + '\n') {
           // 現在のチャンクを保存
           chunks.push(currentChunk);
@@ -1069,6 +1069,15 @@ export default function SNSGeneratorApp() {
       
       console.log(`${chunks.length}個のチャンクに分割しました`);
       
+      // 各チャンクのサイズを確認（デバッグ用）
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkSize = new Blob([chunks[i]]).size;
+        console.log(`チャンク${i}: ${(chunkSize / 1024).toFixed(2)} KB`);
+        if (chunkSize > FIRESTORE_MAX_FIELD_SIZE) {
+          throw new Error(`チャンク${i}が大きすぎます: ${(chunkSize / 1024 / 1024).toFixed(2)} MB`);
+        }
+      }
+      
       // 各チャンクをFirestoreに保存
       const saveData: any = {
         csvUploadDate: dateStr,
@@ -1086,7 +1095,7 @@ export default function SNSGeneratorApp() {
       
       return dateStr;
     } else {
-      // 1GB未満は通常通り保存
+      // 1MB未満は通常通り保存
       await setDoc(doc(db, 'users', userId), {
         csvData: csvData,
         csvUploadDate: dateStr,
