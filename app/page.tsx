@@ -1872,19 +1872,77 @@ export default function SNSGeneratorApp() {
     }
     
     for (let i = 1; i < rows.length; i++) {
-      const values = parseCsvRow(rows[i]);
+      const row = rows[i];
+      const values = parseCsvRow(row);
       
       // オブジェクトに変換
       const post: any = {};
       const headerCount = headers.length;
       
-      // text列が存在する場合、text列から数値列の前までを結合
+      // text列が存在する場合、元の行データから直接text列を抽出
       if (textColumnIndex >= 0) {
-        // text列から最初の数値列の前までを結合（元のCSVの構造を保持）
-        const textValue = values.slice(textColumnIndex, firstNumericIndex).join(',');
+        let textValue = '';
+        
+        // 元の行データから直接text列を抽出（parseCsvRowで分割される前に取得）
+        let currentColumnIndex = 0;
+        let inQuotes = false;
+        let textStartIndex = 0;
+        let textEndIndex = row.length;
+        
+        // text列の開始位置を特定
+        if (textColumnIndex > 0) {
+          for (let k = 0; k < row.length; k++) {
+            const char = row[k];
+            const nextChar = row[k + 1];
+            
+            if (char === '"') {
+              if (inQuotes && nextChar === '"') {
+                k++; // エスケープされたダブルクォート
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (char === ',' && !inQuotes) {
+              if (currentColumnIndex === textColumnIndex - 1) {
+                textStartIndex = k + 1;
+                break;
+              }
+              currentColumnIndex++;
+            }
+          }
+        }
+        
+        // text列の終了位置を特定（最初の数値列の開始位置）
+        currentColumnIndex = textColumnIndex;
+        inQuotes = false;
+        
+        for (let k = textStartIndex; k < row.length; k++) {
+          const char = row[k];
+          const nextChar = row[k + 1];
+          
+          if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+              k++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            currentColumnIndex++;
+            if (currentColumnIndex >= firstNumericIndex) {
+              textEndIndex = k;
+              break;
+            }
+          }
+        }
+        
+        // text列の内容を抽出
+        textValue = row.slice(textStartIndex, textEndIndex);
+        // 先頭と末尾のダブルクォートを除去
+        if (textValue.startsWith('"') && textValue.endsWith('"')) {
+          textValue = textValue.slice(1, -1).replace(/""/g, '"');
+        }
+        
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
         post[headers[textColumnIndex]] = textValue;
-        // 'text'と'Text'の両方で設定（大文字小文字の違いに対応）
         post['text'] = textValue;
         post['Text'] = textValue;
       }
