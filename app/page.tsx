@@ -1816,22 +1816,114 @@ export default function SNSGeneratorApp() {
     for (let i = 1; i < rows.length; i++) {
       const values = parseCsvRow(rows[i]);
       
+      // text列のインデックスを取得
+      const textColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'text');
+      
       // オブジェクトに変換
       const post: any = {};
       const headerCount = headers.length;
-      for (let j = 0; j < headerCount; j++) {
-        const header = headers[j];
-        // 値は既にparseCsvRowで処理済み（ダブルクォートは除去済み、エスケープも処理済み）
-        let value = values[j] || '';
-        // 念のため、先頭と末尾のダブルクォートを除去（残っている場合）
-        if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
-          value = value.slice(1, -1);
+      
+      // text列が存在し、ダブルクォートで囲まれていない可能性がある場合の処理
+      if (textColumnIndex >= 0 && textColumnIndex < values.length) {
+        // 数値列（Likes, Views, Engagementなど）のインデックスを取得
+        const numericColumnIndices: number[] = [];
+        headers.forEach((header: string, index: number) => {
+          const lowerHeader = header.toLowerCase();
+          if (likesKeys.some(k => k.toLowerCase() === lowerHeader) || 
+              viewsKeys.some(k => k.toLowerCase() === lowerHeader) || 
+              engagementKeys.some(k => k.toLowerCase() === lowerHeader)) {
+            numericColumnIndices.push(index);
+          }
+        });
+        
+        // text列から最初の数値列の前までを結合
+        if (numericColumnIndices.length > 0) {
+          const numericIndicesAfterText = numericColumnIndices.filter(idx => idx > textColumnIndex);
+          if (numericIndicesAfterText.length > 0) {
+            const firstNumericIndex = Math.min(...numericIndicesAfterText);
+            if (firstNumericIndex > textColumnIndex + 1) {
+              // text列から数値列の前までを結合
+              const textValue = values.slice(textColumnIndex, firstNumericIndex).join(',');
+              post[headers[textColumnIndex]] = textValue;
+              
+              // 他の列を処理（text列の結合部分をスキップ）
+              for (let j = 0; j < headerCount; j++) {
+                if (j === textColumnIndex) continue; // text列は既に処理済み
+                if (j > textColumnIndex && j < firstNumericIndex) continue; // text列の結合部分をスキップ
+                
+                const header = headers[j];
+                let value = values[j] || '';
+                if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
+                  value = value.slice(1, -1);
+                }
+                if (value.includes('""')) {
+                  value = value.replace(/""/g, '"');
+                }
+                post[header] = value;
+              }
+            } else {
+              // 通常の処理（text列が最後の列に近い場合）
+              for (let j = 0; j < headerCount; j++) {
+                const header = headers[j];
+                let value = values[j] || '';
+                if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
+                  value = value.slice(1, -1);
+                }
+                if (value.includes('""')) {
+                  value = value.replace(/""/g, '"');
+                }
+                post[header] = value;
+              }
+            }
+          } else {
+            // 数値列がtext列の後ろにない場合、text列から最後まで結合
+            const textValue = values.slice(textColumnIndex).join(',');
+            post[headers[textColumnIndex]] = textValue;
+            
+            // 他の列を処理
+            for (let j = 0; j < textColumnIndex; j++) {
+              const header = headers[j];
+              let value = values[j] || '';
+              if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
+                value = value.slice(1, -1);
+              }
+              if (value.includes('""')) {
+                value = value.replace(/""/g, '"');
+              }
+              post[header] = value;
+            }
+          }
+        } else {
+          // 数値列が見つからない場合、text列から最後まで結合
+          const textValue = values.slice(textColumnIndex).join(',');
+          post[headers[textColumnIndex]] = textValue;
+          
+          // 他の列を処理
+          for (let j = 0; j < textColumnIndex; j++) {
+            const header = headers[j];
+            let value = values[j] || '';
+            if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
+              value = value.slice(1, -1);
+            }
+            if (value.includes('""')) {
+              value = value.replace(/""/g, '"');
+            }
+            post[header] = value;
+          }
         }
-        // エスケープされたダブルクォート（""）を単一のダブルクォート（"）に変換
-        if (value.includes('""')) {
-          value = value.replace(/""/g, '"');
+      } else {
+        // text列がない場合の通常処理
+        for (let j = 0; j < headerCount; j++) {
+          const header = headers[j];
+          let value = values[j] || '';
+          if (value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
+            value = value.slice(1, -1);
+          }
+          if (value.includes('""')) {
+            value = value.replace(/""/g, '"');
+          }
+          post[header] = value;
         }
-        post[header] = value;
       }
       
       // いいね数を抽出
