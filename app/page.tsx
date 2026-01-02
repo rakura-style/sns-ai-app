@@ -1881,6 +1881,7 @@ export default function SNSGeneratorApp() {
       // text列が存在する場合、text列から数値列の前までを結合
       if (textColumnIndex >= 0) {
         // text列から最初の数値列の前までを結合
+        // 空の要素も含めて結合（元のCSVの構造を保持）
         const textValue = values.slice(textColumnIndex, firstNumericIndex).join(',');
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
         post[headers[textColumnIndex]] = textValue;
@@ -1973,7 +1974,11 @@ export default function SNSGeneratorApp() {
         const textVal = post['text'] || post['Text'];
         if (textVal !== undefined && textVal !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
-          content = String(textVal);
+          const textContent = String(textVal).trim();
+          // カンマだけや空白だけの場合は無視
+          if (textContent && !textContent.match(/^[,,\s]+$/)) {
+            content = textContent;
+          }
         }
       }
       
@@ -1985,11 +1990,16 @@ export default function SNSGeneratorApp() {
           
           const val = post[key];
           if (val !== undefined && val !== '') {
-            const rawContent = String(val);
-            // ブログデータ（Content列など）の場合はWordPress処理を適用
-            const extractedContent = extractTextFromWordPress(rawContent);
-            content = extractedContent;
-            break;
+            const rawContent = String(val).trim();
+            // カンマだけや空白だけの場合は無視
+            if (rawContent && !rawContent.match(/^[,,\s]+$/)) {
+              // ブログデータ（Content列など）の場合はWordPress処理を適用
+              const extractedContent = extractTextFromWordPress(rawContent);
+              if (extractedContent.trim()) {
+                content = extractedContent;
+                break;
+              }
+            }
           }
         }
       }
@@ -2004,7 +2014,8 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      if (content) {
+      // contentが空でない、かつカンマだけや空白だけでない場合のみ投稿を追加
+      if (content && content.trim() && !content.match(/^[,,\s]+$/)) {
         posts.push({
           id: `post-${i}`,
           title,
