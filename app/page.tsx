@@ -1880,8 +1880,7 @@ export default function SNSGeneratorApp() {
       
       // text列が存在する場合、text列から数値列の前までを結合
       if (textColumnIndex >= 0) {
-        // text列から最初の数値列の前までを結合
-        // 空の要素も含めて結合（元のCSVの構造を保持）
+        // text列から最初の数値列の前までを結合（元のCSVの構造を保持）
         const textValue = values.slice(textColumnIndex, firstNumericIndex).join(',');
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
         post[headers[textColumnIndex]] = textValue;
@@ -1974,11 +1973,7 @@ export default function SNSGeneratorApp() {
         const textVal = post['text'] || post['Text'] || post[headers[textColumnIndex]];
         if (textVal !== undefined && textVal !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
-          const textContent = String(textVal).trim();
-          // カンマだけや空白だけの場合は無視（ただし、ハッシュタグだけの場合は後で除外）
-          if (textContent && textContent.length > 0) {
-            content = textContent;
-          }
+          content = String(textVal);
         }
       }
       
@@ -1990,15 +1985,12 @@ export default function SNSGeneratorApp() {
           
           const val = post[key];
           if (val !== undefined && val !== '') {
-            const rawContent = String(val).trim();
-            // カンマだけや空白だけの場合は無視
-            if (rawContent && rawContent.length > 0) {
-              // ブログデータ（Content列など）の場合はWordPress処理を適用
-              const extractedContent = extractTextFromWordPress(rawContent);
-              if (extractedContent.trim()) {
-                content = extractedContent;
-                break;
-              }
+            const rawContent = String(val);
+            // ブログデータ（Content列など）の場合はWordPress処理を適用
+            const extractedContent = extractTextFromWordPress(rawContent);
+            if (extractedContent.trim()) {
+              content = extractedContent;
+              break;
             }
           }
         }
@@ -2014,15 +2006,11 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // contentが空でない、かつハッシュタグだけやカンマだけでない場合のみ投稿を追加
+      // contentが空でない場合のみ投稿を追加（ハッシュタグだけの場合は後で除外）
       if (content && content.trim()) {
         const trimmedContent = content.trim();
-        // ハッシュタグだけ（#と空白のみ）やカンマだけの場合は除外
-        const isOnlyHashtags = trimmedContent.match(/^[#\s,]+$/);
-        // ただし、ハッシュタグと本文が混在している場合は含める
-        const hasTextAfterHashtags = trimmedContent.match(/^[#\s,]+[^\s#]/);
-        
-        if (!isOnlyHashtags || hasTextAfterHashtags) {
+        // ハッシュタグだけ（#と空白のみ）の場合は除外
+        if (!trimmedContent.match(/^[#\s]+$/)) {
           posts.push({
             id: `post-${i}`,
             title,
