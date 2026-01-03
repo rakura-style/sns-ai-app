@@ -287,15 +287,22 @@ function extractContent(html: string): string {
   text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
   text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
   
-  // 2. ターゲット: <div class="post_content">という要素全体
+  // 2. ターゲット: <div class="post_content">から</div>まですべて取得
   let contentHtml = extractNestedTag(text, 'div', 'post_content');
   
   if (!contentHtml) {
     return '';
   }
   
-  // 3. 処理手順:
-  //    - 上記divタグの開始から終了までに含まれるすべての要素を対象
+  // 3. 画像とリンクを除外（画像は完全に削除、リンクはテキストのみ取得）
+  // 画像タグを削除
+  contentHtml = contentHtml.replace(/<img[^>]*>/gi, '');
+  // リンクタグはテキストのみ取得（<a>タグを除去し、テキストは残す）
+  contentHtml = contentHtml.replace(/<a[^>]*>/gi, '');
+  contentHtml = contentHtml.replace(/<\/a>/gi, '');
+  
+  // 4. 処理手順:
+  //    - <div class="post_content">から</div>までに含まれるすべての要素を対象
   //    - それ以外のすべてのタグ（p, h2, h3, ul, li, div, table, blockquoteなど）のテキストを、上から順にすべて結合
   //    - 最初の段落で処理を止めないで、記事末尾（SNSボタンやフッターの手前）までテキスト取得を継続
   
@@ -316,7 +323,9 @@ function extractContent(html: string): string {
     .replace(/<\/tr>/gi, '\n')            // テーブル行の終了を改行に
     .replace(/<\/ul>/gi, '\n')            // リストの終了を改行に
     .replace(/<\/ol>/gi, '\n')            // 順序付きリストの終了を改行に
-    .replace(/<\/dl>/gi, '\n');           // 定義リストの終了を改行に
+    .replace(/<\/dl>/gi, '\n')            // 定義リストの終了を改行に
+    .replace(/<\/figure>/gi, '\n')       // figureタグの終了を改行に
+    .replace(/<\/figcaption>/gi, '\n');   // figcaptionタグの終了を改行に
   
   // HTMLタグを除去（すべてのタグを除去）
   let textContent = contentHtml.replace(/<[^>]+>/g, '');
