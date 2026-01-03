@@ -106,16 +106,23 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
       
       // baseUrlで始まるURLのみを対象（階下も含む）
       if (url && url.startsWith(baseUrl)) {
-        // 除外パターン
+        // 除外パターン（より厳密に）
         const excludePatterns = [
           '/category/',
           '/tag/',
+          '/tags/',
           '/author/',
+          '/authors/',
           '/page/',
+          '/pages/',
           '/feed',
+          '/feeds/',
+          '/rss',
+          '/atom',
           '/wp-admin',
           '/wp-content',
           '/wp-includes',
+          '/wp-json',
           '/search',
           '/?',
           '#',
@@ -125,6 +132,7 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
           '.jpeg',
           '.png',
           '.gif',
+          '.webp',
           '.pdf',
           '.zip',
           '.css',
@@ -135,24 +143,44 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
           '.woff2',
           '.ttf',
           '.eot',
+          '/login',
+          '/logout',
+          '/register',
+          '/signup',
+          '/signin',
+          '/admin',
         ];
         
-        const shouldExclude = excludePatterns.some(pattern => url.toLowerCase().includes(pattern));
+        const urlLower = url.toLowerCase();
+        const shouldExclude = excludePatterns.some(pattern => urlLower.includes(pattern));
         
         // baseUrl自体やbaseUrl/は除外（一覧ページ自体は記事ではない）
         // ただし、baseUrl/xxx/のような階下のURLは含める
         const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-        const isBaseUrl = url === normalizedBaseUrl || url === normalizedBaseUrl + '/';
-        const isArticleUrl = !isBaseUrl && url.length > normalizedBaseUrl.length;
+        const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+        const isBaseUrl = normalizedUrl === normalizedBaseUrl;
         
         // 階下のURLであることを確認（baseUrlより長いパスを持つ）
-        const urlPath = new URL(url).pathname;
-        const basePath = new URL(normalizedBaseUrl).pathname;
-        const isSubPath = urlPath.startsWith(basePath) && urlPath.length > basePath.length;
-        
-        if (!shouldExclude && isArticleUrl && isSubPath && !urlSet.has(url)) {
-          urls.push(url);
-          urlSet.add(url);
+        try {
+          const urlObj = new URL(normalizedUrl);
+          const baseObj = new URL(normalizedBaseUrl);
+          const urlPath = urlObj.pathname;
+          const basePath = baseObj.pathname;
+          
+          // パスがbaseUrlより長く、階下であることを確認
+          const isSubPath = urlPath.startsWith(basePath) && urlPath.length > basePath.length;
+          
+          // 記事らしいURLかどうかを判定（数字や日付を含むパスは記事の可能性が高い）
+          const hasArticleLikePattern = /\/(\d{4}|\d+|\d{4}\/\d{2}|\d{4}-\d{2})\//.test(urlPath) || 
+                                        /\/(post|article|entry|blog|archives)\//.test(urlPath) ||
+                                        urlPath.split('/').length >= 3; // パスが3階層以上
+          
+          if (!shouldExclude && !isBaseUrl && isSubPath && (hasArticleLikePattern || urlPath.length > basePath.length + 5) && !urlSet.has(normalizedUrl)) {
+            urls.push(normalizedUrl);
+            urlSet.add(normalizedUrl);
+          }
+        } catch (e) {
+          // URLパースエラーは無視
         }
       }
     }
@@ -523,96 +551,88 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
   // 指定されたURL自体が一覧ページの場合、そのページから階下の記事URLを収集
   if (articleUrlsWithDates.length < maxPosts) {
     const tempUrls = new Set<string>();
+    const pagesToVisit = new Set<string>();
     
     // まず、指定されたbaseUrl自体から記事URLを収集
-    try {
-      const response = await fetch(baseUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
-      
-      if (response.ok) {
-        const html = await response.text();
-        const urls = extractPostUrls(html, baseUrl);
-        
-        const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-        for (const url of urls) {
-          const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
-          
-          if (normalizedUrl.startsWith(normalizedBaseUrl) && normalizedUrl !== normalizedBaseUrl) {
-            if (!urlSet.has(normalizedUrl)) {
-              tempUrls.add(normalizedUrl);
-              urlSet.add(normalizedUrl);
-            }
-          }
-        }
-        
-        console.log(`一覧ページから${urls.length}件の記事URLを取得`);
-      }
-    } catch (error) {
-      console.error(`一覧ページ取得エラー (${baseUrl}):`, error);
-    }
+    pagesToVisit.add(baseUrl);
     
     // 追加の一覧ページパターンも試す
-    const listPages = [
+    const listPagePatterns = [
       `${baseUrl}/blog/`,
       `${baseUrl}/posts/`,
       `${baseUrl}/articles/`,
+      `${baseUrl}/entry/`,
+      `${baseUrl}/archives/`,
     ];
     
-    // ページネーションも考慮（最大5ページまで）
-    for (let page = 1; page <= 5 && tempUrls.size < maxPosts * 2; page++) {
+    for (const pattern of listPagePatterns) {
+      pagesToVisit.add(pattern);
+    }
+    
+    // ページネーションも考慮（最大20ページまで）
+    for (let page = 1; page <= 20 && tempUrls.size < maxPosts * 3; page++) {
       const pageUrls = [
         `${baseUrl}/page/${page}/`,
         `${baseUrl}/blog/page/${page}/`,
         `${baseUrl}/posts/page/${page}/`,
+        `${baseUrl}/articles/page/${page}/`,
+        `${baseUrl}/entry/page/${page}/`,
+        `${baseUrl}/archives/page/${page}/`,
       ];
       
-      for (const listUrl of pageUrls) {
-        if (visitedUrls.has(listUrl) || tempUrls.size >= maxPosts * 2) continue;
-        visitedUrls.add(listUrl);
+      for (const pageUrl of pageUrls) {
+        pagesToVisit.add(pageUrl);
+      }
+    }
+    
+    // 各ページを訪問して記事URLを収集
+    const visitedPages = new Set<string>();
+    for (const pageUrl of pagesToVisit) {
+      if (visitedPages.has(pageUrl) || tempUrls.size >= maxPosts * 3) continue;
+      visitedPages.add(pageUrl);
+      
+      try {
+        const response = await fetch(pageUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          signal: AbortSignal.timeout(10000), // 10秒タイムアウト
+        });
         
-        try {
-          const response = await fetch(listUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            },
-          });
+        if (response.ok) {
+          const html = await response.text();
+          const urls = extractPostUrls(html, baseUrl);
           
-          if (response.ok) {
-            const html = await response.text();
-            const urls = extractPostUrls(html, baseUrl);
+          const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+          let foundNewUrls = false;
+          
+          for (const url of urls) {
+            const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
             
-            const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-            for (const url of urls) {
-              const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
-              
-              if (normalizedUrl.startsWith(normalizedBaseUrl) && normalizedUrl !== normalizedBaseUrl) {
-                if (!urlSet.has(normalizedUrl)) {
-                  tempUrls.add(normalizedUrl);
-                  urlSet.add(normalizedUrl);
-                }
+            if (normalizedUrl.startsWith(normalizedBaseUrl) && normalizedUrl !== normalizedBaseUrl) {
+              if (!urlSet.has(normalizedUrl) && !tempUrls.has(normalizedUrl)) {
+                tempUrls.add(normalizedUrl);
+                urlSet.add(normalizedUrl);
+                foundNewUrls = true;
               }
-            }
-            
-            // 記事が見つからなくなったら次のページは見ない
-            if (urls.length === 0) {
-              break;
             }
           }
           
-          await new Promise(resolve => setTimeout(resolve, 300));
-        } catch (error) {
-          console.error(`ページ取得エラー (${listUrl}):`, error);
+          console.log(`ページ ${pageUrl} から ${urls.length}件のURLを抽出（新規: ${foundNewUrls ? 'あり' : 'なし'}）`);
+          
+          // 記事が見つからなくなったら次のページは見ない
+          if (!foundNewUrls && urls.length === 0) {
+            break;
+          }
         }
-      }
-      
-      // 十分な記事が見つかったら終了
-      if (tempUrls.size >= maxPosts * 2) {
-        break;
+        
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (error) {
+        console.error(`ページ取得エラー (${pageUrl}):`, error);
       }
     }
+    
+    console.log(`合計${tempUrls.size}件の記事URLを収集しました`);
     
     // 収集したURLから日付を取得（並列処理で高速化）
     const urlArray = Array.from(tempUrls);
@@ -796,7 +816,7 @@ export async function POST(request: NextRequest) {
       articleUrls.push(baseUrl);
     }
     
-    // 各記事を取得してテキストを抽出
+    // 各記事を取得してテキストを抽出（並列処理で高速化）
     const posts: Array<{
       title: string;
       content: string;
@@ -806,42 +826,108 @@ export async function POST(request: NextRequest) {
       tags: string;
     }> = [];
     
-    for (let i = 0; i < articleUrls.length; i++) {
-      const url = articleUrls[i];
-      try {
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          },
-        });
-        
-        if (response.ok) {
-          const html = await response.text();
-          const title = extractTitle(html);
-          const content = extractContent(html); // テキスト形式で抽出
-          const date = extractDate(html);
-          const category = extractCategory(html); // カテゴリを抽出
-          const tags = extractTags(html); // タグを抽出
+    // 記事取得関数（リトライロジック付き）
+    const fetchArticle = async (url: string, retries = 2): Promise<{
+      title: string;
+      content: string;
+      date: string;
+      url: string;
+      category: string;
+      tags: string;
+    } | null> => {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const response = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            },
+            signal: AbortSignal.timeout(10000), // 10秒タイムアウト
+          });
           
-          if (content.trim()) {
-            posts.push({
+          if (response.ok) {
+            const html = await response.text();
+            
+            // HTMLサイズチェック（5MB以上はスキップ）
+            if (html.length > 5 * 1024 * 1024) {
+              console.warn(`記事が大きすぎます（${url}）: ${(html.length / 1024 / 1024).toFixed(2)}MB`);
+              return null;
+            }
+            
+            const title = extractTitle(html);
+            const content = extractContent(html); // テキスト形式で抽出
+            const date = extractDate(html);
+            const category = extractCategory(html); // カテゴリを抽出
+            const tags = extractTags(html); // タグを抽出
+            
+            // コンテンツが空の場合はスキップ
+            if (!content.trim()) {
+              console.warn(`記事の内容が空です（${url}）`);
+              return null;
+            }
+            
+            // コンテンツが長すぎる場合は切り詰め（100k文字まで）
+            let trimmedContent = content.trim();
+            if (trimmedContent.length > 100000) {
+              trimmedContent = trimmedContent.substring(0, 100000) + '...';
+            }
+            
+            return {
               title: title || 'タイトルなし',
-              content: content.trim(), // テキスト形式
+              content: trimmedContent,
               date,
               url,
-              category, // カテゴリを追加
-              tags, // タグを追加
-            });
+              category,
+              tags,
+            };
+          } else if (response.status === 404) {
+            // 404の場合はリトライしない
+            console.warn(`記事が見つかりません（${url}）: 404`);
+            return null;
+          } else if (attempt < retries) {
+            // リトライ可能なエラーの場合、少し待ってからリトライ
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+            continue;
           }
+        } catch (error: any) {
+          if (attempt < retries && error.name !== 'AbortError') {
+            // タイムアウト以外のエラーはリトライ
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+            continue;
+          }
+          console.error(`Failed to fetch article ${url} (attempt ${attempt + 1}/${retries + 1}):`, error.message || error);
         }
-        
-        // レート制限を避けるため、少し待機
-        if (i < articleUrls.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      } catch (error) {
-        console.error(`Failed to fetch article ${url}:`, error);
       }
+      return null;
+    };
+    
+    // 並列処理で記事を取得（最大3件ずつ）
+    const CONCURRENT_LIMIT = 3;
+    const DELAY_MS = 1000; // 1秒待機
+    let errorCount = 0;
+    const errors: string[] = [];
+    
+    for (let i = 0; i < articleUrls.length; i += CONCURRENT_LIMIT) {
+      const batch = articleUrls.slice(i, i + CONCURRENT_LIMIT);
+      const batchPromises = batch.map(url => fetchArticle(url));
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      for (let j = 0; j < batchResults.length; j++) {
+        const result = batchResults[j];
+        if (result) {
+          posts.push(result);
+        } else {
+          errorCount++;
+          errors.push(`記事の取得に失敗: ${batch[j]}`);
+        }
+      }
+      
+      // バッチ間で少し待機（レート制限対策）
+      if (i + CONCURRENT_LIMIT < articleUrls.length) {
+        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+      }
+      
+      console.log(`記事取得進捗: ${Math.min(i + CONCURRENT_LIMIT, articleUrls.length)}/${articleUrls.length} (取得済み: ${posts.length}件, エラー: ${errorCount}件)`);
     }
     
     // CSV形式に変換（テキスト形式で保存、カテゴリ・タグを含む）
@@ -864,6 +950,9 @@ export async function POST(request: NextRequest) {
       success: true,
       csv,
       postCount: posts.length,
+      totalUrls: articleUrls.length,
+      errorCount,
+      errors: errors.slice(0, 10), // 最大10件のエラーを返す
       fromCache: false,
       cachedAt: Date.now(),
     });
