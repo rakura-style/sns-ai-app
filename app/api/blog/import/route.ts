@@ -191,16 +191,60 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
 
 // 記事のタイトルを抽出
 function extractTitle(html: string): string {
-  // <title>タグから取得
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch) {
-    return extractTextFromHTML(titleMatch[1]);
+  // 1. JSON-LD構造化データからheadlineを取得（最優先）
+  const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let jsonLdMatch;
+  while ((jsonLdMatch = jsonLdPattern.exec(html)) !== null) {
+    try {
+      const jsonData = JSON.parse(jsonLdMatch[1]);
+      // 配列の場合とオブジェクトの場合の両方に対応
+      const items = Array.isArray(jsonData) ? jsonData : [jsonData];
+      for (const item of items) {
+        if (item['@type'] === 'Article' || item['@type'] === 'BlogPosting' || item['@type'] === 'NewsArticle') {
+          if (item.headline) {
+            return extractTextFromHTML(String(item.headline));
+          }
+        }
+      }
+    } catch (e) {
+      // JSONパースエラーは無視
+    }
   }
   
-  // <h1>タグから取得
-  const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-  if (h1Match) {
-    return extractTextFromHTML(h1Match[1]);
+  // 2. og:titleメタタグから取得
+  const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i);
+  if (ogTitleMatch) {
+    return extractTextFromHTML(ogTitleMatch[1]);
+  }
+  
+  // 3. 記事本文内の<h1>タグから取得（.entry-title、.post-title、.article-titleなどのクラスを優先）
+  const h1Patterns = [
+    /<h1[^>]*class=["'][^"']*(?:entry-title|post-title|article-title|entry-header)[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i,
+    /<h1[^>]*>([\s\S]*?)<\/h1>/i
+  ];
+  for (const pattern of h1Patterns) {
+    const h1Match = html.match(pattern);
+    if (h1Match) {
+      const title = extractTextFromHTML(h1Match[1]);
+      if (title.trim()) {
+        return title;
+      }
+    }
+  }
+  
+  // 4. <title>タグから取得（最後の手段、サイトタイトルを含む可能性があるため）
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch) {
+    let title = extractTextFromHTML(titleMatch[1]);
+    // 「 | 」や「 - 」で区切られている場合、最初の部分（記事タイトル）を取得
+    const separators = [' | ', ' - ', '｜', '－'];
+    for (const sep of separators) {
+      if (title.includes(sep)) {
+        title = title.split(sep)[0].trim();
+        break;
+      }
+    }
+    return title;
   }
   
   return '';

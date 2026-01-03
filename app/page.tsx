@@ -3690,10 +3690,11 @@ export default function SNSGeneratorApp() {
                         checked={useCsvData}
                         onChange={(e) => {
                           const newValue = e.target.checked;
+                          // 現在のuseBlogDataの値を直接参照（非同期の問題を回避）
+                          const currentBlogData = useBlogData;
                           setUseCsvData(newValue);
-                          // 強制的に再レンダリングをトリガー
-                          if (!newValue && !useBlogData) {
-                            // 両方ともfalseになる場合は、ブログデータをtrueにする
+                          // 両方ともfalseになる場合は、ブログデータをtrueにする
+                          if (!newValue && !currentBlogData) {
                             setUseBlogData(true);
                           }
                         }}
@@ -3707,10 +3708,11 @@ export default function SNSGeneratorApp() {
                         checked={useBlogData}
                         onChange={(e) => {
                           const newValue = e.target.checked;
+                          // 現在のuseCsvDataの値を直接参照（非同期の問題を回避）
+                          const currentCsvData = useCsvData;
                           setUseBlogData(newValue);
-                          // 強制的に再レンダリングをトリガー
-                          if (!newValue && !useCsvData) {
-                            // 両方ともfalseになる場合は、Xの投稿データをtrueにする
+                          // 両方ともfalseになる場合は、Xの投稿データをtrueにする
+                          if (!newValue && !currentCsvData) {
                             setUseCsvData(true);
                           }
                         }}
