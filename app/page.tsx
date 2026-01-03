@@ -1892,32 +1892,50 @@ export default function SNSGeneratorApp() {
                 };
                 
                 const parts = parseCsvRow(csvLine);
-                if (parts.length >= 6) {
+                console.log(`ブログ取り込みデバッグ (${url}): CSV列数: ${parts.length}, 内容:`, parts);
+                
+                // 列数に応じて柔軟に対応
+                if (parts.length >= 3) {
+                  // 最低限、Date, Title, Contentがあれば処理する
+                  const date = parts[0]?.replace(/^"|"$/g, '') || '';
+                  const title = parts[1]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  const content = parts[2]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  
                   // URLを取得（引用符を除去）
-                  let extractedUrl = parts[5]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  let extractedUrl = '';
+                  if (parts.length >= 6) {
+                    extractedUrl = parts[5]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  } else {
+                    // URL列がない場合は、元のURLを使用
+                    extractedUrl = url;
+                  }
                   
                   // URLが正しい形式でない場合、元のURLを使用
                   const isValidUrl = extractedUrl && 
                     (extractedUrl.startsWith('http://') || extractedUrl.startsWith('https://'));
                   
-                  const title = parts[1]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
-                  const content = parts[2]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  const category = parts.length >= 4 ? (parts[3]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '') : '';
+                  const tags = parts.length >= 5 ? (parts[4]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '') : '';
                   
                   // タイトルやコンテンツが空の場合は警告
                   if (!title.trim() || !content.trim()) {
                     console.warn(`ブログ取り込み警告 (${url}): タイトルまたはコンテンツが空です。タイトル: "${title}", コンテンツ長: ${content.length}`);
                   }
                   
+                  if (parts.length < 6) {
+                    console.warn(`ブログ取り込み警告 (${url}): CSVの列数が不足しています。期待: 6列, 実際: ${parts.length}列。取得できたデータを使用します。`);
+                  }
+                  
                   return {
                     title,
                     content,
-                    date: parts[0]?.replace(/^"|"$/g, '') || '',
+                    date,
                     url: isValidUrl ? extractedUrl : url, // 正しいURLでない場合は元のURLを使用
-                    category: parts[3]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
-                    tags: parts[4]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
+                    category,
+                    tags,
                   };
                 } else {
-                  console.warn(`ブログ取り込み警告 (${url}): CSVの列数が不足しています。期待: 6列, 実際: ${parts.length}列`);
+                  console.warn(`ブログ取り込み警告 (${url}): CSVの列数が不足しています。期待: 3列以上, 実際: ${parts.length}列。CSV内容:`, csvLine.substring(0, 200));
                 }
               } else {
                 console.warn(`ブログ取り込み警告 (${url}): CSVデータが空です。`);
@@ -1966,10 +1984,10 @@ export default function SNSGeneratorApp() {
           setBlogImportProgress(`${successPosts.length}件成功, ${errorPosts.length}件エラー (${errorUrls.substring(0, 100)}...)`);
         }
         
-        // バッチ処理後にサイズをチェック
+        // バッチ処理後にサイズをチェック（エラーのない投稿のみ）
         const tempCsvRows = [
           'Date,Title,Content,Category,Tags,URL',
-          ...allPosts.map(post => {
+          ...allPosts.filter((post: any) => !post.error).map((post: any) => {
             const date = post.date;
             const title = `"${post.title.replace(/"/g, '""')}"`;
             const content = `"${post.content.replace(/"/g, '""')}"`; // 改行を保持
@@ -2007,14 +2025,23 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      if (allPosts.length === 0) {
-        throw new Error('記事の取得に失敗しました');
+      // 成功した投稿のみをカウント
+      const successPosts = allPosts.filter((p: any) => !p.error);
+      if (successPosts.length === 0) {
+        const errorDetails = allPosts.map((p: any) => `${p.url}: ${p.error || '不明なエラー'}`).join('\n');
+        throw new Error(`記事の取得に失敗しました。\n\nエラー詳細:\n${errorDetails}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
       }
       
-      // CSV形式に変換
+      // エラーがあった投稿がある場合は警告を表示
+      const errorPosts = allPosts.filter((p: any) => p.error);
+      if (errorPosts.length > 0) {
+        console.warn(`ブログ取り込み: ${successPosts.length}件成功, ${errorPosts.length}件失敗`);
+      }
+      
+      // CSV形式に変換（エラーのない投稿のみ）
       const csvRows = [
         'Date,Title,Content,Category,Tags,URL',
-        ...allPosts.map(post => {
+        ...allPosts.filter((post: any) => !post.error).map((post: any) => {
           const date = post.date;
           const title = `"${post.title.replace(/"/g, '""')}"`;
           const content = `"${post.content.replace(/"/g, '""')}"`; // 改行を保持
