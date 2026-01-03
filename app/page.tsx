@@ -2647,11 +2647,12 @@ export default function SNSGeneratorApp() {
     loadUserData();
   }, [user]);
 
-  // 選択されたデータソースから分析用データを生成
+  // 選択されたデータソースから分析用データを生成（フィルタリングは表示時に行うため、常に全てのデータを含める）
   useEffect(() => {
     const posts: any[] = [];
     
-    if (useCsvData && csvData) {
+    // CSVデータは常に含める（フィルタリングは表示時に行う）
+    if (csvData) {
       const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
       if (csvData !== defaultCsv) {
         const csvPosts = parseCsvToPosts(csvData);
@@ -2659,14 +2660,15 @@ export default function SNSGeneratorApp() {
       }
     }
     
-    if (useBlogData && blogData) {
+    // ブログデータは常に含める（フィルタリングは表示時に行う）
+    if (blogData) {
       const blogPosts = parseCsvToPosts(blogData);
       // 取り込まれたURLのブログは全て参照する
       posts.push(...blogPosts);
     }
     
     setParsedPosts(posts);
-  }, [csvData, blogData, useCsvData, useBlogData]);
+  }, [csvData, blogData]);
 
   // XのCSVデータをクリア
   const handleClearCsvData = async () => {
@@ -3507,32 +3509,51 @@ export default function SNSGeneratorApp() {
                       // フィルタリングとソート
                       let filtered = parsedPosts.filter(post => {
                         // データソースでフィルタリング（tweet_id列の有無で判定）
-                        const hasTweetId = !!(post.tweet_id || post.tweetId || post['Tweet ID'] || post['TweetID'] || post['tweet_id']);
+                        // rawDataも確認して、より確実に判定
+                        const rawData = post.rawData || {};
+                        const hasTweetId = !!(
+                          post.tweet_id || 
+                          post.tweetId || 
+                          post['Tweet ID'] || 
+                          post['TweetID'] || 
+                          post['tweet_id'] ||
+                          rawData.tweet_id ||
+                          rawData.tweetId ||
+                          rawData['Tweet ID'] ||
+                          rawData['TweetID'] ||
+                          rawData['tweet_id']
+                        );
+                        
+                        // URL列がある場合はブログ投稿と判定
+                        const hasUrl = !!(post.URL || post.url || rawData.URL || rawData.url);
+                        
                         const isCsvPost = hasTweetId;
-                        const isBlogPost = !hasTweetId;
+                        const isBlogPost = hasUrl && !hasTweetId;
                         
                         // X投稿とブログ投稿のフィルター
                         if (useCsvData && useBlogData) {
                           // 両方選択されている場合は全て表示
                         } else if (useCsvData && !useBlogData) {
                           // X投稿のみ
-                          if (isBlogPost) return false;
+                          if (!isCsvPost) return false;
                         } else if (!useCsvData && useBlogData) {
                           // ブログ投稿のみ
-                          if (isCsvPost) return false;
+                          if (!isBlogPost) return false;
                         } else {
                           // どちらも選択されていない場合は何も表示しない
                           return false;
                         }
                         
                         // キーワード検索
-                        if (searchKeyword && !post.content.toLowerCase().includes(searchKeyword.toLowerCase())) {
+                        if (searchKeyword && searchKeyword.trim() && !post.content.toLowerCase().includes(searchKeyword.toLowerCase())) {
                           return false;
                         }
                         
                         // RTと返信の除外（X投稿のみに適用）
                         if (excludeRTAndReplies && isCsvPost) {
-                          const content = post.content.trim();
+                          const content = (post.content || '').trim();
+                          
+                          if (!content) return false;
                           
                           // RT（リツイート）を除外（"RT @" で始まる、または "RT:" で始まる）
                           const rtPattern = /^(RT\s*@|RT\s*:|rt\s*@|rt\s*:)/i;
@@ -3540,11 +3561,11 @@ export default function SNSGeneratorApp() {
                             return false;
                           }
                           
-                          // 返信を除外（先頭の空白や改行を除いた後に"@"で始まる、または"@"の前に文字列以外がある場合も除外）
+                          // 返信を除外（先頭の空白や改行を除いた後に"@"で始まる）
                           // 先頭の空白・改行・タブなどを除去
                           const trimmedContent = content.replace(/^[\s\n\r\t]+/, '');
-                          // "@"で始まる、または" @"のようなパターンで始まる場合を除外
-                          if (trimmedContent.startsWith('@') || /^[\s\n\r\t]*@/.test(content)) {
+                          // "@"で始まる場合を除外
+                          if (trimmedContent.startsWith('@')) {
                             return false;
                           }
                         }
@@ -3910,44 +3931,40 @@ export default function SNSGeneratorApp() {
                           <button
                             onClick={async () => {
                               if (dataListModalType === 'csv') {
-                                // 新規登録の確認ダイアログ
-                                if (confirm('既存データは削除されます。よろしいですか？')) {
-                                  setShowDataListModal(false);
-                                  setDataListModalType(null);
-                                  // ファイル選択を待つ
-                                  const fileInput = fileInputRef.current;
-                                  if (fileInput) {
-                                    // 一時的なイベントハンドラを設定
-                                    const tempHandler = async (e: Event) => {
-                                      const target = e.target as HTMLInputElement;
-                                      const file = target.files?.[0];
-                                      if (!file) return;
-                                      
-                                      const reader = new FileReader();
-                                      reader.onload = async (event) => {
-                                        const text = event.target?.result as string;
-                                        if (text) {
-                                          await applyCsvData(text, 'replace');
-                                        }
-                                        target.value = '';
-                                        fileInput.removeEventListener('change', tempHandler);
-                                      };
-                                      reader.readAsText(file);
+                                // 新規登録（確認ダイアログなし）
+                                setShowDataListModal(false);
+                                setDataListModalType(null);
+                                // ファイル選択を待つ
+                                const fileInput = fileInputRef.current;
+                                if (fileInput) {
+                                  // 一時的なイベントハンドラを設定
+                                  const tempHandler = async (e: Event) => {
+                                    const target = e.target as HTMLInputElement;
+                                    const file = target.files?.[0];
+                                    if (!file) return;
+                                    
+                                    const reader = new FileReader();
+                                    reader.onload = async (event) => {
+                                      const text = event.target?.result as string;
+                                      if (text) {
+                                        await applyCsvData(text, 'replace');
+                                      }
+                                      target.value = '';
+                                      fileInput.removeEventListener('change', tempHandler);
                                     };
-                                    fileInput.addEventListener('change', tempHandler);
-                                    fileInput.click();
-                                  }
+                                    reader.readAsText(file);
+                                  };
+                                  fileInput.addEventListener('change', tempHandler);
+                                  fileInput.click();
                                 }
                               } else {
                                 // ブログURL取込みの場合
-                                if (confirm('既存データは削除されます。よろしいですか？')) {
-                                  setShowDataListModal(false);
-                                  setDataListModalType(null);
-                                  setBlogImportMode('replace');
-                                  setSelectedSection('import');
-                                  setShowBlogImport(true);
-                                  setShowPostAnalysis(false);
-                                }
+                                setShowDataListModal(false);
+                                setDataListModalType(null);
+                                setBlogImportMode('replace');
+                                setSelectedSection('import');
+                                setShowBlogImport(true);
+                                setShowPostAnalysis(false);
                               }
                             }}
                             className="flex-1 px-4 py-3 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"

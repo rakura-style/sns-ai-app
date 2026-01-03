@@ -270,21 +270,98 @@ function extractContent(html: string): string {
   return extractTextFromHTML(html);
 }
 
-// 記事の投稿日を抽出
+// 記事の投稿日を抽出（更新日ではなく投稿日を優先）
 function extractDate(html: string): string {
-  // <time>タグから取得
-  const timeMatch = html.match(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/i);
-  if (timeMatch) {
-    return timeMatch[1].split('T')[0]; // 日付部分のみ
+  // 1. JSON-LD構造化データからdatePublishedを取得（最優先）
+  const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let jsonLdMatch;
+  while ((jsonLdMatch = jsonLdPattern.exec(html)) !== null) {
+    try {
+      const jsonData = JSON.parse(jsonLdMatch[1]);
+      // 配列の場合とオブジェクトの場合の両方に対応
+      const items = Array.isArray(jsonData) ? jsonData : [jsonData];
+      for (const item of items) {
+        if (item['@type'] === 'Article' || item['@type'] === 'BlogPosting' || item['@type'] === 'NewsArticle') {
+          if (item.datePublished) {
+            const date = new Date(item.datePublished);
+            if (!isNaN(date.getTime())) {
+              return date.toISOString().split('T')[0];
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // JSONパースエラーは無視
+    }
   }
   
-  // その他の日付パターンを検索
+  // 2. メタタグからarticle:published_timeを取得
+  const metaPublishedMatch = html.match(/<meta[^>]*property=["']article:published_time["'][^>]*content=["']([^"']+)["'][^>]*>/i);
+  if (metaPublishedMatch) {
+    try {
+      const date = new Date(metaPublishedMatch[1]);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // 日付パースエラーは無視
+    }
+  }
+  
+  // 3. メタタグからog:published_timeを取得
+  const ogPublishedMatch = html.match(/<meta[^>]*property=["']og:published_time["'][^>]*content=["']([^"']+)["'][^>]*>/i);
+  if (ogPublishedMatch) {
+    try {
+      const date = new Date(ogPublishedMatch[1]);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // 日付パースエラーは無視
+    }
+  }
+  
+  // 4. <time>タグから取得（datetime属性にpublishedクラスがある場合を優先）
+  const timePublishedMatch = html.match(/<time[^>]*class=["'][^"']*published[^"']*["'][^>]*datetime=["']([^"']+)["'][^>]*>/i);
+  if (timePublishedMatch) {
+    try {
+      const date = new Date(timePublishedMatch[1]);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // 日付パースエラーは無視
+    }
+  }
+  
+  // 5. 通常の<time>タグから取得
+  const timeMatch = html.match(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/i);
+  if (timeMatch) {
+    try {
+      const date = new Date(timeMatch[1]);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // 日付パースエラーは無視
+    }
+  }
+  
+  // 6. その他の日付パターンを検索（フォールバック）
   const datePattern = /(\d{4}[-/]\d{2}[-/]\d{2})/;
   const dateMatch = html.match(datePattern);
   if (dateMatch) {
-    return dateMatch[1].replace(/\//g, '-');
+    try {
+      const date = new Date(dateMatch[1].replace(/\//g, '-'));
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      // 日付パースエラーは無視
+    }
   }
   
+  // 投稿日が見つからない場合は現在の日付を返す（フォールバック）
   return new Date().toISOString().split('T')[0];
 }
 
