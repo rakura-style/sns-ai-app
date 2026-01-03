@@ -2724,8 +2724,6 @@ export default function SNSGeneratorApp() {
   const [result, setResult] = useState('');
   const [isPostLoading, setIsPostLoading] = useState(false);
   const [error, setError] = useState('');
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingPost, setEditingPost] = useState<{ title: string; content: string; id: string } | null>(null);
   const [showFacebookSettings, setShowFacebookSettings] = useState(false);
   const [facebookAppId, setFacebookAppId] = useState('');
   const [showXSettings, setShowXSettings] = useState(false);
@@ -3812,7 +3810,7 @@ export default function SNSGeneratorApp() {
                           }`}
                         >
                           <BarChart3 size={12} />
-                          投稿分析 ({parsedPosts.length})
+                          過去投稿 ({parsedPosts.length})
                         </button>
                       </>
                     )}
@@ -3838,7 +3836,7 @@ export default function SNSGeneratorApp() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                       <BarChart3 size={16} className="text-[#066099]" />
-                      過去の投稿分析
+                      過去の投稿
                     </h3>
                     <button
                       onClick={() => {
@@ -4104,22 +4102,27 @@ export default function SNSGeneratorApp() {
                               <button
                                 onClick={() => {
                                   if (isBlogPost) {
-                                    // ブログ投稿の場合は、タイトルと本文を編集できるモーダルを表示
-                                    setEditingPost({
-                                      title: post.title || post.Title || '',
-                                      content: post.content || post.Content || '',
-                                      id: post.id
-                                    });
-                                    setShowEditModal(true);
+                                    // ブログ投稿の場合は、タイトルと本文を結合して投稿内容ブロックに表示
+                                    const title = post.title || post.Title || '';
+                                    const content = post.content || post.Content || '';
+                                    let combinedContent = '';
+                                    if (title.trim()) {
+                                      combinedContent = title.trim() + '\n\n' + content.trim();
+                                    } else {
+                                      combinedContent = content.trim();
+                                    }
+                                    setResult(combinedContent);
+                                    setShowPostAnalysis(true);
                                   } else {
-                                    // X投稿の場合は従来通り本文のみを編集
+                                    // X投稿の場合は本文のみを編集
                                     const fullContent = post.content || '';
                                     setResult(fullContent || '');
+                                    setShowPostAnalysis(true);
                                   }
                                   // 投稿分析の一覧は閉じない
                                 }}
                                 className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1"
-                                title={isBlogPost ? "この投稿を編集（タイトルと本文）" : "この投稿を編集（全文）"}
+                                title="この投稿を編集"
                               >
                                 <Pencil size={12} />
                                 編集
@@ -4160,84 +4163,6 @@ export default function SNSGeneratorApp() {
                 </div>
               )}
 
-              {/* ブログ投稿編集モーダル */}
-              {showEditModal && editingPost && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                        <Pencil size={20} className="text-[#066099]" />
-                        投稿を編集
-                      </h3>
-                      <button
-                        onClick={() => {
-                          setShowEditModal(false);
-                          setEditingPost(null);
-                        }}
-                        className="text-slate-400 hover:text-slate-600 transition-colors"
-                      >
-                        <XIcon size={20} />
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">
-                          タイトル
-                        </label>
-                        <input
-                          type="text"
-                          value={editingPost.title}
-                          onChange={(e) => setEditingPost({ ...editingPost, title: e.target.value })}
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                          placeholder="タイトルを入力"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">
-                          本文
-                        </label>
-                        <textarea
-                          value={editingPost.content}
-                          onChange={(e) => setEditingPost({ ...editingPost, content: e.target.value })}
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black min-h-[300px] whitespace-pre-wrap resize-y"
-                          placeholder="本文を入力"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="flex gap-2 pt-2">
-                      <button
-                        onClick={() => {
-                          setShowEditModal(false);
-                          setEditingPost(null);
-                        }}
-                        className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        onClick={() => {
-                          // タイトルと本文を結合してresultに設定（タイトルがある場合は「タイトル\n\n本文」の形式）
-                          let combinedContent = '';
-                          if (editingPost.title.trim()) {
-                            combinedContent = editingPost.title.trim() + '\n\n' + editingPost.content.trim();
-                          } else {
-                            combinedContent = editingPost.content.trim();
-                          }
-                          setResult(combinedContent);
-                          setShowEditModal(false);
-                          setEditingPost(null);
-                        }}
-                        className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors"
-                      >
-                        保存
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* ブログ取り込みUI - 削除済み */}
               {false && (
@@ -5178,14 +5103,16 @@ export default function SNSGeneratorApp() {
               )}
 
               {/* 投稿生成ボタン（常に表示） */}
-              <button
-                onClick={handleGeneratePost}
-                disabled={isPostLoading || (!manualInput && !selectedTheme)}
-                className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-              >
-                {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
-              </button>
+              {selectedSection !== 'posts' && (
+                <button
+                  onClick={handleGeneratePost}
+                  disabled={isPostLoading || (!manualInput && !selectedTheme)}
+                  className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                >
+                  {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                  {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
+                </button>
+              )}
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col gap-2">
