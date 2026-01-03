@@ -3020,8 +3020,6 @@ export default function SNSGeneratorApp() {
         // 残りのURLのデータを再取得する必要がある場合は、ここで処理
         // 現在は、parsedPostsから該当URLのデータを削除するだけ
       }
-      
-      alert('URLを削除しました');
     } catch (error) {
       console.error('URLの削除に失敗:', error);
       alert('URLの削除に失敗しました');
@@ -3453,13 +3451,13 @@ export default function SNSGeneratorApp() {
                     <button 
                       onClick={() => setShowDataImportModal(true)}
                       disabled={isCsvLoading || isBlogImporting}
-                      className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      className="text-xs px-3 py-1.5 rounded-lg font-bold text-white bg-[#066099] hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 shadow-sm w-full sm:w-auto"
                       title="データ取込み"
                     >
                       {(isCsvLoading || isBlogImporting) ? (
-                        <Loader2 size={14} className="animate-spin" />
+                        <Loader2 size={12} className="animate-spin" />
                       ) : (
-                        <Upload size={14} />
+                        <Upload size={12} />
                       )}
                       データ取込み
                     </button>
@@ -4063,6 +4061,14 @@ export default function SNSGeneratorApp() {
                                   const displayUrl = isValidUrl ? url : (url || `URL ${index + 1}`);
                                   
                                   const uploadDate = blogUrlDates[url] || blogUrlDates[displayUrl];
+                                  
+                                  // ブログ公開日を取得（parsedPostsから該当するURLの投稿を探す）
+                                  const blogPost = parsedPosts.find((post: any) => {
+                                    const postUrl = post.URL || post.url;
+                                    return postUrl === url || postUrl === displayUrl;
+                                  });
+                                  const blogPublishDate = blogPost?.Date || blogPost?.date || '';
+                                  
                                   let expiryDateStr = '';
                                   if (uploadDate) {
                                     try {
@@ -4085,14 +4091,17 @@ export default function SNSGeneratorApp() {
                                         <p className="text-xs text-slate-700 font-medium break-words" title={displayUrl}>
                                           {displayUrl}
                                         </p>
-                                        {uploadDate && (
-                                          <div className="text-[10px] text-slate-500 mt-1">
+                                        <div className="text-[10px] text-slate-500 mt-1">
+                                          {blogPublishDate && (
+                                            <p>ブログ公開日: {blogPublishDate}</p>
+                                          )}
+                                          {uploadDate && (
                                             <p>取込み日: {uploadDate}</p>
-                                            {expiryDateStr && (
-                                              <p>保存期限: {expiryDateStr}</p>
-                                            )}
-                                          </div>
-                                        )}
+                                          )}
+                                          {expiryDateStr && (
+                                            <p>保存期限: {expiryDateStr}</p>
+                                          )}
+                                        </div>
                                       </div>
                                       <div className="flex items-center gap-1 flex-shrink-0">
                                         <button
@@ -4109,9 +4118,8 @@ export default function SNSGeneratorApp() {
                                         </button>
                                         <button
                                           onClick={async () => {
-                                            if (confirm(`このURLを削除しますか？\n${displayUrl}\n\nこの操作は取り消せません。`)) {
-                                              await handleDeleteBlogUrl(url || displayUrl);
-                                            }
+                                            // confirmを削除（handleDeleteBlogUrl内で確認するため）
+                                            await handleDeleteBlogUrl(url || displayUrl);
                                           }}
                                           disabled={isBlogImporting}
                                           className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
