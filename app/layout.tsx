@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SNS投稿サポーターAI",
+  title: "投稿サポAI",
   description: "AIがあなたのSNS投稿をサポートします",
 };
 

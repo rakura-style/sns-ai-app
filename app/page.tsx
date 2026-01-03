@@ -1016,7 +1016,6 @@ export default function SNSGeneratorApp() {
   
   // マイ投稿分析用の状態（選択されたデータソースから生成）
   const [parsedPosts, setParsedPosts] = useState<any[]>([]);
-  const [selectedBlogUrlsForDisplay, setSelectedBlogUrlsForDisplay] = useState<Set<string>>(new Set()); // 表示用に選択されたURL
   const [searchKeyword, setSearchKeyword] = useState('');
   const [sortBy, setSortBy] = useState<string>('engagement-desc');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -1042,6 +1041,7 @@ export default function SNSGeneratorApp() {
   const [blogCacheInfo, setBlogCacheInfo] = useState<{ cachedAt: number; fromCache: boolean; isExpired?: boolean } | null>(null);
   const [showBlogImport, setShowBlogImport] = useState(false);
   const [showSitemapUrlModal, setShowSitemapUrlModal] = useState(false); // サイトマップURL選択モーダル
+  const [blogImportMode, setBlogImportMode] = useState<'append' | 'replace'>('append'); // 追加/上書きモード
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1528,13 +1528,19 @@ export default function SNSGeneratorApp() {
   };
 
   // 選択されたURLを取り込む
-  const handleImportSelectedUrls = async (urlsToImport: string[] = []) => {
+  const handleImportSelectedUrls = async (urlsToImport: string[] = [], mode: 'append' | 'replace' = blogImportMode) => {
     if (!user) return;
     
-    const urls = urlsToImport.length > 0 ? urlsToImport : Array.from(selectedUrls);
+    let urls = urlsToImport.length > 0 ? urlsToImport : Array.from(selectedUrls);
     if (urls.length === 0) {
       alert('取り込むURLを選択してください');
       return;
+    }
+    
+    // 1回あたり最大100件に制限（Firestoreのドキュメントサイズ制限のため）
+    if (urls.length > 100) {
+      alert(`1回あたり最大100件まで取り込めます。選択された${urls.length}件のうち、最初の100件のみを取り込みます。`);
+      urls = urls.slice(0, 100);
     }
     
     setIsBlogImporting(true);
@@ -1550,11 +1556,48 @@ export default function SNSGeneratorApp() {
         tags: string;
       }> = [];
       
+      // 既存のブログデータをパースしてURLのマップを作成（重複チェック用）
+      const existingPostsByUrl = new Map<string, any>();
+      if (mode === 'append' && blogData && blogData.trim()) {
+        try {
+          const existingPosts = parseCsvToPosts(blogData);
+          existingPosts.forEach(post => {
+            const url = post.URL || post.url;
+            if (url) {
+              existingPostsByUrl.set(url, post);
+            }
+          });
+        } catch (e) {
+          console.warn('既存データのパースエラー:', e);
+        }
+      }
+      
+      // 既に取り込まれているURLを確認
+      const newUrls: string[] = [];
+      const existingUrls: string[] = [];
+      for (const url of urls) {
+        if (existingPostsByUrl.has(url) || blogUrls.includes(url)) {
+          existingUrls.push(url);
+        } else {
+          newUrls.push(url);
+        }
+      }
+      
+      if (existingUrls.length > 0) {
+        setBlogImportProgress(`${existingUrls.length}件のURLは既に取り込まれています。更新します...`);
+      }
+      
       // 各URLから記事を取得（並列処理）
       const CONCURRENT_LIMIT = 3;
-      for (let i = 0; i < urls.length; i += CONCURRENT_LIMIT) {
+      const ONE_MB = 1024 * 1024;
+      let shouldStop = false;
+      let processedCount = 0;
+      
+      for (let i = 0; i < urls.length && !shouldStop; i += CONCURRENT_LIMIT) {
         const batch = urls.slice(i, i + CONCURRENT_LIMIT);
         const batchPromises = batch.map(async (url) => {
+          if (shouldStop) return null;
+          
           try {
             const response = await fetch('/api/blog/import', {
               method: 'POST',
@@ -1598,11 +1641,45 @@ export default function SNSGeneratorApp() {
         const batchResults = await Promise.all(batchPromises);
         const validPosts = batchResults.filter(p => p !== null) as any[];
         allPosts.push(...validPosts);
+        processedCount += validPosts.length;
+        
+        // バッチ処理後にサイズをチェック
+        const tempCsvRows = [
+          'Date,Title,Content,Category,Tags,URL',
+          ...allPosts.map(post => {
+            const date = post.date;
+            const title = `"${post.title.replace(/"/g, '""')}"`;
+            const content = `"${post.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+            const category = `"${post.category.replace(/"/g, '""')}"`;
+            const tags = `"${post.tags.replace(/"/g, '""')}"`;
+            const url = `"${post.url}"`;
+            return `${date},${title},${content},${category},${tags},${url}`;
+          }),
+        ];
+        const tempCsv = tempCsvRows.join('\n');
+        
+        // 既存データと結合したサイズをチェック
+        let tempFinalData = tempCsv;
+        if (mode === 'append' && blogData && blogData.trim()) {
+          const existingLines = blogData.split('\n');
+          const newLines = tempCsv.split('\n');
+          if (existingLines.length > 0 && newLines.length > 1) {
+            tempFinalData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
+          }
+        }
+        
+        const tempDataSize = new Blob([tempFinalData]).size;
+        if (tempDataSize > ONE_MB) {
+          // サイズ制限に達した場合、それ以降の処理を停止
+          shouldStop = true;
+          setBlogImportProgress(`サイズ制限に達しました。${processedCount}件の記事を取り込みました。`);
+          break;
+        }
         
         setBlogImportProgress(`${Math.min(i + CONCURRENT_LIMIT, urls.length)}/${urls.length}件のURLを処理中...`);
         
         // バッチ間で少し待機
-        if (i + CONCURRENT_LIMIT < urls.length) {
+        if (i + CONCURRENT_LIMIT < urls.length && !shouldStop) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
@@ -1627,17 +1704,57 @@ export default function SNSGeneratorApp() {
       
       const csv = csvRows.join('\n');
       
-      // 既存のブログデータがある場合は追加
+      // 既存のブログデータと結合（モードに応じて）
       let finalBlogData: string;
-      if (blogData && blogData.trim()) {
+      if (mode === 'append' && blogData && blogData.trim()) {
         const existingLines = blogData.split('\n');
         const newLines = csv.split('\n');
+        
         if (existingLines.length > 0 && newLines.length > 1) {
-          finalBlogData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
+          // 既存データから新しいURLのデータを除外（重複を避ける）
+          const existingPosts = parseCsvToPosts(blogData);
+          const newUrlsSet = new Set(allPosts.map(p => p.url));
+          
+          // 既存データから新しいURLのデータを除外
+          const filteredExistingPosts = existingPosts.filter(post => {
+            const url = post.URL || post.url;
+            return !newUrlsSet.has(url);
+          });
+          
+          // フィルタリングされた既存データをCSVに変換
+          const filteredExistingCsv = [
+            'Date,Title,Content,Category,Tags,URL',
+            ...filteredExistingPosts.map(post => {
+              const date = post.Date || post.date || '';
+              const title = `"${(post.Title || post.title || '').replace(/"/g, '""')}"`;
+              const content = `"${(post.Content || post.content || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+              const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
+              const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
+              const url = `"${post.URL || post.url || ''}"`;
+              return `${date},${title},${content},${category},${tags},${url}`;
+            }),
+          ].join('\n');
+          
+          // 既存データ（重複除外）と新しいデータを結合
+          const filteredLines = filteredExistingCsv.split('\n');
+          if (filteredLines.length > 0 && newLines.length > 1) {
+            finalBlogData = filteredLines[0] + '\n' + filteredLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
+          } else {
+            finalBlogData = csv;
+          }
         } else {
           finalBlogData = csv;
         }
       } else {
+        // 上書きモード：新しいデータのみ
+        finalBlogData = csv;
+      }
+      
+      // データサイズをチェック（Firestoreのドキュメントサイズ制限: 1MB）
+      const dataSize = new Blob([finalBlogData]).size;
+      if (dataSize > ONE_MB) {
+        // 既存データが大きすぎる場合は、新しいデータのみを保存
+        console.warn(`データサイズが大きすぎます（${(dataSize / 1024 / 1024).toFixed(2)} MB）。新しいデータのみを保存します。`);
         finalBlogData = csv;
       }
       
@@ -1651,11 +1768,12 @@ export default function SNSGeneratorApp() {
       setBlogData(finalBlogData);
       setBlogUploadDate(dateStr);
       
-      // 取り込んだURLを記録
-      const updatedBlogUrls = [...blogUrls];
-      const updatedBlogUrlDates = { ...blogUrlDates };
+      // 取り込んだURLを記録（重複しないように）
+      const updatedBlogUrls = mode === 'replace' ? [] : [...blogUrls];
+      const updatedBlogUrlDates = mode === 'replace' ? {} : { ...blogUrlDates };
       
-      for (const url of urls) {
+      for (const post of allPosts) {
+        const url = post.url;
         if (!updatedBlogUrls.includes(url)) {
           updatedBlogUrls.push(url);
         }
@@ -1672,7 +1790,15 @@ export default function SNSGeneratorApp() {
         blogUrlDates: updatedBlogUrlDates
       }, { merge: true });
       
-      setBlogImportProgress(`${allPosts.length}件の記事を取得しました`);
+      const successMessage = shouldStop 
+        ? `${processedCount}件の記事を取り込みました（サイズ制限により一部のURLは取り込まれていません）`
+        : `${allPosts.length}件の記事を取得しました`;
+      setBlogImportProgress(successMessage);
+      
+      if (shouldStop) {
+        alert(successMessage);
+      }
+      
       setSelectedUrls(new Set()); // 選択をリセット
     } catch (error: any) {
       console.error('Blog import error:', error);
@@ -1685,7 +1811,7 @@ export default function SNSGeneratorApp() {
 
   // 個別URLの更新（再取得）
   const handleUpdateUrl = async (url: string) => {
-    await handleImportSelectedUrls([url]);
+    await handleImportSelectedUrls([url], 'append'); // 追加モードで実行（既存URLを更新）
   };
 
   // 旧実装のhandleBlogImport関数は削除（サイトマップ方式に変更）
@@ -2522,23 +2648,12 @@ export default function SNSGeneratorApp() {
     
     if (useBlogData && blogData) {
       const blogPosts = parseCsvToPosts(blogData);
-      // 選択されたURLの投稿だけをフィルタリング
-      if (selectedBlogUrlsForDisplay.size > 0) {
-        const filteredBlogPosts = blogPosts.filter(post => {
-          if (post.rawData && post.rawData.URL) {
-            return selectedBlogUrlsForDisplay.has(post.rawData.URL);
-          }
-          return false;
-        });
-        posts.push(...filteredBlogPosts);
-      } else {
-        // 選択されていない場合はすべて表示
-        posts.push(...blogPosts);
-      }
+      // 取り込まれたURLのブログは全て参照する
+      posts.push(...blogPosts);
     }
     
     setParsedPosts(posts);
-  }, [csvData, blogData, useCsvData, useBlogData, selectedBlogUrlsForDisplay]);
+  }, [csvData, blogData, useCsvData, useBlogData]);
 
   // XのCSVデータをクリア
   const handleClearCsvData = async () => {
@@ -3580,41 +3695,13 @@ export default function SNSGeneratorApp() {
                     {/* 取り込んだURLの一覧 */}
                     {blogUrls && blogUrls.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-bold text-slate-700">取り込んだURL一覧:</p>
-                          <button
-                            onClick={() => {
-                              if (selectedBlogUrlsForDisplay.size === blogUrls.length) {
-                                setSelectedBlogUrlsForDisplay(new Set());
-                              } else {
-                                setSelectedBlogUrlsForDisplay(new Set(blogUrls));
-                              }
-                            }}
-                            className="px-2 py-1 text-[10px] font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
-                          >
-                            {selectedBlogUrlsForDisplay.size === blogUrls.length ? 'すべて解除' : 'すべて選択'}
-                          </button>
-                        </div>
+                        <p className="text-xs font-bold text-slate-700 mb-2">取り込んだURL一覧:</p>
                         <div className="space-y-1 max-h-32 overflow-y-auto">
                           {blogUrls.map((url: string, index: number) => (
-                            <label
+                            <div
                               key={index}
-                              className="flex items-center gap-2 text-xs bg-slate-50 p-2 rounded cursor-pointer hover:bg-slate-100"
+                              className="flex items-center justify-between gap-2 text-xs bg-slate-50 p-2 rounded hover:bg-slate-100"
                             >
-                              <input
-                                type="checkbox"
-                                checked={selectedBlogUrlsForDisplay.has(url)}
-                                onChange={(e) => {
-                                  const newSelected = new Set(selectedBlogUrlsForDisplay);
-                                  if (e.target.checked) {
-                                    newSelected.add(url);
-                                  } else {
-                                    newSelected.delete(url);
-                                  }
-                                  setSelectedBlogUrlsForDisplay(newSelected);
-                                }}
-                                className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
-                              />
                               <div className="flex-1 min-w-0">
                                 <p className="text-slate-600 truncate" title={url}>
                                   {index + 1}. {url}
@@ -3625,24 +3712,29 @@ export default function SNSGeneratorApp() {
                                   </p>
                                 )}
                               </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleUpdateUrl(url);
-                                }}
-                                disabled={isBlogImporting}
-                                className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                              >
-                                {isBlogImporting ? '更新中...' : '更新'}
-                              </button>
-                            </label>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleUpdateUrl(url)}
+                                  disabled={isBlogImporting}
+                                  className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
+                                  title="このURLを更新"
+                                >
+                                  <RefreshCcw size={10} />
+                                  更新
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteBlogUrl(url)}
+                                  disabled={isBlogImporting}
+                                  className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
+                                  title="このURLを削除"
+                                >
+                                  <Trash2 size={10} />
+                                  削除
+                                </button>
+                              </div>
+                            </div>
                           ))}
                         </div>
-                        {selectedBlogUrlsForDisplay.size > 0 && (
-                          <p className="text-xs text-slate-500 mt-2">
-                            {selectedBlogUrlsForDisplay.size}件のURLが選択されています（選択されたURLの内容のみ表示されます）
-                          </p>
-                        )}
                       </div>
                     )}
                   </div>
@@ -3767,6 +3859,42 @@ export default function SNSGeneratorApp() {
                     </div>
                     
                     <div className="flex-1 overflow-hidden flex flex-col p-6">
+                      {/* 取込みモード選択 */}
+                      <div className="mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                        <p className="text-sm font-bold text-slate-800 mb-3">取込み方法を選択</p>
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-3 p-2 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                            <input
+                              type="radio"
+                              name="blogMode"
+                              value="append"
+                              checked={blogImportMode === 'append'}
+                              onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
+                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                            />
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">追加</p>
+                              <p className="text-xs text-slate-500">既存データに新しいURLのデータを追加します（既存URLは更新）</p>
+                            </div>
+                          </label>
+                          
+                          <label className="flex items-center gap-3 p-2 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                            <input
+                              type="radio"
+                              name="blogMode"
+                              value="replace"
+                              checked={blogImportMode === 'replace'}
+                              onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
+                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                            />
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">書き換え</p>
+                              <p className="text-xs text-slate-500">既存データを削除して、選択したURLのデータに置き換えます</p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                      
                       <div className="flex items-center justify-between mb-4">
                         <p className="text-sm text-slate-600">
                           取り込むURLを選択してください
@@ -3777,12 +3905,16 @@ export default function SNSGeneratorApp() {
                               if (selectedUrls.size === sitemapUrls.length) {
                                 setSelectedUrls(new Set());
                               } else {
-                                setSelectedUrls(new Set(sitemapUrls.map(u => u.url)));
+                                const maxSelect = Math.min(100, sitemapUrls.length);
+                                if (sitemapUrls.length > 100) {
+                                  alert(`1回あたり最大100件まで選択できます。最初の100件を選択します。`);
+                                }
+                                setSelectedUrls(new Set(sitemapUrls.slice(0, maxSelect).map(u => u.url)));
                               }
                             }}
                             className="px-3 py-1.5 text-sm font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
                           >
-                            {selectedUrls.size === sitemapUrls.length ? 'すべて解除' : 'すべて選択'}
+                            {selectedUrls.size === sitemapUrls.length || selectedUrls.size === 100 ? 'すべて解除' : 'すべて選択（最大100件）'}
                           </button>
                         </div>
                       </div>
@@ -3799,6 +3931,10 @@ export default function SNSGeneratorApp() {
                               onChange={(e) => {
                                 const newSelected = new Set(selectedUrls);
                                 if (e.target.checked) {
+                                  if (newSelected.size >= 100) {
+                                    alert('1回あたり最大100件まで選択できます');
+                                    return;
+                                  }
                                   newSelected.add(item.url);
                                 } else {
                                   newSelected.delete(item.url);
@@ -3827,9 +3963,16 @@ export default function SNSGeneratorApp() {
                       </div>
                       
                       <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
-                        <p className="text-sm text-slate-600">
-                          {selectedUrls.size}件のURLが選択されています
-                        </p>
+                        <div className="flex flex-col gap-1">
+                          <p className="text-sm text-slate-600">
+                            {selectedUrls.size}件のURLが選択されています
+                          </p>
+                          {selectedUrls.size > 100 && (
+                            <p className="text-xs text-red-600 font-medium">
+                              ⚠️ 1回あたり最大100件まで取り込めます。最初の100件のみ取り込みます。
+                            </p>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => {
@@ -3846,8 +3989,13 @@ export default function SNSGeneratorApp() {
                                 alert('取り込むURLを選択してください');
                                 return;
                               }
+                              if (selectedUrls.size > 100) {
+                                if (!confirm(`1回あたり最大100件まで取り込めます。選択された${selectedUrls.size}件のうち、最初の100件のみを取り込みます。続けますか？`)) {
+                                  return;
+                                }
+                              }
                               setShowSitemapUrlModal(false);
-                              await handleImportSelectedUrls();
+                              await handleImportSelectedUrls([], blogImportMode);
                             }}
                             disabled={isBlogImporting || selectedUrls.size === 0}
                             className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -3860,7 +4008,7 @@ export default function SNSGeneratorApp() {
                             ) : (
                               <>
                                 <Upload size={16} />
-                                選択したURLを取り込み ({selectedUrls.size}件)
+                                選択したURLを取り込み ({selectedUrls.size > 100 ? '100' : selectedUrls.size}件)
                               </>
                             )}
                           </button>

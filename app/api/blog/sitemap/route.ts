@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       
       return NextResponse.json({
         success: true,
-        urls: urls.slice(0, 500), // 最大500件
+        urls: urls.slice(0, 100), // 最大100件（Firestoreのドキュメントサイズ制限のため）
       });
     }
     
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
-      urls: urls.slice(0, 500), // 最大500件
+      urls: urls.slice(0, 100), // 最大100件（Firestoreのドキュメントサイズ制限のため）
     });
   } catch (error: any) {
     console.error('Sitemap fetch error:', error);
