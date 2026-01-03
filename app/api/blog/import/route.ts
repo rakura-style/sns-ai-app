@@ -380,12 +380,12 @@ function extractContent(html: string): string {
     .replace(/&frac12;/g, '½')
     .replace(/&frac14;/g, '¼')
     .replace(/&frac34;/g, '¾')
-    .replace(/&lsquo;/g, ''')
-    .replace(/&rsquo;/g, ''')
-    .replace(/&ldquo;/g, '"')
-    .replace(/&rdquo;/g, '"')
-    .replace(/&sbquo;/g, ',')
-    .replace(/&bdquo;/g, '"');
+    .replace(/&lsquo;/g, '\u2018')  // 左シングルクォート
+    .replace(/&rsquo;/g, '\u2019')  // 右シングルクォート
+    .replace(/&ldquo;/g, '\u201C')  // 左ダブルクォート
+    .replace(/&rdquo;/g, '\u201D')  // 右ダブルクォート
+    .replace(/&sbquo;/g, '\u201A')  // シングル下クォート
+    .replace(/&bdquo;/g, '\u201E'); // ダブル下クォート
   
   // 連続する過剰な空白や改行を整理
   // 3つ以上の連続する改行を2つに制限
@@ -1080,7 +1080,8 @@ export async function POST(request: NextRequest) {
     const csvRows = [
       'Date,Title,Content,Category,Tags,URL',
       ...posts.map(post => {
-        const date = post.date || ''; // 空欄の可能性があるため
+        // すべてのフィールドをダブルクォートで囲む（一貫性と安全性のため）
+        const date = `"${(post.date || '').replace(/"/g, '""')}"`;
         const title = `"${(post.title || '').replace(/"/g, '""')}"`;
         const content = `"${(post.content || '').replace(/"/g, '""')}"`; // テキスト形式、改行を保持
         const category = `"${(post.category || '').replace(/"/g, '""')}"`; // カテゴリ

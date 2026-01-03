@@ -1909,12 +1909,48 @@ export default function SNSGeneratorApp() {
             }
             
             if (data.csv) {
-              // CSVから投稿を抽出
-              const lines = data.csv.split('\n');
-              if (lines.length > 1) {
-                const csvLine = lines[1]; // ヘッダーを除く最初の行
+              // CSVから投稿を抽出（改行を含むフィールドに対応）
+              // 改行を含むフィールドに対応したCSVパース
+              const csvText = data.csv;
+              const rows: string[] = [];
+              let currentRow = '';
+              let inQuotes = false;
+              
+              for (let i = 0; i < csvText.length; i++) {
+                const char = csvText[i];
+                const nextChar = i + 1 < csvText.length ? csvText[i + 1] : null;
                 
-                // CSVパーサー（引用符内のカンマを正しく処理）
+                if (char === '"') {
+                  // エスケープされたダブルクォート（""）の処理
+                  if (inQuotes && nextChar === '"') {
+                    currentRow += '"';
+                    i++; // 次の文字をスキップ
+                  } else {
+                    inQuotes = !inQuotes;
+                  }
+                } else if (char === '\n' && !inQuotes) {
+                  // クォート外の改行は行の区切り
+                  if (currentRow.trim()) {
+                    rows.push(currentRow);
+                  }
+                  currentRow = '';
+                } else {
+                  currentRow += char;
+                }
+              }
+              
+              // 最後の行を追加
+              if (currentRow.trim()) {
+                rows.push(currentRow);
+              }
+              
+              if (rows.length > 1) {
+                // ヘッダー行を取得
+                const headerRow = rows[0];
+                // データ行（ヘッダーを除く最初の行）を取得
+                const dataRow = rows[1];
+                
+                // CSVパーサー（引用符内のカンマと改行を正しく処理）
                 const parseCsvRow = (row: string): string[] => {
                   const values: string[] = [];
                   let current = '';
@@ -1922,26 +1958,36 @@ export default function SNSGeneratorApp() {
                   
                   for (let i = 0; i < row.length; i++) {
                     const char = row[i];
+                    const nextChar = i + 1 < row.length ? row[i + 1] : null;
+                    
                     if (char === '"') {
-                      if (inQuotes && row[i + 1] === '"') {
+                      // エスケープされたダブルクォート（""）の処理
+                      if (inQuotes && nextChar === '"') {
                         current += '"';
                         i++; // 次の文字をスキップ
                       } else {
+                        // 引用符の開始または終了
                         inQuotes = !inQuotes;
+                        // 引用符自体は値に含めない（最初と最後の引用符を除去）
                       }
                     } else if (char === ',' && !inQuotes) {
+                      // クォート外のカンマはフィールドの区切り
                       values.push(current);
                       current = '';
                     } else {
+                      // 引用符内の文字、または引用符外の通常の文字
                       current += char;
                     }
                   }
-                  values.push(current); // 最後の値
+                  // 最後のフィールドを追加
+                  values.push(current);
                   return values;
                 };
                 
-                const parts = parseCsvRow(csvLine);
-                console.log(`ブログ取り込みデバッグ (${url}): CSV列数: ${parts.length}, 内容:`, parts);
+                const parts = parseCsvRow(dataRow);
+                console.log(`ブログ取り込みデバッグ (${url}): CSV列数: ${parts.length}`);
+                console.log(`ブログ取り込みデバッグ (${url}): CSV行の先頭200文字:`, dataRow.substring(0, 200));
+                console.log(`ブログ取り込みデバッグ (${url}): パース結果 - Date: "${parts[0]}", Title: "${parts[1]?.substring(0, 50)}...", Content長: ${parts[2]?.length || 0}, Category: "${parts[3]}", Tags: "${parts[4]}", URL: "${parts[5]}"`);
                 
                 // 列数に応じて柔軟に対応
                 if (parts.length >= 3) {
@@ -1984,7 +2030,7 @@ export default function SNSGeneratorApp() {
                     tags,
                   };
                 } else {
-                  console.warn(`ブログ取り込み警告 (${url}): CSVの列数が不足しています。期待: 3列以上, 実際: ${parts.length}列。CSV内容:`, csvLine.substring(0, 200));
+                  console.warn(`ブログ取り込み警告 (${url}): CSVの列数が不足しています。期待: 3列以上, 実際: ${parts.length}列。CSV内容:`, dataRow.substring(0, 200));
                 }
               } else {
                 console.warn(`ブログ取り込み警告 (${url}): CSVデータが空です。`);
@@ -2092,7 +2138,8 @@ export default function SNSGeneratorApp() {
       const csvRows = [
         'Date,Title,Content,Category,Tags,URL',
         ...allPosts.filter((post: any) => !post.error).map((post: any) => {
-          const date = post.date || ''; // 空欄の可能性があるため
+          // すべてのフィールドをダブルクォートで囲む（一貫性と安全性のため）
+          const date = `"${(post.date || '').replace(/"/g, '""')}"`;
           const title = `"${(post.title || '').replace(/"/g, '""')}"`;
           const content = `"${(post.content || '').replace(/"/g, '""')}"`; // 改行を保持
           const category = `"${(post.category || '').replace(/"/g, '""')}"`;
@@ -5150,14 +5197,14 @@ export default function SNSGeneratorApp() {
 
               {/* 投稿生成ボタン（常に表示） */}
               {selectedSection !== 'posts' && (
-                <button
-                  onClick={handleGeneratePost}
-                  disabled={isPostLoading || (!manualInput && !selectedTheme)}
-                  className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                >
-                  {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                  {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
-                </button>
+              <button
+                onClick={handleGeneratePost}
+                disabled={isPostLoading || (!manualInput && !selectedTheme)}
+                className="w-full bg-gradient-to-r from-[#066099] to-sky-600 hover:from-[#055080] hover:to-sky-700 text-white font-bold py-3 rounded-xl shadow-md shadow-sky-100 transform transition active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+              >
+                {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
+              </button>
               )}
             </div>
 
