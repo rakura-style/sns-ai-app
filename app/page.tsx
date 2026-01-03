@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   TrendingUp, BarChart3, RefreshCcw, Send, Copy, Check, Sparkles, Zap,
   Loader2, Settings, Pencil, ChevronRight, Lightbulb, Upload,
@@ -1719,6 +1719,16 @@ export default function SNSGeneratorApp() {
       setSelectedUrls(new Set()); // 選択をリセット
       setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました（既存の${data.urls.length - filteredUrls.length}件は除外）`);
       setShowSitemapUrlModal(true); // モーダルを開く
+      
+      // サイトマップURLをFirestoreに保存
+      try {
+        await setDoc(doc(db, 'users', user.uid), {
+          sitemapUrl: sitemapUrl.trim()
+        }, { merge: true });
+      } catch (saveError) {
+        console.error('サイトマップURLの保存エラー:', saveError);
+        // 保存エラーは無視（表示には影響しない）
+      }
     } catch (error: any) {
       console.error('Sitemap fetch error:', error);
       alert(`サイトマップの取得に失敗しました: ${error.message}`);
@@ -2901,6 +2911,11 @@ export default function SNSGeneratorApp() {
             setBlogUrlDates(data.blogUrlDates);
           }
           
+          // サイトマップURLを読み込み
+          if (data.sitemapUrl) {
+            setSitemapUrl(data.sitemapUrl);
+          }
+          
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
           else setIsSubscribed(false);
@@ -3773,7 +3788,7 @@ export default function SNSGeneratorApp() {
                   
                   {/* 投稿一覧 */}
                   <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {(() => {
+                    {useMemo(() => {
                       // フィルタリングとソート
                       let filtered = parsedPosts.filter(post => {
                         // データソースでフィルタリング（tweet_id列の有無で判定）
@@ -3933,7 +3948,7 @@ export default function SNSGeneratorApp() {
                           </div>
                         </div>
                       ));
-                    })()}
+                    }, [parsedPosts, useCsvData, useBlogData, searchKeyword, sortBy, excludeRTAndReplies])}
                   </div>
                   
                   {(() => {
