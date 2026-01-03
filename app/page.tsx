@@ -3788,7 +3788,7 @@ export default function SNSGeneratorApp() {
                   
                   {/* 投稿一覧 */}
                   <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {useMemo(() => {
+                    {(() => {
                       // フィルタリングとソート
                       let filtered = parsedPosts.filter(post => {
                         // データソースでフィルタリング（tweet_id列の有無で判定）
@@ -3948,7 +3948,7 @@ export default function SNSGeneratorApp() {
                           </div>
                         </div>
                       ));
-                    }, [parsedPosts, useCsvData, useBlogData, searchKeyword, sortBy, excludeRTAndReplies])}
+                    })()}
                   </div>
                   
                   {(() => {
