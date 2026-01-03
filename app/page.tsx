@@ -181,15 +181,35 @@ const sampleCsvForAnalysis = (csvData: string, maxRows: number = 100): string =>
   return [header, ...sampledLines].join('\n');
 };
 
-const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[]) => {
+const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[], blogData?: string) => {
+  // XのCSVデータとブログデータの両方を結合
+  let combinedCsv = csvData;
+  if (blogData && blogData.trim()) {
+    const csvLines = csvData.split('\n');
+    const blogLines = blogData.split('\n');
+    if (csvLines.length > 0 && blogLines.length > 1) {
+      // ヘッダーが異なる可能性があるため、両方のヘッダーを確認
+      const csvHeader = csvLines[0];
+      const blogHeader = blogLines[0];
+      
+      // ヘッダーが同じ場合は結合、異なる場合は両方を含める
+      if (csvHeader === blogHeader) {
+        combinedCsv = csvHeader + '\n' + csvLines.slice(1).join('\n') + '\n' + blogLines.slice(1).join('\n');
+      } else {
+        // ヘッダーが異なる場合は、両方のデータを含める（ブログデータを追加）
+        combinedCsv = csvHeader + '\n' + csvLines.slice(1).join('\n') + '\n' + blogLines.slice(1).join('\n');
+      }
+    }
+  }
+  
   // CSVデータをサンプリング（最大50行に制限してさらに高速化）
   // これにより、大量のデータでもAPI呼び出しが高速化される
-  let optimizedCsv = sampleCsvForAnalysis(csvData, 50);
+  let optimizedCsv = sampleCsvForAnalysis(combinedCsv, 50);
   
   // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択
-  if (parseCsvToPostsFn && csvData) {
+  if (parseCsvToPostsFn && combinedCsv) {
     try {
-      const allPosts = parseCsvToPostsFn(csvData);
+      const allPosts = parseCsvToPostsFn(combinedCsv);
       if (allPosts.length > 50) {
         // エンゲージメントでソート（高い順）
         const sortedPosts = [...allPosts].sort((a: any, b: any) => {
@@ -216,11 +236,11 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         // 選択された投稿をCSV形式に戻す
         if (selectedPosts.length > 0) {
           // 元のCSVのヘッダーを取得
-          const originalHeader = csvData.split('\n')[0];
-          const headers = originalHeader.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+          const originalHeader = combinedCsv.split('\n')[0];
+          const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
           
           const dataRows = selectedPosts.map((post: any) => {
-            return headers.map(header => {
+            return headers.map((header: string) => {
               // ヘッダー名に基づいて値を取得
               const value = post[header] || post[header.toLowerCase()] || '';
               const strValue = String(value);
@@ -1947,7 +1967,7 @@ export default function SNSGeneratorApp() {
         ...allPosts.map(post => {
           const date = post.date;
           const title = `"${post.title.replace(/"/g, '""')}"`;
-          const content = `"${post.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+          const content = `"${post.content.replace(/"/g, '""')}"`; // 改行を保持
           const category = `"${post.category.replace(/"/g, '""')}"`;
           const tags = `"${post.tags.replace(/"/g, '""')}"`;
           const url = `"${post.url}"`;
@@ -1980,7 +2000,7 @@ export default function SNSGeneratorApp() {
             ...filteredExistingPosts.map(post => {
               const date = post.Date || post.date || '';
               const title = `"${(post.Title || post.title || '').replace(/"/g, '""')}"`;
-              const content = `"${(post.Content || post.content || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+              const content = `"${(post.Content || post.content || '').replace(/"/g, '""')}"`; // 改行を保持
               const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
               const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
               const url = `"${post.URL || post.url || ''}"`;
@@ -3278,7 +3298,7 @@ export default function SNSGeneratorApp() {
       const token = await user.getIdToken(); 
       const userId = user.uid;
       if (mode === 'mypost') {
-        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts);
+        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData);
         setMyPostThemes(analysisResult.themes || []); 
         if (analysisResult.settings) {
           // styleをpersonaに変換し、characterの最後に注意事項を追加
