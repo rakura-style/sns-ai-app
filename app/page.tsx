@@ -1706,20 +1706,62 @@ export default function SNSGeneratorApp() {
               const lines = data.csv.split('\n');
               if (lines.length > 1) {
                 const csvLine = lines[1]; // ヘッダーを除く最初の行
-                const parts = csvLine.split(',');
+                
+                // CSVパーサー（引用符内のカンマを正しく処理）
+                const parseCsvRow = (row: string): string[] => {
+                  const values: string[] = [];
+                  let current = '';
+                  let inQuotes = false;
+                  
+                  for (let i = 0; i < row.length; i++) {
+                    const char = row[i];
+                    if (char === '"') {
+                      if (inQuotes && row[i + 1] === '"') {
+                        current += '"';
+                        i++; // 次の文字をスキップ
+                      } else {
+                        inQuotes = !inQuotes;
+                      }
+                    } else if (char === ',' && !inQuotes) {
+                      values.push(current);
+                      current = '';
+                    } else {
+                      current += char;
+                    }
+                  }
+                  values.push(current); // 最後の値
+                  return values;
+                };
+                
+                const parts = parseCsvRow(csvLine);
                 if (parts.length >= 6) {
+                  // URLを取得（引用符を除去）
+                  let extractedUrl = parts[5]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  
+                  // URLが正しい形式でない場合、元のURLを使用
+                  const isValidUrl = extractedUrl && 
+                    (extractedUrl.startsWith('http://') || extractedUrl.startsWith('https://'));
+                  
                   return {
-                    title: parts[1]?.replace(/^"|"$/g, '') || '',
-                    content: parts[2]?.replace(/^"|"$/g, '') || '',
-                    date: parts[0] || '',
-                    url: parts[5]?.replace(/^"|"$/g, '') || url,
-                    category: parts[3]?.replace(/^"|"$/g, '') || '',
-                    tags: parts[4]?.replace(/^"|"$/g, '') || '',
+                    title: parts[1]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
+                    content: parts[2]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
+                    date: parts[0]?.replace(/^"|"$/g, '') || '',
+                    url: isValidUrl ? extractedUrl : url, // 正しいURLでない場合は元のURLを使用
+                    category: parts[3]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
+                    tags: parts[4]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
                   };
                 }
               }
             }
-            return null;
+            // CSVが取得できない場合でも、元のURLを返す
+            return {
+              title: '',
+              content: '',
+              date: new Date().toISOString().split('T')[0],
+              url: url,
+              category: '',
+              tags: '',
+            };
           } catch (error) {
             console.error(`Failed to import ${url}:`, error);
             return null;
@@ -1860,12 +1902,56 @@ export default function SNSGeneratorApp() {
       const updatedBlogUrls = mode === 'replace' ? [] : [...blogUrls];
       const updatedBlogUrlDates = mode === 'replace' ? {} : { ...blogUrlDates };
       
+      // 元のURLリストを保持（確実に正しいURLを保存するため）
+      const originalUrlsMap = new Map<string, string>();
+      urls.forEach(originalUrl => {
+        originalUrlsMap.set(originalUrl, originalUrl);
+      });
+      
       for (const post of allPosts) {
-        const url = post.url;
-        if (!updatedBlogUrls.includes(url)) {
-          updatedBlogUrls.push(url);
+        let postUrl = post.url;
+        
+        // URLが正しい形式でない場合、元のURLリストから探す
+        const isValidUrl = postUrl && 
+          (postUrl.startsWith('http://') || postUrl.startsWith('https://'));
+        
+        if (!isValidUrl) {
+          // 元のURLリストから該当するURLを探す
+          const foundUrl = urls.find(u => {
+            // postUrlが元のURLを含む、または元のURLがpostUrlを含む場合
+            return postUrl && (postUrl.includes(u) || u.includes(postUrl));
+          });
+          if (foundUrl) {
+            postUrl = foundUrl;
+          } else {
+            // それでも見つからない場合は、元のURLリストの最初の未使用URLを使用
+            const unusedUrl = urls.find(u => !updatedBlogUrls.includes(u));
+            if (unusedUrl) {
+              postUrl = unusedUrl;
+            } else {
+              // 最後の手段：元のURLリストの最初のURLを使用
+              postUrl = urls[0] || postUrl;
+            }
+          }
         }
-        updatedBlogUrlDates[url] = dateStr;
+        
+        // 最終的に正しいURL形式であることを確認
+        if (postUrl && (postUrl.startsWith('http://') || postUrl.startsWith('https://'))) {
+          if (!updatedBlogUrls.includes(postUrl)) {
+            updatedBlogUrls.push(postUrl);
+          }
+          updatedBlogUrlDates[postUrl] = dateStr;
+        }
+      }
+      
+      // 元のURLリストで、まだ追加されていないURLを追加（記事取得に失敗した場合でもURLは保存）
+      for (const originalUrl of urls) {
+        if (originalUrl && (originalUrl.startsWith('http://') || originalUrl.startsWith('https://'))) {
+          if (!updatedBlogUrls.includes(originalUrl)) {
+            updatedBlogUrls.push(originalUrl);
+            updatedBlogUrlDates[originalUrl] = dateStr;
+          }
+        }
       }
       
       setBlogUrls(updatedBlogUrls);
