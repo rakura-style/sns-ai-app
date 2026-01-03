@@ -4056,12 +4056,8 @@ export default function SNSGeneratorApp() {
                         const hasUrl = !!(post.URL || post.url || rawData.URL || rawData.url);
                         const isBlogPost = hasUrl && !hasTweetId;
                         
-                        // ブログ投稿の場合は、タイトルと本文の一部を表示
-                        // X投稿の場合は、従来通りコンテンツを表示
-                        const displayTitle = isBlogPost ? (post.title || post.Title || 'タイトルなし') : '';
-                        const displayContent = isBlogPost 
-                          ? (post.content ? post.content.substring(0, 200) + (post.content.length > 200 ? '...' : '') : '')
-                          : post.content || '';
+                        // 過去投稿一覧に表示するのはタイトルのみ
+                        const displayTitle = isBlogPost ? (post.title || post.Title || 'タイトルなし') : (post.content ? post.content.substring(0, 50) + (post.content.length > 50 ? '...' : '') : 'タイトルなし');
                         
                         // 投稿日を取得（複数のパターンを確認）
                         const postDate = post.date || post.Date || rawData.date || rawData.Date || '';
@@ -4093,32 +4089,53 @@ export default function SNSGeneratorApp() {
                                     <span className="text-xs text-slate-500">📅 {postDate}</span>
                                   )}
                                 </div>
-                                {isBlogPost && (
-                                  <h4 className="text-sm font-bold text-slate-800 mb-1 whitespace-pre-line">{displayTitle}</h4>
-                                )}
-                                <p className="text-sm text-slate-700 line-clamp-2 whitespace-pre-line">{displayContent}</p>
+                                <h4 className="text-sm font-bold text-slate-800 mb-1 whitespace-pre-line">{displayTitle}</h4>
                               </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100">
                               <button
                                 onClick={() => {
+                                  // 編集ボタンが押下された記事のCSVから、全文を取得
+                                  // rawDataからContent列またはcontent列を取得（全文）
+                                  let fullContent = '';
+                                  
                                   if (isBlogPost) {
-                                    // ブログ投稿の場合は、タイトルと本文を結合して投稿内容ブロックに表示
-                                    const title = post.title || post.Title || '';
-                                    const content = post.content || post.Content || '';
-                                    let combinedContent = '';
-                                    if (title.trim()) {
-                                      combinedContent = title.trim() + '\n\n' + content.trim();
-                                    } else {
-                                      combinedContent = content.trim();
+                                    // ブログ投稿の場合は、rawDataからContent列の全文を取得
+                                    const rawContent = rawData.Content || rawData.content || '';
+                                    const title = post.title || post.Title || rawData.Title || rawData.title || '';
+                                    
+                                    // rawContentが空の場合は、post.contentを使用（フォールバック）
+                                    if (!rawContent && post.content) {
+                                      fullContent = post.content;
+                                    } else if (rawContent) {
+                                      // rawDataから取得したContent列の全文を使用
+                                      // HTMLタグを除去しつつ改行を保持
+                                      const extractedContent = extractTextFromWordPress(rawContent, true);
+                                      fullContent = extractedContent;
                                     }
-                                    setResult(combinedContent);
-                                    setShowPostAnalysis(true);
+                                    
+                                    // タイトルと本文を結合
+                                    if (title.trim() && fullContent.trim()) {
+                                      fullContent = title.trim() + '\n\n' + fullContent.trim();
+                                    } else if (fullContent.trim()) {
+                                      fullContent = fullContent.trim();
+                                    }
                                   } else {
-                                    // X投稿の場合は本文のみを編集
-                                    const fullContent = post.content || '';
-                                    setResult(fullContent || '');
-                                    setShowPostAnalysis(true);
+                                    // X投稿の場合は、rawDataからtext列またはContent列の全文を取得
+                                    const rawText = rawData.text || rawData.Text || rawData['Post Content'] || rawData['投稿内容'] || '';
+                                    const rawContent = rawData.Content || rawData.content || '';
+                                    
+                                    // rawTextが優先、なければrawContent、それもなければpost.content
+                                    if (rawText) {
+                                      fullContent = rawText;
+                                    } else if (rawContent) {
+                                      fullContent = rawContent;
+                                    } else {
+                                      fullContent = post.content || '';
+                                    }
                                   }
+                                  
+                                  setResult(fullContent);
+                                  setShowPostAnalysis(true);
                                   // 投稿分析の一覧は閉じない
                                 }}
                                 className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1"
