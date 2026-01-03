@@ -431,6 +431,12 @@ async function collectNoteUrls(noteUrl: string, maxPosts: number = 50): Promise<
   return Array.from(articleUrls);
 }
 
+// 記事URLと日付のペア
+interface ArticleUrlWithDate {
+  url: string;
+  date: string; // ISO形式の日付文字列（ソート用）
+}
+
 // 記事URLを収集する関数（RSS、サイトマップ、記事一覧ページから）
 async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promise<string[]> {
   // noteのURLの場合は専用の関数を使用
@@ -438,7 +444,8 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
     return await collectNoteUrls(baseUrl, maxPosts);
   }
   
-  const articleUrls = new Set<string>();
+  const articleUrlsWithDates: ArticleUrlWithDate[] = [];
+  const urlSet = new Set<string>(); // 重複チェック用
   const visitedUrls = new Set<string>();
   
   // 方法1: RSSフィードから取得（WordPressの場合）
@@ -458,17 +465,52 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
       
       if (response.ok) {
         const xml = await response.text();
-        // RSSフィードから記事URLを抽出
-        const urlMatches = xml.matchAll(/<link>([^<]+)<\/link>/g);
-        for (const match of urlMatches) {
-          const url = match[1].trim();
-          if (url && url.startsWith(baseUrl) && !url.includes('/feed')) {
-            articleUrls.add(url);
+        // RSSフィードから記事URLと日付を抽出
+        const items = xml.matchAll(/<item>([\s\S]*?)<\/item>/gi);
+        for (const itemMatch of items) {
+          const itemContent = itemMatch[1];
+          
+          // URLを抽出
+          const linkMatch = itemContent.match(/<link>([^<]+)<\/link>/i);
+          if (!linkMatch) continue;
+          const url = linkMatch[1].trim();
+          if (!url || !url.startsWith(baseUrl) || url.includes('/feed')) continue;
+          
+          // 日付を抽出（pubDateまたはdc:date）
+          let date = '';
+          const pubDateMatch = itemContent.match(/<pubDate>([^<]+)<\/pubDate>/i);
+          if (pubDateMatch) {
+            try {
+              const dateObj = new Date(pubDateMatch[1]);
+              date = dateObj.toISOString();
+            } catch (e) {
+              // 日付パースエラーは無視
+            }
+          }
+          if (!date) {
+            const dcDateMatch = itemContent.match(/<dc:date>([^<]+)<\/dc:date>/i);
+            if (dcDateMatch) {
+              try {
+                const dateObj = new Date(dcDateMatch[1]);
+                date = dateObj.toISOString();
+              } catch (e) {
+                // 日付パースエラーは無視
+              }
+            }
+          }
+          // 日付が取得できなかった場合は、現在日時を使用（最後にソートされる）
+          if (!date) {
+            date = new Date(0).toISOString(); // 1970-01-01（古い順にソートされる）
+          }
+          
+          if (!urlSet.has(url)) {
+            articleUrlsWithDates.push({ url, date });
+            urlSet.add(url);
           }
         }
         
-        if (articleUrls.size > 0) {
-          console.log(`RSSフィードから${articleUrls.size}件の記事URLを取得`);
+        if (articleUrlsWithDates.length > 0) {
+          console.log(`RSSフィードから${articleUrlsWithDates.length}件の記事URLを取得`);
           break;
         }
       }
@@ -479,7 +521,9 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
   
   // 方法2: 記事一覧ページから取得（階下も含む）
   // 指定されたURL自体が一覧ページの場合、そのページから階下の記事URLを収集
-  if (articleUrls.size < maxPosts) {
+  if (articleUrlsWithDates.length < maxPosts) {
+    const tempUrls = new Set<string>();
+    
     // まず、指定されたbaseUrl自体から記事URLを収集
     try {
       const response = await fetch(baseUrl, {
@@ -497,12 +541,14 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
           const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
           
           if (normalizedUrl.startsWith(normalizedBaseUrl) && normalizedUrl !== normalizedBaseUrl) {
-            articleUrls.add(normalizedUrl);
-            if (articleUrls.size >= maxPosts) break;
+            if (!urlSet.has(normalizedUrl)) {
+              tempUrls.add(normalizedUrl);
+              urlSet.add(normalizedUrl);
+            }
           }
         }
         
-        console.log(`一覧ページから${urls.length}件の記事URLを取得（合計: ${articleUrls.size}件）`);
+        console.log(`一覧ページから${urls.length}件の記事URLを取得`);
       }
     } catch (error) {
       console.error(`一覧ページ取得エラー (${baseUrl}):`, error);
@@ -516,7 +562,7 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
     ];
     
     // ページネーションも考慮（最大5ページまで）
-    for (let page = 1; page <= 5 && articleUrls.size < maxPosts; page++) {
+    for (let page = 1; page <= 5 && tempUrls.size < maxPosts * 2; page++) {
       const pageUrls = [
         `${baseUrl}/page/${page}/`,
         `${baseUrl}/blog/page/${page}/`,
@@ -524,7 +570,7 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
       ];
       
       for (const listUrl of pageUrls) {
-        if (visitedUrls.has(listUrl) || articleUrls.size >= maxPosts) continue;
+        if (visitedUrls.has(listUrl) || tempUrls.size >= maxPosts * 2) continue;
         visitedUrls.add(listUrl);
         
         try {
@@ -543,8 +589,10 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
               const normalizedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
               
               if (normalizedUrl.startsWith(normalizedBaseUrl) && normalizedUrl !== normalizedBaseUrl) {
-                articleUrls.add(normalizedUrl);
-                if (articleUrls.size >= maxPosts) break;
+                if (!urlSet.has(normalizedUrl)) {
+                  tempUrls.add(normalizedUrl);
+                  urlSet.add(normalizedUrl);
+                }
               }
             }
             
@@ -561,14 +609,58 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
       }
       
       // 十分な記事が見つかったら終了
-      if (articleUrls.size >= maxPosts) {
+      if (tempUrls.size >= maxPosts * 2) {
         break;
+      }
+    }
+    
+    // 収集したURLから日付を取得（並列処理で高速化）
+    const urlArray = Array.from(tempUrls);
+    const datePromises = urlArray.map(async (url) => {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          signal: AbortSignal.timeout(5000), // 5秒タイムアウト
+        });
+        
+        if (response.ok) {
+          const html = await response.text();
+          const date = extractDate(html);
+          return { url, date: date ? new Date(date).toISOString() : new Date(0).toISOString() };
+        }
+      } catch (error) {
+        // エラーが発生した場合は、古い日付として扱う
+      }
+      return { url, date: new Date(0).toISOString() };
+    });
+    
+    // 並列処理で日付を取得（最大10件ずつ）
+    const CONCURRENT_LIMIT = 10;
+    const results: ArticleUrlWithDate[] = [];
+    for (let i = 0; i < datePromises.length; i += CONCURRENT_LIMIT) {
+      const batch = datePromises.slice(i, i + CONCURRENT_LIMIT);
+      const batchResults = await Promise.all(batch);
+      results.push(...batchResults);
+      
+      // バッチ間で少し待機（レート制限対策）
+      if (i + CONCURRENT_LIMIT < datePromises.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    // 既存のURLと重複しないように追加
+    for (const result of results) {
+      if (!urlSet.has(result.url)) {
+        articleUrlsWithDates.push(result);
+        urlSet.add(result.url);
       }
     }
   }
   
   // 方法3: サイトマップから取得（もしあれば）
-  if (articleUrls.size < maxPosts) {
+  if (articleUrlsWithDates.length < maxPosts) {
     const sitemapUrls = [
       `${baseUrl}/sitemap.xml`,
       `${baseUrl}/sitemap_index.xml`,
@@ -585,11 +677,17 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
         
         if (response.ok) {
           const xml = await response.text();
-          // サイトマップから記事URLを抽出
-          const urlMatches = xml.matchAll(/<loc>([^<]+)<\/loc>/g);
+          // サイトマップから記事URLと日付を抽出
+          const urlEntries = xml.matchAll(/<url>([\s\S]*?)<\/url>/gi);
           const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-          for (const match of urlMatches) {
-            let url = match[1].trim();
+          
+          for (const entryMatch of urlEntries) {
+            const entryContent = entryMatch[1];
+            
+            // URLを抽出
+            const locMatch = entryContent.match(/<loc>([^<]+)<\/loc>/i);
+            if (!locMatch) continue;
+            let url = locMatch[1].trim();
             if (!url) continue;
             
             // URLの正規化（末尾のスラッシュを統一）
@@ -599,19 +697,40 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
             
             if (url && url.startsWith(normalizedBaseUrl)) {
               // カテゴリやタグページは除外
-              if (!url.includes('/category/') && 
-                  !url.includes('/tag/') && 
-                  !url.includes('/author/') &&
-                  !url.includes('/page/') &&
-                  url !== normalizedBaseUrl) {
-                articleUrls.add(url);
-                if (articleUrls.size >= maxPosts) break;
+              if (url.includes('/category/') || 
+                  url.includes('/tag/') || 
+                  url.includes('/author/') ||
+                  url.includes('/page/') ||
+                  url === normalizedBaseUrl) {
+                continue;
+              }
+              
+              // 日付を抽出（lastmod）
+              let date = '';
+              const lastmodMatch = entryContent.match(/<lastmod>([^<]+)<\/lastmod>/i);
+              if (lastmodMatch) {
+                try {
+                  const dateObj = new Date(lastmodMatch[1]);
+                  date = dateObj.toISOString();
+                } catch (e) {
+                  // 日付パースエラーは無視
+                }
+              }
+              // 日付が取得できなかった場合は、古い日付として扱う
+              if (!date) {
+                date = new Date(0).toISOString();
+              }
+              
+              if (!urlSet.has(url)) {
+                articleUrlsWithDates.push({ url, date });
+                urlSet.add(url);
+                if (articleUrlsWithDates.length >= maxPosts * 2) break;
               }
             }
           }
           
-          if (articleUrls.size > 0) {
-            console.log(`サイトマップから${articleUrls.size}件の記事URLを取得`);
+          if (articleUrlsWithDates.length > 0) {
+            console.log(`サイトマップから${articleUrlsWithDates.length}件の記事URLを取得`);
             break;
           }
         }
@@ -621,10 +740,17 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
     }
   }
   
-  // 配列に変換して最大数に制限
-  const urls = Array.from(articleUrls).slice(0, maxPosts);
+  // 日付順にソート（新しい順）
+  articleUrlsWithDates.sort((a, b) => {
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+    return dateB - dateA; // 降順（新しい順）
+  });
   
-  console.log(`合計${urls.length}件の記事URLを収集しました`);
+  // 最大数に制限
+  const urls = articleUrlsWithDates.slice(0, maxPosts).map(item => item.url);
+  
+  console.log(`合計${urls.length}件の記事URLを収集しました（最新の記事から順に取得）`);
   
   return urls;
 }

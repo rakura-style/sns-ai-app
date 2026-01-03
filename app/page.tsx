@@ -5,7 +5,7 @@ import {
   TrendingUp, BarChart3, RefreshCcw, Send, Copy, Check, Sparkles, Zap,
   Loader2, Settings, Pencil, ChevronRight, Lightbulb, Upload,
   ChevronDown, User as UserIcon, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock, CreditCard, LogOut,
-  X as XIcon, Trash2, BookOpen, Menu
+  X as XIcon, Trash2, BookOpen, Menu, HelpCircle
 } from 'lucide-react';
 
 // 🔥 Firebase認証・DB読み込み
@@ -3319,19 +3319,38 @@ export default function SNSGeneratorApp() {
                   
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="ブログ・note URLを入力（例: https://example.com または https://note.com/username）"
-                        value={blogUrl}
-                        onChange={(e) => setBlogUrl(e.target.value)}
-                        className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                        disabled={isBlogImporting}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !isBlogImporting && blogUrl.trim()) {
-                            handleBlogImport(false);
-                          }
-                        }}
-                      />
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          placeholder="ブログ・note URLを入力"
+                          value={blogUrl}
+                          onChange={(e) => setBlogUrl(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                          disabled={isBlogImporting}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !isBlogImporting && blogUrl.trim()) {
+                              handleBlogImport(false);
+                            }
+                          }}
+                        />
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                          <div className="relative group">
+                            <HelpCircle 
+                              size={16} 
+                              className="text-slate-400 hover:text-slate-600 cursor-help" 
+                            />
+                            <div className="absolute right-0 top-6 w-64 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 pointer-events-none">
+                              <p className="font-bold mb-1">入力するURLの例:</p>
+                              <ul className="space-y-1 list-disc list-inside">
+                                <li>ブログサイトのトップページ: <span className="text-slate-300">https://example.com</span></li>
+                                <li>記事一覧ページ: <span className="text-slate-300">https://example.com/blog/</span></li>
+                                <li>note.com: <span className="text-slate-300">https://note.com/username</span></li>
+                              </ul>
+                              <p className="mt-2 text-slate-300">※ 指定したURLから階下の記事を自動収集します</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                       <button
                         onClick={() => handleBlogImport(false)}
                         disabled={isBlogImporting || !blogUrl.trim()}
