@@ -1041,6 +1041,7 @@ export default function SNSGeneratorApp() {
   const [blogImportProgress, setBlogImportProgress] = useState('');
   const [blogCacheInfo, setBlogCacheInfo] = useState<{ cachedAt: number; fromCache: boolean; isExpired?: boolean } | null>(null);
   const [showBlogImport, setShowBlogImport] = useState(false);
+  const [showSitemapUrlModal, setShowSitemapUrlModal] = useState(false); // サイトマップURL選択モーダル
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1516,6 +1517,7 @@ export default function SNSGeneratorApp() {
       setSitemapUrls(data.urls);
       setSelectedUrls(new Set()); // 選択をリセット
       setBlogImportProgress(`${data.urls.length}件のURLを取得しました`);
+      setShowSitemapUrlModal(true); // モーダルを開く
     } catch (error: any) {
       console.error('Sitemap fetch error:', error);
       alert(`サイトマップの取得に失敗しました: ${error.message}`);
@@ -3202,7 +3204,7 @@ export default function SNSGeneratorApp() {
                             ? 'text-[#066099] bg-slate-100' 
                             : 'text-slate-500 hover:text-[#066099] hover:bg-slate-100'
                         }`}
-                        title="ブログ・noteのURL取込み"
+                        title="ブログサイトマップURL取込み"
                       >
                         {isBlogImporting ? (
                           <Loader2 size={16} className="animate-spin text-[#066099]" />
@@ -3540,7 +3542,7 @@ export default function SNSGeneratorApp() {
                       <div className="flex-1 relative">
                         <input
                           type="text"
-                          placeholder="サイトマップURLを入力（例: https://example.com/sitemap.xml）"
+                          placeholder="サイトマップURLを入力（例: https://example.com/post-sitemap.xml）"
                           value={sitemapUrl}
                           onChange={(e) => setSitemapUrl(e.target.value)}
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
@@ -3573,86 +3575,6 @@ export default function SNSGeneratorApp() {
                     
                     {blogImportProgress && (
                       <p className="text-sm text-slate-600">{blogImportProgress}</p>
-                    )}
-                    
-                    {/* URL一覧表示と選択 */}
-                    {sitemapUrls.length > 0 && (
-                      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-bold text-slate-700">
-                            URL一覧 ({sitemapUrls.length}件)
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                if (selectedUrls.size === sitemapUrls.length) {
-                                  setSelectedUrls(new Set());
-                                } else {
-                                  setSelectedUrls(new Set(sitemapUrls.map(u => u.url)));
-                                }
-                              }}
-                              className="px-3 py-1 text-xs font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
-                            >
-                              {selectedUrls.size === sitemapUrls.length ? 'すべて解除' : 'すべて選択'}
-                            </button>
-                            <button
-                              onClick={() => handleImportSelectedUrls()}
-                              disabled={isBlogImporting || selectedUrls.size === 0}
-                              className="px-4 py-1 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                            >
-                              {isBlogImporting ? (
-                                <>
-                                  <Loader2 size={12} className="animate-spin" />
-                                  取り込み中...
-                                </>
-                              ) : (
-                                <>
-                                  <Upload size={12} />
-                                  選択したURLを取り込み ({selectedUrls.size}件)
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="max-h-64 overflow-y-auto space-y-1">
-                          {sitemapUrls.map((item, index) => (
-                            <label
-                              key={index}
-                              className="flex items-start gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedUrls.has(item.url)}
-                                onChange={(e) => {
-                                  const newSelected = new Set(selectedUrls);
-                                  if (e.target.checked) {
-                                    newSelected.add(item.url);
-                                  } else {
-                                    newSelected.delete(item.url);
-                                  }
-                                  setSelectedUrls(newSelected);
-                                }}
-                                className="mt-1 w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs text-slate-700 truncate" title={item.url}>
-                                  {item.url}
-                                </p>
-                                {item.date && (
-                                  <p className="text-[10px] text-slate-400">
-                                    更新日: {item.date}
-                                  </p>
-                                )}
-                                {item.title && (
-                                  <p className="text-[10px] text-slate-500 truncate" title={item.title}>
-                                    {item.title}
-                                  </p>
-                                )}
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
                     )}
                     
                     {/* 取り込んだURLの一覧 */}
@@ -3824,6 +3746,131 @@ export default function SNSGeneratorApp() {
                 </div>
               )}
 
+              {/* サイトマップURL選択モーダル */}
+              {showSitemapUrlModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+                    <div className="flex items-center justify-between p-6 border-b border-slate-200">
+                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <BookOpen size={20} className="text-[#066099]" />
+                        サイトマップURL一覧 ({sitemapUrls.length}件)
+                      </h3>
+                      <button
+                        onClick={() => {
+                          setShowSitemapUrlModal(false);
+                          setSelectedUrls(new Set());
+                        }}
+                        className="text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        <XIcon size={20} />
+                      </button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-hidden flex flex-col p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm text-slate-600">
+                          取り込むURLを選択してください
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              if (selectedUrls.size === sitemapUrls.length) {
+                                setSelectedUrls(new Set());
+                              } else {
+                                setSelectedUrls(new Set(sitemapUrls.map(u => u.url)));
+                              }
+                            }}
+                            className="px-3 py-1.5 text-sm font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
+                          >
+                            {selectedUrls.size === sitemapUrls.length ? 'すべて解除' : 'すべて選択'}
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex-1 overflow-y-auto border border-slate-200 rounded-lg p-4 space-y-2">
+                        {sitemapUrls.map((item, index) => (
+                          <label
+                            key={index}
+                            className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer border border-transparent hover:border-slate-200 transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedUrls.has(item.url)}
+                              onChange={(e) => {
+                                const newSelected = new Set(selectedUrls);
+                                if (e.target.checked) {
+                                  newSelected.add(item.url);
+                                } else {
+                                  newSelected.delete(item.url);
+                                }
+                                setSelectedUrls(newSelected);
+                              }}
+                              className="mt-1 w-5 h-5 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
+                                {item.url}
+                              </p>
+                              {item.date && (
+                                <p className="text-xs text-slate-400 mt-1">
+                                  更新日: {item.date}
+                                </p>
+                              )}
+                              {item.title && (
+                                <p className="text-xs text-slate-500 mt-1 truncate" title={item.title}>
+                                  {item.title}
+                                </p>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      
+                      <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                        <p className="text-sm text-slate-600">
+                          {selectedUrls.size}件のURLが選択されています
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setShowSitemapUrlModal(false);
+                              setSelectedUrls(new Set());
+                            }}
+                            className="px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                          >
+                            キャンセル
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (selectedUrls.size === 0) {
+                                alert('取り込むURLを選択してください');
+                                return;
+                              }
+                              setShowSitemapUrlModal(false);
+                              await handleImportSelectedUrls();
+                            }}
+                            disabled={isBlogImporting || selectedUrls.size === 0}
+                            className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                          >
+                            {isBlogImporting ? (
+                              <>
+                                <Loader2 size={16} className="animate-spin" />
+                                取り込み中...
+                              </>
+                            ) : (
+                              <>
+                                <Upload size={16} />
+                                選択したURLを取り込み ({selectedUrls.size}件)
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 過去の投稿分析を表示している場合は、テーマ候補と投稿生成ボタンを非表示 */}
               {isThemeMode && !(activeMode === 'mypost' && showPostAnalysis) ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -3899,8 +3946,7 @@ export default function SNSGeneratorApp() {
                 )
               )}
 
-              {/* 過去の投稿分析を表示している場合は、投稿生成ボタンを非表示 */}
-              {!(activeMode === 'mypost' && showPostAnalysis) && selectedSection !== 'analysis' && (
+              {/* 投稿生成ボタン（常に表示） */}
               <button
                 onClick={handleGeneratePost}
                 disabled={isPostLoading || (!manualInput && !selectedTheme)}
@@ -3909,23 +3955,21 @@ export default function SNSGeneratorApp() {
                 {isPostLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
                 {activeMode === 'rewrite' ? 'リライトを実行' : '投稿を作成する'}
               </button>
-              )}
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col gap-2">
-               {(activeMode !== 'mypost' || selectedSection === 'analysis' || selectedSection === null) && (
-                 <ResultCard 
-                   content={result} 
-                   isLoading={isPostLoading} 
-                   error={error} 
-                   onChange={setResult} 
-                   user={user}
-                   onPostToX={handlePostToX}
-                   isPostingToX={isPostingToX}
-                   xAccessToken={xAccessToken}
-                   showPostAnalysis={activeMode === 'mypost' && showPostAnalysis}
-                 />
-               )}
+               {/* 生成結果（常に表示） */}
+               <ResultCard 
+                 content={result} 
+                 isLoading={isPostLoading} 
+                 error={error} 
+                 onChange={setResult} 
+                 user={user}
+                 onPostToX={handlePostToX}
+                 isPostingToX={isPostingToX}
+                 xAccessToken={xAccessToken}
+                 showPostAnalysis={activeMode === 'mypost' && showPostAnalysis}
+               />
                <div className="text-right text-xs text-slate-400">
                  Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
                </div>
