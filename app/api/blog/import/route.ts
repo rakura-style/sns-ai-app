@@ -193,72 +193,12 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
 
 // 記事のタイトルを抽出
 function extractTitle(html: string): string {
-  // 1. 記事本文内の<h1>タグから取得（最優先、.entry-title、.post-title、.article-titleなどのクラスを優先）
-  const h1Patterns = [
-    /<h1[^>]*class=["'][^"']*(?:entry-title|post-title|article-title|entry-header)[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i,
-    /<h1[^>]*>([\s\S]*?)<\/h1>/i
-  ];
-  for (const pattern of h1Patterns) {
-    const h1Match = html.match(pattern);
-    if (h1Match) {
-      const title = extractTextFromHTML(h1Match[1]);
-      if (title.trim()) {
-        return title;
-      }
-    }
-  }
-  
-  // 2. JSON-LD構造化データからheadlineを取得
-  const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let jsonLdMatch;
-  while ((jsonLdMatch = jsonLdPattern.exec(html)) !== null) {
-    try {
-      const jsonData = JSON.parse(jsonLdMatch[1]);
-      // 配列の場合とオブジェクトの場合の両方に対応
-      const items = Array.isArray(jsonData) ? jsonData : [jsonData];
-      for (const item of items) {
-        if (item['@type'] === 'Article' || item['@type'] === 'BlogPosting' || item['@type'] === 'NewsArticle') {
-          if (item.headline) {
-            return extractTextFromHTML(String(item.headline));
-          }
-        }
-      }
-    } catch (e) {
-      // JSONパースエラーは無視
-    }
-  }
-  
-  // 3. og:titleメタタグから取得（区切り文字以降を削除）
-  const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i);
-  if (ogTitleMatch) {
-    let title = extractTextFromHTML(ogTitleMatch[1]);
-    // 「 | 」や「 - 」で区切られている場合、最初の部分（記事タイトル）を取得
-    const separators = [' | ', ' - ', '｜', '－'];
-    for (const sep of separators) {
-      if (title.includes(sep)) {
-        title = title.split(sep)[0].trim();
-        break;
-      }
-    }
+  // <h1 class="c-postTitle__title">のテキストを取得
+  const h1Match = html.match(/<h1[^>]*class=["'][^"']*c-postTitle__title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i);
+  if (h1Match) {
+    const title = extractTextFromHTML(h1Match[1]);
     if (title.trim()) {
-      return title;
-    }
-  }
-  
-  // 4. <title>タグから取得（区切り文字以降を削除）
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch) {
-    let title = extractTextFromHTML(titleMatch[1]);
-    // 「 | 」や「 - 」で区切られている場合、最初の部分（記事タイトル）を取得
-    const separators = [' | ', ' - ', '｜', '－'];
-    for (const sep of separators) {
-      if (title.includes(sep)) {
-        title = title.split(sep)[0].trim();
-        break;
-      }
-    }
-    if (title.trim()) {
-      return title;
+      return title.trim();
     }
   }
   
@@ -330,94 +270,34 @@ function extractContent(html: string): string {
   text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
   text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
   
-  // 範囲指定: .entry-content > .post-content > article の順で取得を試みる
-  let contentHtml = '';
+  // 対象範囲: <div class="post_content">の内部テキスト
+  let contentHtml = extractNestedTag(text, 'div', 'post_content');
   
-  // 1. .entry-content クラスから取得（複数のタグを試す）
-  const entryContentPatterns = [
-    { tag: 'div', class: 'entry-content' },
-    { tag: 'section', class: 'entry-content' },
-    { tag: 'main', class: 'entry-content' },
-    { tag: 'article', class: 'entry-content' },
-  ];
-  
-  for (const pattern of entryContentPatterns) {
-    contentHtml = extractNestedTag(text, pattern.tag, pattern.class);
-    if (contentHtml && contentHtml.trim().length > 50) {
-      break; // 十分なコンテンツが見つかった
-    }
+  if (!contentHtml) {
+    return '';
   }
   
-  // 2. .post-content クラスから取得
-  if (!contentHtml || contentHtml.trim().length <= 50) {
-    const postContentPatterns = [
-      { tag: 'div', class: 'post-content' },
-      { tag: 'section', class: 'post-content' },
-      { tag: 'main', class: 'post-content' },
-    ];
-    
-    for (const pattern of postContentPatterns) {
-      contentHtml = extractNestedTag(text, pattern.tag, pattern.class);
-      if (contentHtml && contentHtml.trim().length > 50) {
-        break;
-      }
-    }
-  }
+  // 【重要】除外処理: ノイズ要素をテキスト抽出前に完全に無視（除外）
+  // 目次エリア（.c-toc）
+  contentHtml = contentHtml.replace(/<[^>]*class=["'][^"']*c-toc[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '');
   
-  // 3. <article>タグから取得（クラス指定なし）
-  if (!contentHtml || contentHtml.trim().length <= 50) {
-    contentHtml = extractNestedTag(text, 'article');
-    // articleタグ内の不要な部分（ヘッダー、フッターなど）を除外
-    if (contentHtml) {
-      // article内のheader、footer、asideを除外
-      contentHtml = contentHtml.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
-      contentHtml = contentHtml.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
-      contentHtml = contentHtml.replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '');
-    }
-  }
+  // ブログカード/内部リンク（.p-blogCard）
+  contentHtml = contentHtml.replace(/<[^>]*class=["'][^"']*p-blogCard[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '');
   
-  // 4. その他の一般的なパターンを試す
-  if (!contentHtml || contentHtml.trim().length <= 50) {
-    const commonPatterns = [
-      { tag: 'div', class: 'content' },
-      { tag: 'div', class: 'post' },
-      { tag: 'div', class: 'article' },
-      { tag: 'div', class: 'entry' },
-      { tag: 'main', class: '' },
-      { tag: 'section', class: 'content' },
-    ];
-    
-    for (const pattern of commonPatterns) {
-      if (pattern.class) {
-        contentHtml = extractNestedTag(text, pattern.tag, pattern.class);
-      } else {
-        contentHtml = extractNestedTag(text, pattern.tag);
-      }
-      if (contentHtml && contentHtml.trim().length > 50) {
-        break;
-      }
-    }
-  }
+  // シェアボタン（.c-shareBtns）
+  contentHtml = contentHtml.replace(/<[^>]*class=["'][^"']*c-shareBtns[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '');
   
-  // 5. 範囲が見つからない場合は、bodyタグ内の主要なコンテンツを取得
-  if (!contentHtml || contentHtml.trim().length <= 50) {
-    const bodyMatch = text.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    if (bodyMatch) {
-      let bodyContent = bodyMatch[1];
-      // 不要な要素を除外
-      bodyContent = bodyContent.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
-      bodyContent = bodyContent.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
-      bodyContent = bodyContent.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
-      bodyContent = bodyContent.replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '');
-      contentHtml = bodyContent;
-    } else {
-      // 最後の手段：全体を使用
-      contentHtml = text;
-    }
-  }
+  // 広告エリア（.w-ad, .c-widget）
+  contentHtml = contentHtml.replace(/<[^>]*class=["'][^"']*w-ad[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '');
+  contentHtml = contentHtml.replace(/<[^>]*class=["'][^"']*c-widget[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '');
   
-  // WordPressのブロックコメントを除去（<!-- wp:xxx --> や <!-- /wp:xxx -->）
-  contentHtml = contentHtml.replace(/<!--\s*\/?wp:[^>]+-->/g, '');
+  // 整形ルール
+  // 見出し（h2, h3）の前には改行を2つ入れる
+  contentHtml = contentHtml.replace(/(<h[23][^>]*>)/gi, '\n\n$1');
+  
+  // リスト（li）の行頭には「・」をつける（後で処理）
+  // まず、リスト項目をマーク
+  contentHtml = contentHtml.replace(/<li[^>]*>/gi, '<li>・');
   
   // 改行を保持するため、<br>、<p>、<div>などの改行要素を改行に変換
   contentHtml = contentHtml
@@ -444,7 +324,7 @@ function extractContent(html: string): string {
     .replace(/&#8212;/g, '—')
     .replace(/&#8230;/g, '…');
   
-  // 改行を保持しつつ、連続する空白を整理
+  // 連続する過剰な空白や改行を除去して整える
   // 3つ以上の連続する改行を2つに制限
   textContent = textContent.replace(/\n{3,}/g, '\n\n');
   // 行頭・行末の空白を除去
@@ -455,36 +335,15 @@ function extractContent(html: string): string {
   return textContent.trim();
 }
 
-// 記事の投稿日を抽出（更新日ではなく投稿日を優先）
+// 記事の投稿日を抽出
 function extractDate(html: string, url?: string): string {
-  // 1. JSON-LD構造化データからdatePublishedを取得（最優先）
-  const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let jsonLdMatch;
-  while ((jsonLdMatch = jsonLdPattern.exec(html)) !== null) {
+  // 1. <time itemprop="datePublished">のdatetime属性を最優先で取得
+  const timeItemPropMatch = html.match(/<time[^>]*itemprop=["']datePublished["'][^>]*datetime=["']([^"']+)["'][^>]*>/i);
+  if (timeItemPropMatch) {
     try {
-      const jsonData = JSON.parse(jsonLdMatch[1]);
-      // 配列の場合とオブジェクトの場合の両方に対応
-      const items = Array.isArray(jsonData) ? jsonData : [jsonData];
-      for (const item of items) {
-        if (item['@type'] === 'Article' || item['@type'] === 'BlogPosting' || item['@type'] === 'NewsArticle') {
-          if (item.datePublished) {
-            const date = new Date(item.datePublished);
-            if (!isNaN(date.getTime())) {
-              return date.toISOString().split('T')[0];
-            }
-          }
-        }
-      }
-    } catch (e) {
-      // JSONパースエラーは無視
-    }
-  }
-  
-  // 2. メタタグから取得（article:published_time, og:published_time）
-  const metaPublishedMatch = html.match(/<meta[^>]*property=["'](?:article:published_time|og:published_time)["'][^>]*content=["']([^"']+)["'][^>]*>/i);
-  if (metaPublishedMatch) {
-    try {
-      const date = new Date(metaPublishedMatch[1]);
+      const dateStr = timeItemPropMatch[1];
+      // YYYY-MM-DD形式に変換
+      const date = new Date(dateStr);
       if (!isNaN(date.getTime())) {
         return date.toISOString().split('T')[0];
       }
@@ -493,11 +352,38 @@ function extractDate(html: string, url?: string): string {
     }
   }
   
-  // 3. <time>タグから取得（datetime属性にpublishedクラスがある場合を優先）
-  const timePublishedMatch = html.match(/<time[^>]*class=["'][^"']*published[^"']*["'][^>]*datetime=["']([^"']+)["'][^>]*>/i);
-  if (timePublishedMatch) {
+  // 2. .c-postDate__timeのテキストを取得し、YYYY-MM-DD形式に変換
+  const postDateMatch = html.match(/<[^>]*class=["'][^"']*c-postDate__time[^"']*["'][^>]*>([^<]+)<\/[^>]+>/i);
+  if (postDateMatch) {
     try {
-      const date = new Date(timePublishedMatch[1]);
+      const dateText = extractTextFromHTML(postDateMatch[1]).trim();
+      // 日付テキストをパース（例: "2024年1月15日" → "2024-01-15"）
+      // パターン1: YYYY年MM月DD日
+      const pattern1 = dateText.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+      if (pattern1) {
+        const year = pattern1[1];
+        const month = pattern1[2].padStart(2, '0');
+        const day = pattern1[3].padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      
+      // パターン2: YYYY/MM/DD
+      const pattern2 = dateText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+      if (pattern2) {
+        const year = pattern2[1];
+        const month = pattern2[2].padStart(2, '0');
+        const day = pattern2[3].padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      
+      // パターン3: YYYY-MM-DD（既に正しい形式）
+      const pattern3 = dateText.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (pattern3) {
+        return pattern3[0];
+      }
+      
+      // その他の形式をDateオブジェクトでパースを試みる
+      const date = new Date(dateText);
       if (!isNaN(date.getTime())) {
         return date.toISOString().split('T')[0];
       }
@@ -506,103 +392,24 @@ function extractDate(html: string, url?: string): string {
     }
   }
   
-  // 通常の<time>タグから取得
-  const timeMatch = html.match(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/i);
-  if (timeMatch) {
-    try {
-      const date = new Date(timeMatch[1]);
-      if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0];
-      }
-    } catch (e) {
-      // 日付パースエラーは無視
-    }
-  }
-  
-  // 4. URLの日付パターンから取得
-  if (url) {
-    // URL内の日付パターンを検索（例: /2024/01/15/, /2024-01-15/, /20240115/）
-    const urlDatePatterns = [
-      /(\d{4})\/(\d{2})\/(\d{2})/,  // /2024/01/15/
-      /(\d{4})-(\d{2})-(\d{2})/,    // /2024-01-15/
-      /(\d{4})(\d{2})(\d{2})/,       // /20240115/
-    ];
-    
-    for (const pattern of urlDatePatterns) {
-      const match = url.match(pattern);
-      if (match) {
-        try {
-          let dateStr = '';
-          if (match.length === 4) {
-            // パターン1, 2: /2024/01/15/ または /2024-01-15/
-            dateStr = `${match[1]}-${match[2]}-${match[3]}`;
-          } else if (match.length === 2) {
-            // パターン3: /20240115/
-            const fullMatch = match[0];
-            if (fullMatch.length === 8) {
-              dateStr = `${fullMatch.substring(0, 4)}-${fullMatch.substring(4, 6)}-${fullMatch.substring(6, 8)}`;
-            }
-          }
-          
-          if (dateStr) {
-            const date = new Date(dateStr);
-            if (!isNaN(date.getTime())) {
-              return date.toISOString().split('T')[0];
-            }
-          }
-        } catch (e) {
-          // 日付パースエラーは無視
-        }
-      }
-    }
-  }
-  
-  // 5. 投稿日が見つからない場合は空欄を返し、エラーログを出力
+  // 投稿日が見つからない場合は空欄を返し、エラーログを出力
   console.error('投稿日の取得に失敗しました。URL:', url || '不明');
   return '';
 }
 
 // 記事のカテゴリを抽出
 function extractCategory(html: string): string {
-  // WordPressの場合
-  // パターン1: <a rel="category tag">タグから取得
-  const categoryMatch1 = html.match(/<a[^>]*rel=["']category[\s]*tag["'][^>]*>([^<]+)<\/a>/i);
-  if (categoryMatch1) {
-    return extractTextFromHTML(categoryMatch1[1]);
-  }
-  
-  // パターン2: .category クラスから取得
-  const categoryMatch2 = html.match(/<span[^>]*class=["'][^"']*category[^"']*["'][^>]*>([^<]+)<\/span>/i);
-  if (categoryMatch2) {
-    return extractTextFromHTML(categoryMatch2[1]);
-  }
-  
-  // パターン3: .post-category クラスから取得
-  const categoryMatch3 = html.match(/<div[^>]*class=["'][^"']*post-category[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-  if (categoryMatch3) {
-    return extractTextFromHTML(categoryMatch3[1]);
-  }
-  
-  // パターン4: JSON-LD構造化データから取得
-  const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
-  if (jsonLdMatch) {
-    try {
-      const json = JSON.parse(jsonLdMatch[1]);
-      if (json.articleSection) {
-        return String(json.articleSection);
+  // .p-articleMeta__cat内の.c-categoryButtonのテキストを取得（最初の1つのみ）
+  const articleMetaMatch = html.match(/<[^>]*class=["'][^"']*p-articleMeta__cat[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  if (articleMetaMatch) {
+    const metaContent = articleMetaMatch[1];
+    const categoryMatch = metaContent.match(/<[^>]*class=["'][^"']*c-categoryButton[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+    if (categoryMatch) {
+      const category = extractTextFromHTML(categoryMatch[1]).trim();
+      if (category) {
+        return category;
       }
-      if (Array.isArray(json) && json[0]?.articleSection) {
-        return String(json[0].articleSection);
-      }
-    } catch (e) {
-      // JSONパースエラーは無視
     }
-  }
-  
-  // パターン5: メタタグから取得
-  const metaCategoryMatch = html.match(/<meta[^>]*property=["']article:section["'][^>]*content=["']([^"']+)["']/i);
-  if (metaCategoryMatch) {
-    return metaCategoryMatch[1];
   }
   
   return '';
@@ -612,30 +419,11 @@ function extractCategory(html: string): string {
 function extractTags(html: string): string {
   const tags: string[] = [];
   
-  // WordPressの場合
-  // パターン1: <a rel="tag">タグから取得（複数）
-  const tagMatches1 = html.matchAll(/<a[^>]*rel=["']tag["'][^>]*>([^<]+)<\/a>/gi);
-  for (const match of tagMatches1) {
-    const tag = extractTextFromHTML(match[1]).trim();
-    if (tag && !tags.includes(tag)) {
-      tags.push(tag);
-    }
-  }
-  
-  // パターン2: .tag クラスから取得
-  const tagMatches2 = html.matchAll(/<span[^>]*class=["'][^"']*tag[^"']*["'][^>]*>([^<]+)<\/span>/gi);
-  for (const match of tagMatches2) {
-    const tag = extractTextFromHTML(match[1]).trim();
-    if (tag && !tags.includes(tag)) {
-      tags.push(tag);
-    }
-  }
-  
-  // パターン3: .post-tags クラスから取得
-  const tagsMatch3 = html.match(/<div[^>]*class=["'][^"']*post-tags[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-  if (tagsMatch3) {
-    const tagsHtml = tagsMatch3[1];
-    const tagLinks = tagsHtml.matchAll(/<a[^>]*>([^<]+)<\/a>/gi);
+  // .p-articleTags内の<a>タグのテキストをすべて取得
+  const articleTagsMatch = html.match(/<[^>]*class=["'][^"']*p-articleTags[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  if (articleTagsMatch) {
+    const tagsContent = articleTagsMatch[1];
+    const tagLinks = tagsContent.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi);
     for (const match of tagLinks) {
       const tag = extractTextFromHTML(match[1]).trim();
       if (tag && !tags.includes(tag)) {
@@ -644,53 +432,7 @@ function extractTags(html: string): string {
     }
   }
   
-  // パターン4: JSON-LD構造化データから取得
-  const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
-  if (jsonLdMatch) {
-    try {
-      const json = JSON.parse(jsonLdMatch[1]);
-      if (json.keywords) {
-        const keywords = Array.isArray(json.keywords) ? json.keywords : [json.keywords];
-        keywords.forEach((keyword: string) => {
-          const tag = String(keyword).trim();
-          if (tag && !tags.includes(tag)) {
-            tags.push(tag);
-          }
-        });
-      }
-      if (Array.isArray(json) && json[0]?.keywords) {
-        const keywords = Array.isArray(json[0].keywords) ? json[0].keywords : [json[0].keywords];
-        keywords.forEach((keyword: string) => {
-          const tag = String(keyword).trim();
-          if (tag && !tags.includes(tag)) {
-            tags.push(tag);
-          }
-        });
-      }
-    } catch (e) {
-      // JSONパースエラーは無視
-    }
-  }
-  
-  // パターン5: メタタグから取得
-  const metaTagsMatch = html.match(/<meta[^>]*property=["']article:tag["'][^>]*content=["']([^"']+)["']/i);
-  if (metaTagsMatch) {
-    const tag = metaTagsMatch[1].trim();
-    if (tag && !tags.includes(tag)) {
-      tags.push(tag);
-    }
-  }
-  
-  // 複数のメタタグを取得
-  const metaTagsMatches = html.matchAll(/<meta[^>]*property=["']article:tag["'][^>]*content=["']([^"']+)["']/gi);
-  for (const match of metaTagsMatches) {
-    const tag = match[1].trim();
-    if (tag && !tags.includes(tag)) {
-      tags.push(tag);
-    }
-  }
-  
-  return tags.join(', '); // カンマ区切りで返す
+  return tags.join(','); // カンマ区切りで返す（スペースなし）
 }
 
 // 削除: note記事のURLを収集する関数（URLから自動収集は行わないため不要）
