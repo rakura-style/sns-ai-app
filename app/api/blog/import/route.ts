@@ -193,7 +193,7 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
 
 // 記事のタイトルを抽出
 function extractTitle(html: string): string {
-  // 1. HTML内の<h1>タグを探し、そのテキストをタイトルとして抽出（クラス名は特定しない）
+  // 1. ページ内の最初の<h1>タグを探し、そのテキストを抽出（クラス名は無視）
   const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   if (h1Match) {
     const title = extractTextFromHTML(h1Match[1]);
@@ -202,11 +202,11 @@ function extractTitle(html: string): string {
     }
   }
   
-  // 2. <h1>が見つからない場合のみ、<title>タグの中身から、セパレーター（| や -）より前の部分を取得
+  // 2. 万が一<h1>が存在しない場合のみ、<title>タグの冒頭部分を使用
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
   if (titleMatch) {
     let title = extractTextFromHTML(titleMatch[1]);
-    // セパレーター（| や -）より前の部分を取得
+    // セパレーター（| や -）より前の部分を取得（冒頭部分）
     const separators = [' | ', ' - ', '｜', '－', '|', '-'];
     for (const sep of separators) {
       if (title.includes(sep)) {
@@ -283,40 +283,42 @@ function extractContent(html: string): string {
   
   let text = html;
   
-  // 除外する唯一の例外: <script>タグと<style>タグの中身（コード）のみ削除
+  // 1. scriptタグとstyleタグの中身のみ削除
   text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
   text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
   
-  // 対象範囲: <div class="post_content">または<div class="entry-content">の内部
+  // 2. ターゲット: <div class="post_content">という要素全体
   let contentHtml = extractNestedTag(text, 'div', 'post_content');
-  
-  // post_contentが見つからない場合はentry-contentを試す
-  if (!contentHtml) {
-    contentHtml = extractNestedTag(text, 'div', 'entry-content');
-  }
   
   if (!contentHtml) {
     return '';
   }
   
-  // 処理方針: 記事の構成要素はすべて重要とみなす
-  // 目次、ブログカード、引用、リストなど、内部にあるテキストは省略せずにすべて抽出
-  // （除外処理は行わない）
+  // 3. 処理手順:
+  //    - 上記divタグの開始から終了までに含まれるすべての要素を対象
+  //    - それ以外のすべてのタグ（p, h2, h3, ul, li, div, table, blockquoteなど）のテキストを、上から順にすべて結合
+  //    - 最初の段落で処理を止めないで、記事末尾（SNSボタンやフッターの手前）までテキスト取得を継続
   
-  // 整形: HTMLタグは除去し、読みやすいプレーンテキストに変換
+  // 整形: タグの区切り目には改行コードを入れ、読みやすいプレーンテキストに
   // 見出し（h1-h6）の前には空行を入れる
   contentHtml = contentHtml.replace(/(<h[1-6][^>]*>)/gi, '\n\n$1');
   
-  // 改行を保持するため、<br>、<p>、<div>などの改行要素を改行に変換
+  // 改行を保持するため、各種タグの終了時に改行を追加
   contentHtml = contentHtml
-    .replace(/<br\s*\/?>/gi, '\n')  // <br>を改行に
-    .replace(/<\/p>/gi, '\n')       // </p>を改行に
-    .replace(/<\/div>/gi, '\n')     // </div>を改行に
-    .replace(/<\/h[1-6]>/gi, '\n')  // 見出しタグの終了を改行に
-    .replace(/<\/li>/gi, '\n')      // リスト項目の終了を改行に
-    .replace(/<\/blockquote>/gi, '\n'); // 引用の終了を改行に
+    .replace(/<br\s*\/?>/gi, '\n')        // <br>を改行に
+    .replace(/<\/p>/gi, '\n')             // </p>を改行に
+    .replace(/<\/div>/gi, '\n')           // </div>を改行に
+    .replace(/<\/h[1-6]>/gi, '\n')        // 見出しタグの終了を改行に
+    .replace(/<\/li>/gi, '\n')            // リスト項目の終了を改行に
+    .replace(/<\/blockquote>/gi, '\n')    // 引用の終了を改行に
+    .replace(/<\/td>/gi, ' ')             // テーブルセルの終了を空白に
+    .replace(/<\/th>/gi, ' ')             // テーブルヘッダーの終了を空白に
+    .replace(/<\/tr>/gi, '\n')            // テーブル行の終了を改行に
+    .replace(/<\/ul>/gi, '\n')            // リストの終了を改行に
+    .replace(/<\/ol>/gi, '\n')            // 順序付きリストの終了を改行に
+    .replace(/<\/dl>/gi, '\n');           // 定義リストの終了を改行に
   
-  // HTMLタグを除去
+  // HTMLタグを除去（すべてのタグを除去）
   let textContent = contentHtml.replace(/<[^>]+>/g, '');
   
   // HTMLエンティティをデコード
@@ -331,9 +333,13 @@ function extractContent(html: string): string {
     .replace(/&#8217;/g, "'")
     .replace(/&#8211;/g, '–')
     .replace(/&#8212;/g, '—')
-    .replace(/&#8230;/g, '…');
+    .replace(/&#8230;/g, '…')
+    .replace(/&#160;/g, ' ')
+    .replace(/&hellip;/g, '…')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–');
   
-  // 連続する過剰な空白や改行を除去して整える
+  // 連続する過剰な空白や改行を整理
   // 3つ以上の連続する改行を2つに制限
   textContent = textContent.replace(/\n{3,}/g, '\n\n');
   // 行頭・行末の空白を除去
