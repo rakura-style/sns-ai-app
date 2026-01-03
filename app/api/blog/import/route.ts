@@ -37,7 +37,8 @@ function extractTextFromHTML(html: string): string {
 }
 
 // 削除: 記事のURLを抽出する関数（URLから自動収集は行わないため不要）
-// function extractPostUrls(html: string, baseUrl: string): string[] {
+/*
+function extractPostUrls(html: string, baseUrl: string): string[] {
   const urls: string[] = [];
   const urlSet = new Set<string>(); // 重複チェック用
   
@@ -187,7 +188,8 @@ function extractTextFromHTML(html: string): string {
   }
   
   return urls;
-}*/
+}
+*/
 
 // 記事のタイトルを抽出
 function extractTitle(html: string): string {
@@ -562,15 +564,13 @@ async function collectNoteUrls(noteUrl: string, maxPosts: number = 50): Promise<
   return Array.from(articleUrls);
 }*/
 
-// 記事URLと日付のペア（削除: 使用しない）
+// 削除: 記事URLと日付のペア、記事URLを収集する関数（URLから自動収集は行わないため不要）
 /*
 interface ArticleUrlWithDate {
   url: string;
   date: string; // ISO形式の日付文字列（ソート用）
 }
 
-// 削除: 記事URLを収集する関数（URLから自動収集は行わないため不要）
-/*
 async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promise<string[]> {
   // noteのURLの場合は専用の関数を使用
   if (baseUrl.includes('note.com')) {
@@ -879,6 +879,7 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
   
   return urls;
 }
+*/
 
 export async function POST(request: NextRequest) {
   try {
