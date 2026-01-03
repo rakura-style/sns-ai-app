@@ -36,8 +36,8 @@ function extractTextFromHTML(html: string): string {
   return text;
 }
 
-// 記事のURLを抽出する関数（階下も含む）
-function extractPostUrls(html: string, baseUrl: string): string[] {
+// 削除: 記事のURLを抽出する関数（URLから自動収集は行わないため不要）
+// function extractPostUrls(html: string, baseUrl: string): string[] {
   const urls: string[] = [];
   const urlSet = new Set<string>(); // 重複チェック用
   
@@ -187,7 +187,7 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
   }
   
   return urls;
-}
+}*/
 
 // 記事のタイトルを抽出
 function extractTitle(html: string): string {
@@ -250,68 +250,49 @@ function extractTitle(html: string): string {
   return '';
 }
 
-// 記事の本文を抽出（テキスト形式）
+// 記事の本文を抽出（テキスト形式、改行を保持）
 function extractContent(html: string): string {
-  // note記事の場合
-  if (html.includes('note.com')) {
-    // note記事の本文は通常 .note-article-body または .note-content に含まれる
-    const noteContentMatch = html.match(/<div[^>]*class=["'][^"']*note-article-body[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-    if (noteContentMatch) {
-      const content = extractTextFromHTML(noteContentMatch[1]);
-      if (content.trim()) return content;
-    }
-    
-    const noteContentMatch2 = html.match(/<div[^>]*class=["'][^"']*note-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-    if (noteContentMatch2) {
-      const content = extractTextFromHTML(noteContentMatch2[1]);
-      if (content.trim()) return content;
-    }
-  }
+  if (!html) return '';
   
-  // WordPressの場合、記事本文は通常 <article> または .entry-content に含まれる
-  let content = '';
+  let text = html;
   
-  // <article>タグから取得
-  const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-  if (articleMatch) {
-    content = extractTextFromHTML(articleMatch[1]);
-    if (content.trim()) return content;
-  }
+  // WordPressのブロックコメントを除去（<!-- wp:xxx --> や <!-- /wp:xxx -->）
+  text = text.replace(/<!--\s*\/?wp:[^>]+-->/g, '');
   
-  // .entry-content クラスから取得
-  const contentMatch = html.match(/<div[^>]*class=["'][^"']*entry-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-  if (contentMatch) {
-    content = extractTextFromHTML(contentMatch[1]);
-    if (content.trim()) return content;
-  }
+  // 改行を保持するため、<br>、<p>、<div>などの改行要素を改行に変換
+  text = text
+    .replace(/<br\s*\/?>/gi, '\n')  // <br>を改行に
+    .replace(/<\/p>/gi, '\n')       // </p>を改行に
+    .replace(/<\/div>/gi, '\n')     // </div>を改行に
+    .replace(/<\/h[1-6]>/gi, '\n')  // 見出しタグの終了を改行に
+    .replace(/<\/li>/gi, '\n');     // リスト項目の終了を改行に
   
-  // .post-content クラスから取得
-  const postContentMatch = html.match(/<div[^>]*class=["'][^"']*post-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-  if (postContentMatch) {
-    content = extractTextFromHTML(postContentMatch[1]);
-    if (content.trim()) return content;
-  }
+  // HTMLタグを除去
+  text = text.replace(/<[^>]+>/g, '');
   
-  // <main>タグから取得
-  const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-  if (mainMatch) {
-    content = extractTextFromHTML(mainMatch[1]);
-    if (content.trim()) return content;
-  }
+  // HTMLエンティティをデコード
+  text = text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#8217;/g, "'")
+    .replace(/&#8211;/g, '–')
+    .replace(/&#8212;/g, '—')
+    .replace(/&#8230;/g, '…');
   
-  // フォールバック: <body>内のテキストを取得（ただし、ナビゲーションなどは除外）
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (bodyMatch) {
-    // ナビゲーションやフッターを除外
-    let bodyContent = bodyMatch[1];
-    bodyContent = bodyContent.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
-    bodyContent = bodyContent.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
-    bodyContent = bodyContent.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
-    content = extractTextFromHTML(bodyContent);
-    if (content.trim()) return content;
-  }
+  // 改行を保持しつつ、連続する空白を整理
+  // 3つ以上の連続する改行を2つに制限
+  text = text.replace(/\n{3,}/g, '\n\n');
+  // 行頭・行末の空白を除去
+  text = text.split('\n').map(line => line.trim()).join('\n');
+  // 連続する空白（改行以外）を1つに
+  text = text.replace(/[ \t]+/g, ' ');
   
-  return extractTextFromHTML(html);
+  return text.trim();
 }
 
 // 記事の投稿日を抽出（更新日ではなく投稿日を優先）
@@ -540,7 +521,8 @@ function extractTags(html: string): string {
   return tags.join(', '); // カンマ区切りで返す
 }
 
-// note記事のURLを収集する関数
+// 削除: note記事のURLを収集する関数（URLから自動収集は行わないため不要）
+/*
 async function collectNoteUrls(noteUrl: string, maxPosts: number = 50): Promise<string[]> {
   const articleUrls = new Set<string>();
   
@@ -578,15 +560,17 @@ async function collectNoteUrls(noteUrl: string, maxPosts: number = 50): Promise<
   }
   
   return Array.from(articleUrls);
-}
+}*/
 
-// 記事URLと日付のペア
+// 記事URLと日付のペア（削除: 使用しない）
+/*
 interface ArticleUrlWithDate {
   url: string;
   date: string; // ISO形式の日付文字列（ソート用）
 }
 
-// 記事URLを収集する関数（RSS、サイトマップ、記事一覧ページから）
+// 削除: 記事URLを収集する関数（URLから自動収集は行わないため不要）
+/*
 async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promise<string[]> {
   // noteのURLの場合は専用の関数を使用
   if (baseUrl.includes('note.com')) {
@@ -929,13 +913,8 @@ export async function POST(request: NextRequest) {
     // ブログから記事を取得
     console.log('ブログから記事を取得中...');
     
-    // 記事URLを収集
-    const articleUrls = await collectArticleUrls(baseUrl, maxPosts);
-    
-    if (articleUrls.length === 0) {
-      // 記事URLが見つからない場合、直接指定されたURLを記事として扱う
-      articleUrls.push(baseUrl);
-    }
+    // 直接指定されたURLのみを処理（URLから自動収集は行わない）
+    const articleUrls = [baseUrl];
     
     // 各記事を取得してテキストを抽出（並列処理で高速化）
     const posts: Array<{
@@ -1051,13 +1030,13 @@ export async function POST(request: NextRequest) {
       console.log(`記事取得進捗: ${Math.min(i + CONCURRENT_LIMIT, articleUrls.length)}/${articleUrls.length} (取得済み: ${posts.length}件, エラー: ${errorCount}件)`);
     }
     
-    // CSV形式に変換（テキスト形式で保存、カテゴリ・タグを含む）
+    // CSV形式に変換（テキスト形式で保存、カテゴリ・タグを含む、改行を保持）
     const csvRows = [
       'Date,Title,Content,Category,Tags,URL',
       ...posts.map(post => {
         const date = post.date;
         const title = `"${post.title.replace(/"/g, '""')}"`;
-        const content = `"${post.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`; // テキスト形式
+        const content = `"${post.content.replace(/"/g, '""')}"`; // テキスト形式、改行を保持
         const category = `"${post.category.replace(/"/g, '""')}"`; // カテゴリ
         const tags = `"${post.tags.replace(/"/g, '""')}"`; // タグ
         const url = `"${post.url}"`;

@@ -46,15 +46,15 @@ export async function POST(req: Request) {
     
     const isSubscribed = userData?.isSubscribed === true; // 有料会員か？
 
-    // 月が変わっていたらリセットするロジック
+    // 日が変わっていたらリセットするロジック（1日5回制限）
     const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${now.getMonth() + 1}`; // 例: "2023-12"
-    const lastUsageMonth = userData?.lastUsageMonth || "";
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; // 例: "2023-12-25"
+    const lastUsageDate = userData?.lastUsageDate || "";
 
     let usageCount = userData?.usageCount || 0;
 
-    // もし月が変わっていたら、カウントを0とみなす
-    if (lastUsageMonth !== currentMonth) {
+    // もし日が変わっていたら、カウントを0とみなす
+    if (lastUsageDate !== today) {
       usageCount = 0;
     }
 
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     // 4. 利用制限のチェック (投稿作成の時のみ)
     // ---------------------------------------------------------
     // ※ クライアント側(page.tsx)でも1日100回制限を入れていますが、
-    //    サーバー側では「月5回制限（無料会員）」というビジネスロジックが優先されます。
+    //    サーバー側では「1日5回制限（無料会員）」というビジネスロジックが優先されます。
     if (actionType === 'post' && !isSubscribed && usageCount >= 5) {
       return new NextResponse(
         JSON.stringify({ error: 'Free limit reached' }), 
@@ -116,14 +116,14 @@ export async function POST(req: Request) {
     // 6. 回数の記録 (投稿作成の時のみ)
     // ---------------------------------------------------------
     if (actionType === 'post' && !isSubscribed) {
-      // 月が変わっていた場合: カウントを1にリセットし、月を更新
-      if (lastUsageMonth !== currentMonth) {
+      // 日が変わっていた場合: カウントを1にリセットし、日を更新
+      if (lastUsageDate !== today) {
         await userDocRef.set({
           usageCount: 1,
-          lastUsageMonth: currentMonth
+          lastUsageDate: today
         }, { merge: true });
       } 
-      // 同じ月の場合: カウントを+1する
+      // 同じ日の場合: カウントを+1する
       else {
         await userDocRef.set({
           usageCount: admin.firestore.FieldValue.increment(1)

@@ -1902,7 +1902,7 @@ export default function SNSGeneratorApp() {
           ...allPosts.map(post => {
             const date = post.date;
             const title = `"${post.title.replace(/"/g, '""')}"`;
-            const content = `"${post.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+            const content = `"${post.content.replace(/"/g, '""')}"`; // 改行を保持
             const category = `"${post.category.replace(/"/g, '""')}"`;
             const tags = `"${post.tags.replace(/"/g, '""')}"`;
             const url = `"${post.url}"`;
