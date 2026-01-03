@@ -455,7 +455,7 @@ const MobileMenu = ({ user, isSubscribed, onGoogleLogin, onLogout, onManageSubsc
 };
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, csvCacheExpiry, blogCacheExpiry, csvUploadDate, blogUploadDate, blogUrls, blogUrlDates, onClearCsvData, onClearBlogData }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, csvCacheExpiry, blogCacheExpiry, csvUploadDate, blogUploadDate, blogUrls, blogUrlDates, onDeleteBlogUrl }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   
@@ -564,27 +564,6 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
               ログアウト
             </button>
             
-            <div className="h-px bg-slate-100 my-1 mx-2"></div>
-            
-            <button 
-              onClick={() => { onClearCsvData(); setIsOpen(false); }}
-              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
-            >
-              <div className="bg-slate-100 p-1 rounded text-slate-600">
-                <XIcon size={14} />
-          </div>
-              Xデータをクリア
-            </button>
-            
-            <button 
-              onClick={() => { onClearBlogData(); setIsOpen(false); }}
-              className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
-            >
-              <div className="bg-slate-100 p-1 rounded text-slate-600">
-                <XIcon size={14} />
-        </div>
-              URLデータをクリア
-            </button>
           </div>
           
           <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 space-y-1">
@@ -601,13 +580,27 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
             {blogUrls && blogUrls.length > 0 && (
               <>
                 {blogUrls.map((url: string, index: number) => (
-                  <div key={index} className="space-y-0.5">
-                    <p className="text-[10px] text-slate-500 truncate" title={url}>
-                      URL取込み日時 ({index + 1}): {blogUrlDates[url] || '不明'}
-                    </p>
-                    <p className="text-[10px] text-slate-400 truncate" title={url}>
-                      {url}
-                    </p>
+                  <div key={index} className="space-y-0.5 flex items-start justify-between gap-2 group">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] text-slate-500 truncate" title={url}>
+                        URL取込み日時 ({index + 1}): {blogUrlDates[url] || '不明'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate" title={url}>
+                        {url}
+                      </p>
+                    </div>
+                    {onDeleteBlogUrl && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteBlogUrl(url);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 px-2 py-1 text-[10px] font-bold text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-all flex items-center gap-1"
+                        title="このURLを削除"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </>
@@ -1023,6 +1016,7 @@ export default function SNSGeneratorApp() {
   
   // マイ投稿分析用の状態（選択されたデータソースから生成）
   const [parsedPosts, setParsedPosts] = useState<any[]>([]);
+  const [selectedBlogUrlsForDisplay, setSelectedBlogUrlsForDisplay] = useState<Set<string>>(new Set()); // 表示用に選択されたURL
   const [searchKeyword, setSearchKeyword] = useState('');
   const [sortBy, setSortBy] = useState<string>('engagement-desc');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -1033,11 +1027,17 @@ export default function SNSGeneratorApp() {
   const [pendingCsvData, setPendingCsvData] = useState<string>('');
   const [isCsvLoading, setIsCsvLoading] = useState(false);
   
+  // セクション選択状態（取込み、分析・更新、投稿一覧のいずれか1つだけ表示）
+  const [selectedSection, setSelectedSection] = useState<'import' | 'analysis' | 'posts' | null>(null);
+  
   // ブログ取り込み用の状態
-  const [blogUrl, setBlogUrl] = useState('');
+  const [sitemapUrl, setSitemapUrl] = useState(''); // サイトマップURL
+  const [sitemapUrls, setSitemapUrls] = useState<Array<{ url: string; date: string; title?: string }>>([]); // サイトマップから取得したURL一覧
+  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set()); // 選択されたURL
   const [blogUrls, setBlogUrls] = useState<string[]>([]); // 取り込んだURLの一覧
   const [blogUrlDates, setBlogUrlDates] = useState<{ [url: string]: string }>({}); // 各URLの取込み日時
   const [isBlogImporting, setIsBlogImporting] = useState(false);
+  const [isSitemapLoading, setIsSitemapLoading] = useState(false);
   const [blogImportProgress, setBlogImportProgress] = useState('');
   const [blogCacheInfo, setBlogCacheInfo] = useState<{ cachedAt: number; fromCache: boolean; isExpired?: boolean } | null>(null);
   const [showBlogImport, setShowBlogImport] = useState(false);
@@ -1485,163 +1485,193 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // ブログ取り込み関数（キャッシュ対応）
-  const handleBlogImport = async (forceRefresh: boolean = false) => {
-    if (!blogUrl || !user) return;
+  // サイトマップからURL一覧を取得
+  const handleFetchSitemap = async () => {
+    if (!sitemapUrl || !user) return;
     
-    setIsBlogImporting(true);
-    setBlogImportProgress(forceRefresh ? 'ブログから記事を取得中...' : 'キャッシュを確認中...');
+    setIsSitemapLoading(true);
+    setBlogImportProgress('サイトマップからURL一覧を取得中...');
     
     try {
-      // 強制更新でない場合、キャッシュをチェック（期限切れでもキャッシュを使用）
-      let csv: string | null = null;
-      let cachedAt: number = 0;
-      let fromCache = false;
-      let isExpired = false;
-      
-      if (!forceRefresh) {
-        const cache = await getBlogCache(user.uid, blogUrl.trim());
-        if (cache) {
-          csv = cache.csv;
-          cachedAt = cache.cachedAt;
-          fromCache = true;
-          isExpired = cache.isExpired;
-        }
-      }
-      
-      // キャッシュがない、または強制更新の場合、ブログから取得
-      if (!csv) {
-        setBlogImportProgress('ブログから記事を取得中...');
-        
-        const response = await fetch('/api/blog/import', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            blogUrl: blogUrl.trim(),
-            maxPosts: 50,
-            forceRefresh: forceRefresh,
-            userId: user.uid,
-          }),
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-          throw new Error(data.error || 'ブログの取り込みに失敗しました');
-        }
-        
-        if (!data.csv) {
-          throw new Error('CSVデータの取得に失敗しました');
-        }
-        
-        if (!data.csv) {
-          throw new Error('CSVデータの取得に失敗しました');
-        }
-        
-        csv = data.csv;
-        cachedAt = data.cachedAt;
-        fromCache = false;
-      }
-      
-      // csvがnullでないことを確認
-      if (!csv) {
-        throw new Error('CSVデータの取得に失敗しました');
-      }
-      
-      // キャッシュに保存（非同期、エラーを無視）- csvがnullでないことを確認済み
-      if (!fromCache) {
-        saveBlogCache(user.uid, blogUrl.trim(), csv).catch(error => {
-          console.error('キャッシュ保存に失敗しましたが、処理は続行します:', error);
-        });
-      }
-      
-      // キャッシュ情報を保存
-      setBlogCacheInfo({
-        cachedAt: cachedAt,
-        fromCache: fromCache,
-        isExpired: isExpired,
+      const response = await fetch('/api/blog/sitemap', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sitemapUrl: sitemapUrl.trim(),
+        }),
       });
       
-      if (fromCache) {
-        setBlogImportProgress(`キャッシュから${csv.split('\n').length - 1}件の記事を読み込みました`);
-      } else {
-        setBlogImportProgress(`${csv.split('\n').length - 1}件の記事を取得しました。保存中...`);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'サイトマップの取得に失敗しました');
       }
       
-      // ブログデータを保存
-      const now = new Date();
-      const dateStr = now.toLocaleString('ja-JP', { 
-        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-      });
+      if (!data.urls || data.urls.length === 0) {
+        throw new Error('サイトマップからURLが見つかりませんでした');
+      }
       
-      // 既存のブログデータがある場合は追加、ない場合は置き換え
+      setSitemapUrls(data.urls);
+      setSelectedUrls(new Set()); // 選択をリセット
+      setBlogImportProgress(`${data.urls.length}件のURLを取得しました`);
+    } catch (error: any) {
+      console.error('Sitemap fetch error:', error);
+      alert(`サイトマップの取得に失敗しました: ${error.message}`);
+      setBlogImportProgress('');
+    } finally {
+      setIsSitemapLoading(false);
+    }
+  };
+
+  // 選択されたURLを取り込む
+  const handleImportSelectedUrls = async (urlsToImport: string[] = []) => {
+    if (!user) return;
+    
+    const urls = urlsToImport.length > 0 ? urlsToImport : Array.from(selectedUrls);
+    if (urls.length === 0) {
+      alert('取り込むURLを選択してください');
+      return;
+    }
+    
+    setIsBlogImporting(true);
+    setBlogImportProgress(`選択された${urls.length}件のURLから記事を取得中...`);
+    
+    try {
+      const allPosts: Array<{
+        title: string;
+        content: string;
+        date: string;
+        url: string;
+        category: string;
+        tags: string;
+      }> = [];
+      
+      // 各URLから記事を取得（並列処理）
+      const CONCURRENT_LIMIT = 3;
+      for (let i = 0; i < urls.length; i += CONCURRENT_LIMIT) {
+        const batch = urls.slice(i, i + CONCURRENT_LIMIT);
+        const batchPromises = batch.map(async (url) => {
+          try {
+            const response = await fetch('/api/blog/import', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                blogUrl: url,
+                maxPosts: 1, // 1つのURLから1記事のみ
+                forceRefresh: true,
+                userId: user.uid,
+              }),
+            });
+            
+            const data = await response.json();
+            if (response.ok && data.csv) {
+              // CSVから投稿を抽出
+              const lines = data.csv.split('\n');
+              if (lines.length > 1) {
+                const csvLine = lines[1]; // ヘッダーを除く最初の行
+                const parts = csvLine.split(',');
+                if (parts.length >= 6) {
+                  return {
+                    title: parts[1]?.replace(/^"|"$/g, '') || '',
+                    content: parts[2]?.replace(/^"|"$/g, '') || '',
+                    date: parts[0] || '',
+                    url: parts[5]?.replace(/^"|"$/g, '') || url,
+                    category: parts[3]?.replace(/^"|"$/g, '') || '',
+                    tags: parts[4]?.replace(/^"|"$/g, '') || '',
+                  };
+                }
+              }
+            }
+            return null;
+          } catch (error) {
+            console.error(`Failed to import ${url}:`, error);
+            return null;
+          }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        const validPosts = batchResults.filter(p => p !== null) as any[];
+        allPosts.push(...validPosts);
+        
+        setBlogImportProgress(`${Math.min(i + CONCURRENT_LIMIT, urls.length)}/${urls.length}件のURLを処理中...`);
+        
+        // バッチ間で少し待機
+        if (i + CONCURRENT_LIMIT < urls.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (allPosts.length === 0) {
+        throw new Error('記事の取得に失敗しました');
+      }
+      
+      // CSV形式に変換
+      const csvRows = [
+        'Date,Title,Content,Category,Tags,URL',
+        ...allPosts.map(post => {
+          const date = post.date;
+          const title = `"${post.title.replace(/"/g, '""')}"`;
+          const content = `"${post.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+          const category = `"${post.category.replace(/"/g, '""')}"`;
+          const tags = `"${post.tags.replace(/"/g, '""')}"`;
+          const url = `"${post.url}"`;
+          return `${date},${title},${content},${category},${tags},${url}`;
+        }),
+      ];
+      
+      const csv = csvRows.join('\n');
+      
+      // 既存のブログデータがある場合は追加
       let finalBlogData: string;
       if (blogData && blogData.trim()) {
-        // 追加モード：既存データに追加
         const existingLines = blogData.split('\n');
         const newLines = csv.split('\n');
         if (existingLines.length > 0 && newLines.length > 1) {
-          // ヘッダー行は最初のものを使い、データ行を結合
           finalBlogData = existingLines[0] + '\n' + existingLines.slice(1).join('\n') + '\n' + newLines.slice(1).join('\n');
         } else {
           finalBlogData = csv;
         }
       } else {
-        // 置き換えモード
         finalBlogData = csv;
       }
       
       // Firestoreに保存
+      const now = new Date();
+      const dateStr = now.toLocaleString('ja-JP', { 
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+      });
+      
       await saveBlogDataToFirestore(user.uid, finalBlogData, dateStr);
       setBlogData(finalBlogData);
       setBlogUploadDate(dateStr);
       
       // 取り込んだURLを記録
-      const importedUrl = blogUrl.trim();
-      if (!fromCache && importedUrl) {
-        setBlogUrls(prev => {
-          if (!prev.includes(importedUrl)) {
-            return [...prev, importedUrl];
-          }
-          return prev;
-        });
-        setBlogUrlDates(prev => ({
-          ...prev,
-          [importedUrl]: dateStr
-        }));
-        
-        // FirestoreにURLの一覧と取込み日時を保存
-        const userRef = doc(db, 'users', user.uid);
-        const currentData = await getDoc(userRef);
-        const existingUrls = currentData.exists() ? (currentData.data().blogUrls || []) : [];
-        const existingUrlDates = currentData.exists() ? (currentData.data().blogUrlDates || {}) : {};
-        
-        if (!existingUrls.includes(importedUrl)) {
-          await setDoc(userRef, {
-            blogUrls: [...existingUrls, importedUrl],
-            blogUrlDates: {
-              ...existingUrlDates,
-              [importedUrl]: dateStr
-            }
-          }, { merge: true });
-        } else {
-          await setDoc(userRef, {
-            blogUrlDates: {
-              ...existingUrlDates,
-              [importedUrl]: dateStr
-            }
-          }, { merge: true });
+      const updatedBlogUrls = [...blogUrls];
+      const updatedBlogUrlDates = { ...blogUrlDates };
+      
+      for (const url of urls) {
+        if (!updatedBlogUrls.includes(url)) {
+          updatedBlogUrls.push(url);
         }
+        updatedBlogUrlDates[url] = dateStr;
       }
       
-      if (!fromCache) {
-        setBlogUrl('');
-      }
-      setBlogImportProgress('');
-      // ブログ取り込み後も過去の投稿分析ボタンを表示するため、showBlogImportは閉じない
-      // setShowBlogImport(false);
+      setBlogUrls(updatedBlogUrls);
+      setBlogUrlDates(updatedBlogUrlDates);
+      
+      // FirestoreにURLの一覧と取込み日時を保存
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        blogUrls: updatedBlogUrls,
+        blogUrlDates: updatedBlogUrlDates
+      }, { merge: true });
+      
+      setBlogImportProgress(`${allPosts.length}件の記事を取得しました`);
+      setSelectedUrls(new Set()); // 選択をリセット
     } catch (error: any) {
       console.error('Blog import error:', error);
       alert(`ブログの取り込みに失敗しました: ${error.message}`);
@@ -1650,6 +1680,13 @@ export default function SNSGeneratorApp() {
       setBlogImportProgress('');
     }
   };
+
+  // 個別URLの更新（再取得）
+  const handleUpdateUrl = async (url: string) => {
+    await handleImportSelectedUrls([url]);
+  };
+
+  // 旧実装のhandleBlogImport関数は削除（サイトマップ方式に変更）
 
   // 分割されたCSVを結合して読み込む関数
   const loadCsvFromFirestore = (data: any): string | null => {
@@ -2483,11 +2520,23 @@ export default function SNSGeneratorApp() {
     
     if (useBlogData && blogData) {
       const blogPosts = parseCsvToPosts(blogData);
-      posts.push(...blogPosts);
+      // 選択されたURLの投稿だけをフィルタリング
+      if (selectedBlogUrlsForDisplay.size > 0) {
+        const filteredBlogPosts = blogPosts.filter(post => {
+          if (post.rawData && post.rawData.URL) {
+            return selectedBlogUrlsForDisplay.has(post.rawData.URL);
+          }
+          return false;
+        });
+        posts.push(...filteredBlogPosts);
+      } else {
+        // 選択されていない場合はすべて表示
+        posts.push(...blogPosts);
+      }
     }
     
     setParsedPosts(posts);
-  }, [csvData, blogData, useCsvData, useBlogData]);
+  }, [csvData, blogData, useCsvData, useBlogData, selectedBlogUrlsForDisplay]);
 
   // XのCSVデータをクリア
   const handleClearCsvData = async () => {
@@ -2524,48 +2573,158 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // ブログ・noteデータをクリア
-  const handleClearBlogData = async () => {
+  // 特定の投稿を削除
+  const handleDeletePost = async (postId: string) => {
     if (!user) return;
     
-    if (!confirm('URLデータをクリアしますか？この操作は取り消せません。')) {
+    const postToDelete = parsedPosts.find(p => p.id === postId);
+    if (!postToDelete) return;
+    
+    if (!confirm(`この投稿を削除しますか？\n\n${postToDelete.content.substring(0, 100)}${postToDelete.content.length > 100 ? '...' : ''}\n\nこの操作は取り消せません。`)) {
       return;
     }
     
     try {
-      setBlogData('');
-      setBlogUploadDate(null);
-      setBlogUrls([]);
-      setBlogUrlDates({});
-      setParsedPosts([]);
+      // parsedPostsから削除
+      const updatedPosts = parsedPosts.filter(p => p.id !== postId);
+      setParsedPosts(updatedPosts);
+      
+      // 元のデータからも削除
+      if (useCsvData && csvData) {
+        // CSVデータから該当する行を削除
+        const lines = csvData.split('\n');
+        const header = lines[0];
+        const dataLines = lines.slice(1);
+        
+        // rawDataを使って該当する行を特定
+        const filteredLines = dataLines.filter((line, index) => {
+          // rawDataのインデックスと一致する行を削除
+          // 簡易的な方法: 投稿の内容が含まれている行を削除
+          if (postToDelete.rawData) {
+            // rawDataの内容と一致する行を探す
+            const lineContent = line.toLowerCase();
+            const postContent = postToDelete.content.toLowerCase().substring(0, 50);
+            // 完全一致ではなく、部分一致で判定（より確実な方法が必要な場合は改善が必要）
+            return !lineContent.includes(postContent);
+          }
+          return true;
+        });
+        
+        const updatedCsvData = [header, ...filteredLines].join('\n');
+        setCsvData(updatedCsvData);
+        
+        // Firestoreに保存
+        await setDoc(doc(db, 'users', user.uid), {
+          csvData: updatedCsvData
+        }, { merge: true });
+        
+        // ローカルストレージも更新
+        try {
+          const encoded = btoa(unescape(encodeURIComponent(updatedCsvData)));
+          localStorage.setItem(CSV_CACHE_KEY(user.uid), encoded);
+        } catch (error) {
+          console.error('ローカルストレージ更新エラー:', error);
+        }
+      } else if (useBlogData && blogData) {
+        // ブログデータから該当する投稿を削除
+        // ブログデータはCSV形式なので、同様の処理
+        const lines = blogData.split('\n');
+        const header = lines[0];
+        const dataLines = lines.slice(1);
+        
+        const filteredLines = dataLines.filter((line) => {
+          if (postToDelete.rawData && postToDelete.rawData.URL) {
+            // URLが一致する行を削除
+            const lineUrl = line.match(/"([^"]+)"/g)?.[5]; // URLは6番目のカラム（0-indexedで5）
+            if (lineUrl) {
+              const url = lineUrl.replace(/"/g, '');
+              return url !== postToDelete.rawData.URL;
+            }
+          }
+          // rawDataがない場合は、内容で判定
+          const lineContent = line.toLowerCase();
+          const postContent = postToDelete.content.toLowerCase().substring(0, 50);
+          return !lineContent.includes(postContent);
+        });
+        
+        const updatedBlogData = [header, ...filteredLines].join('\n');
+        setBlogData(updatedBlogData);
+        
+        // Firestoreに保存
+        await setDoc(doc(db, 'users', user.uid), {
+          blogData: updatedBlogData
+        }, { merge: true });
+      }
+      
+      alert('投稿を削除しました');
+    } catch (error) {
+      console.error('投稿の削除に失敗:', error);
+      alert('投稿の削除に失敗しました');
+    }
+  };
+
+  // 特定のブログURLを削除
+  const handleDeleteBlogUrl = async (urlToDelete: string) => {
+    if (!user) return;
+    
+    if (!confirm(`このURLを削除しますか？\n${urlToDelete}\n\nこの操作は取り消せません。`)) {
+      return;
+    }
+    
+    try {
+      // ブログURL一覧から削除
+      const updatedBlogUrls = blogUrls.filter(url => url !== urlToDelete);
+      const updatedBlogUrlDates = { ...blogUrlDates };
+      delete updatedBlogUrlDates[urlToDelete];
+      
+      setBlogUrls(updatedBlogUrls);
+      setBlogUrlDates(updatedBlogUrlDates);
       
       // Firestoreから削除
       await setDoc(doc(db, 'users', user.uid), {
-        blogData: null,
-        blogUploadDate: null,
-        blogUpdatedTime: null,
-        blogIsSplit: false,
-        blogChunkCount: null,
-        blogUrls: [],
-        blogUrlDates: {}
+        blogUrls: updatedBlogUrls,
+        blogUrlDates: updatedBlogUrlDates
       }, { merge: true });
       
       // ブログキャッシュも削除
-      if (blogUrls.length > 0) {
-        for (const url of blogUrls) {
-          try {
-            const cacheRef = doc(db, 'users', user.uid, 'blogCache', encodeURIComponent(url));
-            await deleteDoc(cacheRef);
-          } catch (error) {
-            console.error(`ブログキャッシュ削除エラー (${url}):`, error);
-          }
-        }
+      try {
+        const cacheRef = doc(db, 'users', user.uid, 'blogCache', encodeURIComponent(urlToDelete));
+        await deleteDoc(cacheRef);
+      } catch (error) {
+        console.error(`ブログキャッシュ削除エラー (${urlToDelete}):`, error);
       }
       
-      alert('URLデータをクリアしました');
+      // 削除したURLのデータが含まれている場合、parsedPostsからも削除
+      const updatedPosts = parsedPosts.filter(post => {
+        // rawDataにURLが含まれているかチェック
+        if (post.rawData && post.rawData.URL) {
+          return post.rawData.URL !== urlToDelete;
+        }
+        return true;
+      });
+      setParsedPosts(updatedPosts);
+      
+      // ブログデータを再構築（残りのURLのデータのみ）
+      if (updatedBlogUrls.length === 0) {
+        // すべてのURLが削除された場合
+        setBlogData('');
+        setBlogUploadDate(null);
+        await setDoc(doc(db, 'users', user.uid), {
+          blogData: null,
+          blogUploadDate: null,
+          blogUpdatedTime: null,
+          blogIsSplit: false,
+          blogChunkCount: null
+        }, { merge: true });
+      } else {
+        // 残りのURLのデータを再取得する必要がある場合は、ここで処理
+        // 現在は、parsedPostsから該当URLのデータを削除するだけ
+      }
+      
+      alert('URLを削除しました');
     } catch (error) {
-      console.error('URLデータのクリアに失敗:', error);
-      alert('URLデータのクリアに失敗しました');
+      console.error('URLの削除に失敗:', error);
+      alert('URLの削除に失敗しました');
     }
   };
 
@@ -2656,9 +2815,11 @@ export default function SNSGeneratorApp() {
     setError('');
     setManualInput('');
     setSelectedTheme('');
-    // 分析・更新ボタンを押したら過去の投稿分析は表示しないようにする
+    // 分析・更新ボタンを押したら分析・更新セクションを選択し、他を非表示
     if (mode === 'mypost') {
+      setSelectedSection('analysis');
       setShowPostAnalysis(false);
+      setShowBlogImport(false);
     }
     try {
       const token = await user.getIdToken(); 
@@ -2899,8 +3060,7 @@ export default function SNSGeneratorApp() {
                 blogUploadDate={blogUploadDate}
                 blogUrls={blogUrls}
                 blogUrlDates={blogUrlDates}
-                onClearCsvData={handleClearCsvData}
-                onClearBlogData={handleClearBlogData}
+                onDeleteBlogUrl={handleDeleteBlogUrl}
               />
             </div>
           ) : (
@@ -3025,10 +3185,23 @@ export default function SNSGeneratorApp() {
                       )}
                     </div>
                     <div className="flex items-center gap-1">
-                      <button 
-                        onClick={() => setShowBlogImport(!showBlogImport)}
+                    <button 
+                        onClick={() => {
+                          if (selectedSection === 'import') {
+                            setSelectedSection(null);
+                            setShowBlogImport(false);
+                          } else {
+                            setSelectedSection('import');
+                            setShowBlogImport(true);
+                            setShowPostAnalysis(false);
+                          }
+                        }}
                         disabled={isBlogImporting}
-                        className="p-1.5 text-slate-500 hover:text-[#066099] hover:bg-slate-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative group" 
+                        className={`p-1.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative group ${
+                          selectedSection === 'import' 
+                            ? 'text-[#066099] bg-slate-100' 
+                            : 'text-slate-500 hover:text-[#066099] hover:bg-slate-100'
+                        }`}
                         title="ブログ・noteのURL取込み"
                       >
                         {isBlogImporting ? (
@@ -3052,9 +3225,22 @@ export default function SNSGeneratorApp() {
                     </div>
                     <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
                     <button 
-                      onClick={() => handleUpdateThemes('mypost')}
+                      onClick={() => {
+                        if (selectedSection === 'analysis') {
+                          setSelectedSection(null);
+                        } else {
+                          setSelectedSection('analysis');
+                          setShowBlogImport(false);
+                          setShowPostAnalysis(false);
+                        }
+                        handleUpdateThemes('mypost');
+                      }}
                       disabled={isThemesLoading}
-                      className="text-xs bg-[#066099] hover:bg-[#055080] text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto"
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
+                        selectedSection === 'analysis'
+                          ? 'bg-[#066099] text-white'
+                          : 'bg-[#066099] hover:bg-[#055080] text-white'
+                      }`}
                     >
                       {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12}/>}
                       分析・更新
@@ -3063,8 +3249,21 @@ export default function SNSGeneratorApp() {
                       <>
                         <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
                         <button 
-                          onClick={() => setShowPostAnalysis(!showPostAnalysis)}
-                          className="text-xs bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto"
+                          onClick={() => {
+                            if (selectedSection === 'posts') {
+                              setSelectedSection(null);
+                              setShowPostAnalysis(false);
+                            } else {
+                              setSelectedSection('posts');
+                              setShowPostAnalysis(true);
+                              setShowBlogImport(false);
+                            }
+                          }}
+                          className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
+                            selectedSection === 'posts'
+                              ? 'bg-slate-100 border-slate-400 text-slate-800'
+                              : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
                         >
                           <BarChart3 size={12} />
                           投稿分析 ({parsedPosts.length})
@@ -3088,7 +3287,7 @@ export default function SNSGeneratorApp() {
               </div>
 
               {/* マイ投稿分析: 投稿一覧 */}
-              {activeMode === 'mypost' && showPostAnalysis && (
+              {activeMode === 'mypost' && showPostAnalysis && selectedSection === 'posts' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -3096,7 +3295,10 @@ export default function SNSGeneratorApp() {
                       過去の投稿分析
                     </h3>
                     <button
-                      onClick={() => setShowPostAnalysis(false)}
+                      onClick={() => {
+                        setSelectedSection(null);
+                        setShowPostAnalysis(false);
+                      }}
                       className="text-slate-400 hover:text-slate-600"
                     >
                       <XIcon size={16} />
@@ -3262,17 +3464,29 @@ export default function SNSGeneratorApp() {
                               </div>
                               <p className="text-sm text-slate-700 line-clamp-2">{post.content}</p>
                             </div>
-                            <button
-                              onClick={() => {
-                                setResult(post.content);
-                                // 投稿分析の一覧は閉じない
-                              }}
-                              className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1 opacity-0 group-hover:opacity-100"
-                              title="この投稿を編集（全文）"
-                            >
-                              <Pencil size={12} />
-                              編集
-                            </button>
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100">
+                              <button
+                                onClick={() => {
+                                  setResult(post.content);
+                                  // 投稿分析の一覧は閉じない
+                                }}
+                                className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1"
+                                title="この投稿を編集（全文）"
+                              >
+                                <Pencil size={12} />
+                                編集
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleDeletePost(post.id);
+                                }}
+                                className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-1"
+                                title="この投稿を削除"
+                              >
+                                <Trash2 size={12} />
+                                削除
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ));
@@ -3298,7 +3512,7 @@ export default function SNSGeneratorApp() {
               )}
 
               {/* ブログ取り込みUI */}
-              {showBlogImport && activeMode === 'mypost' && (
+              {showBlogImport && activeMode === 'mypost' && selectedSection === 'import' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 mb-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -3307,8 +3521,11 @@ export default function SNSGeneratorApp() {
                     </h3>
                     <button
                       onClick={() => {
+                        setSelectedSection(null);
                         setShowBlogImport(false);
-                        setBlogUrl('');
+                        setSitemapUrl('');
+                        setSitemapUrls([]);
+                        setSelectedUrls(new Set());
                         setBlogCacheInfo(null);
                       }}
                       className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -3317,96 +3534,165 @@ export default function SNSGeneratorApp() {
                     </button>
                   </div>
                   
-                  <div className="space-y-2">
+                  <div className="space-y-3">
+                    {/* サイトマップURL入力 */}
                     <div className="flex items-center gap-2">
                       <div className="flex-1 relative">
                         <input
                           type="text"
-                          placeholder="ブログ・note URLを入力"
-                          value={blogUrl}
-                          onChange={(e) => setBlogUrl(e.target.value)}
+                          placeholder="サイトマップURLを入力（例: https://example.com/sitemap.xml）"
+                          value={sitemapUrl}
+                          onChange={(e) => setSitemapUrl(e.target.value)}
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                          disabled={isBlogImporting}
+                          disabled={isSitemapLoading || isBlogImporting}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !isBlogImporting && blogUrl.trim()) {
-                              handleBlogImport(false);
+                            if (e.key === 'Enter' && !isSitemapLoading && sitemapUrl.trim()) {
+                              handleFetchSitemap();
                             }
                           }}
                         />
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                          <div className="relative group">
-                            <HelpCircle 
-                              size={16} 
-                              className="text-slate-400 hover:text-slate-600 cursor-help" 
-                            />
-                            <div className="absolute right-0 top-6 w-64 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 pointer-events-none">
-                              <p className="font-bold mb-1">入力するURLの例:</p>
-                              <ul className="space-y-1 list-disc list-inside">
-                                <li>ブログサイトのトップページ: <span className="text-slate-300">https://example.com</span></li>
-                                <li>記事一覧ページ: <span className="text-slate-300">https://example.com/blog/</span></li>
-                                <li>note.com: <span className="text-slate-300">https://note.com/username</span></li>
-                              </ul>
-                              <p className="mt-2 text-slate-300">※ 指定したURLから階下の記事を自動収集します</p>
-                            </div>
-                          </div>
-                        </div>
                       </div>
                       <button
-                        onClick={() => handleBlogImport(false)}
-                        disabled={isBlogImporting || !blogUrl.trim()}
+                        onClick={handleFetchSitemap}
+                        disabled={isSitemapLoading || !sitemapUrl.trim()}
                         className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
-                        {isBlogImporting ? (
+                        {isSitemapLoading ? (
                           <>
                             <Loader2 size={16} className="animate-spin" />
-                            処理中...
+                            取得中...
                           </>
                         ) : (
                           <>
                             <Upload size={16} />
-                            取り込み
+                            URL一覧取得
                           </>
                         )}
                       </button>
-                      {(blogCacheInfo?.fromCache || blogCacheInfo?.isExpired) && (
-                        <button
-                          onClick={() => handleBlogImport(true)}
-                          disabled={isBlogImporting}
-                          className="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                          title="キャッシュを無視して最新の記事を取得"
-                        >
-                          <RefreshCcw size={14} />
-                          更新
-                        </button>
-                      )}
                     </div>
                     
                     {blogImportProgress && (
                       <p className="text-sm text-slate-600">{blogImportProgress}</p>
                     )}
                     
-                    {blogCacheInfo && (
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
-                        <Check size={12} className="text-green-600" />
-                        <span>
-                          {blogCacheInfo.fromCache 
-                            ? 'キャッシュから読み込みました'
-                            : '最新の記事を取得しました（次回からはキャッシュを使用します）'}
-                        </span>
+                    {/* URL一覧表示と選択 */}
+                    {sitemapUrls.length > 0 && (
+                      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-slate-700">
+                            URL一覧 ({sitemapUrls.length}件)
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                if (selectedUrls.size === sitemapUrls.length) {
+                                  setSelectedUrls(new Set());
+                                } else {
+                                  setSelectedUrls(new Set(sitemapUrls.map(u => u.url)));
+                                }
+                              }}
+                              className="px-3 py-1 text-xs font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
+                            >
+                              {selectedUrls.size === sitemapUrls.length ? 'すべて解除' : 'すべて選択'}
+                            </button>
+                            <button
+                              onClick={() => handleImportSelectedUrls()}
+                              disabled={isBlogImporting || selectedUrls.size === 0}
+                              className="px-4 py-1 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                            >
+                              {isBlogImporting ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" />
+                                  取り込み中...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={12} />
+                                  選択したURLを取り込み ({selectedUrls.size}件)
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto space-y-1">
+                          {sitemapUrls.map((item, index) => (
+                            <label
+                              key={index}
+                              className="flex items-start gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedUrls.has(item.url)}
+                                onChange={(e) => {
+                                  const newSelected = new Set(selectedUrls);
+                                  if (e.target.checked) {
+                                    newSelected.add(item.url);
+                                  } else {
+                                    newSelected.delete(item.url);
+                                  }
+                                  setSelectedUrls(newSelected);
+                                }}
+                                className="mt-1 w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-slate-700 truncate" title={item.url}>
+                                  {item.url}
+                                </p>
+                                {item.date && (
+                                  <p className="text-[10px] text-slate-400">
+                                    更新日: {item.date}
+                                  </p>
+                                )}
+                                {item.title && (
+                                  <p className="text-[10px] text-slate-500 truncate" title={item.title}>
+                                    {item.title}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
                       </div>
                     )}
-                    
-                    <p className="text-xs text-slate-500">
-                      ※ ブログの記事をテキスト形式で取り込みます。
-                    </p>
                     
                     {/* 取り込んだURLの一覧 */}
                     {blogUrls && blogUrls.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-200">
-                        <p className="text-xs font-bold text-slate-700 mb-2">取り込んだURL一覧:</p>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-bold text-slate-700">取り込んだURL一覧:</p>
+                          <button
+                            onClick={() => {
+                              if (selectedBlogUrlsForDisplay.size === blogUrls.length) {
+                                setSelectedBlogUrlsForDisplay(new Set());
+                              } else {
+                                setSelectedBlogUrlsForDisplay(new Set(blogUrls));
+                              }
+                            }}
+                            className="px-2 py-1 text-[10px] font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
+                          >
+                            {selectedBlogUrlsForDisplay.size === blogUrls.length ? 'すべて解除' : 'すべて選択'}
+                          </button>
+                        </div>
                         <div className="space-y-1 max-h-32 overflow-y-auto">
                           {blogUrls.map((url: string, index: number) => (
-                            <div key={index} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded gap-2">
+                            <label
+                              key={index}
+                              className="flex items-center gap-2 text-xs bg-slate-50 p-2 rounded cursor-pointer hover:bg-slate-100"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedBlogUrlsForDisplay.has(url)}
+                                onChange={(e) => {
+                                  const newSelected = new Set(selectedBlogUrlsForDisplay);
+                                  if (e.target.checked) {
+                                    newSelected.add(url);
+                                  } else {
+                                    newSelected.delete(url);
+                                  }
+                                  setSelectedBlogUrlsForDisplay(newSelected);
+                                }}
+                                className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                              />
                               <div className="flex-1 min-w-0">
                                 <p className="text-slate-600 truncate" title={url}>
                                   {index + 1}. {url}
@@ -3418,18 +3704,23 @@ export default function SNSGeneratorApp() {
                                 )}
                               </div>
                               <button
-                                onClick={async () => {
-                                  setBlogUrl(url);
-                                  await handleBlogImport(true);
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateUrl(url);
                                 }}
                                 disabled={isBlogImporting}
                                 className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                               >
                                 {isBlogImporting ? '更新中...' : '更新'}
                               </button>
-                            </div>
+                            </label>
                           ))}
                         </div>
+                        {selectedBlogUrlsForDisplay.size > 0 && (
+                          <p className="text-xs text-slate-500 mt-2">
+                            {selectedBlogUrlsForDisplay.size}件のURLが選択されています（選択されたURLの内容のみ表示されます）
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3609,7 +3900,7 @@ export default function SNSGeneratorApp() {
               )}
 
               {/* 過去の投稿分析を表示している場合は、投稿生成ボタンを非表示 */}
-              {!(activeMode === 'mypost' && showPostAnalysis) && (
+              {!(activeMode === 'mypost' && showPostAnalysis) && selectedSection !== 'analysis' && (
               <button
                 onClick={handleGeneratePost}
                 disabled={isPostLoading || (!manualInput && !selectedTheme)}
@@ -3622,17 +3913,19 @@ export default function SNSGeneratorApp() {
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col gap-2">
-               <ResultCard 
-                 content={result} 
-                 isLoading={isPostLoading} 
-                 error={error} 
-                 onChange={setResult} 
-                 user={user}
-                 onPostToX={handlePostToX}
-                 isPostingToX={isPostingToX}
-                 xAccessToken={xAccessToken}
-                 showPostAnalysis={activeMode === 'mypost' && showPostAnalysis}
-               />
+               {(activeMode !== 'mypost' || selectedSection === 'analysis' || selectedSection === null) && (
+                 <ResultCard 
+                   content={result} 
+                   isLoading={isPostLoading} 
+                   error={error} 
+                   onChange={setResult} 
+                   user={user}
+                   onPostToX={handlePostToX}
+                   isPostingToX={isPostingToX}
+                   xAccessToken={xAccessToken}
+                   showPostAnalysis={activeMode === 'mypost' && showPostAnalysis}
+                 />
+               )}
                <div className="text-right text-xs text-slate-400">
                  Created by <a href="https://rakura-style.com" target="_blank" rel="noopener noreferrer" className="text-[#066099] hover:underline">らくらスタイル</a>
                </div>
