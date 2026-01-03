@@ -3435,7 +3435,7 @@ export default function SNSGeneratorApp() {
                         onChange={(e) => setUseCsvData(e.target.checked)}
                         className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
                       />
-                      <span className="text-sm text-slate-700">XのCSVデータ</span>
+                      <span className="text-sm text-slate-700">Xの投稿データ</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -3502,10 +3502,10 @@ export default function SNSGeneratorApp() {
                     {(() => {
                       // フィルタリングとソート
                       let filtered = parsedPosts.filter(post => {
-                        // データソースでフィルタリング
-                        const hasUrl = !!(post.URL || post.url);
-                        const isBlogPost = hasUrl;
-                        const isCsvPost = !hasUrl;
+                        // データソースでフィルタリング（tweet_id列の有無で判定）
+                        const hasTweetId = !!(post.tweet_id || post.tweetId || post['Tweet ID'] || post['TweetID'] || post['tweet_id']);
+                        const isCsvPost = hasTweetId;
+                        const isBlogPost = !hasTweetId;
                         
                         // X投稿とブログ投稿のフィルター
                         if (useCsvData && useBlogData) {
@@ -3529,12 +3529,18 @@ export default function SNSGeneratorApp() {
                         // RTと返信の除外（X投稿のみに適用）
                         if (excludeRTAndReplies && isCsvPost) {
                           const content = post.content.trim();
+                          
                           // RT（リツイート）を除外（"RT @" で始まる、または "RT:" で始まる）
-                          if (content.startsWith('RT @') || content.startsWith('RT:') || content.startsWith('rt @') || content.startsWith('rt:')) {
+                          const rtPattern = /^(RT\s*@|RT\s*:|rt\s*@|rt\s*:)/i;
+                          if (rtPattern.test(content)) {
                             return false;
                           }
-                          // 返信を除外（"@" で始まる）
-                          if (content.startsWith('@')) {
+                          
+                          // 返信を除外（先頭の空白や改行を除いた後に"@"で始まる、または"@"の前に文字列以外がある場合も除外）
+                          // 先頭の空白・改行・タブなどを除去
+                          const trimmedContent = content.replace(/^[\s\n\r\t]+/, '');
+                          // "@"で始まる、または" @"のようなパターンで始まる場合を除外
+                          if (trimmedContent.startsWith('@') || /^[\s\n\r\t]*@/.test(content)) {
                             return false;
                           }
                         }
