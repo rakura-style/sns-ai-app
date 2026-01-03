@@ -182,9 +182,25 @@ const sampleCsvForAnalysis = (csvData: string, maxRows: number = 100): string =>
 };
 
 const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[], blogData?: string) => {
+  // デフォルトのサンプルデータを定義
+  const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+  
+  // データの存在チェック
+  const isCsvDataDefault = csvData === defaultCsv || !csvData || csvData.trim() === '';
+  const hasBlogData = blogData && blogData.trim() && blogData.split('\n').length > 1;
+  
+  // 両方のデータが存在しない場合はエラー
+  if (isCsvDataDefault && !hasBlogData) {
+    throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
+  }
+  
   // XのCSVデータとブログデータの両方を結合
   let combinedCsv = csvData;
-  if (blogData && blogData.trim()) {
+  
+  // CSVデータがデフォルト値の場合は、ブログデータのみを使用
+  if (isCsvDataDefault && hasBlogData) {
+    combinedCsv = blogData;
+  } else if (blogData && blogData.trim()) {
     const csvLines = csvData.split('\n');
     const blogLines = blogData.split('\n');
     if (csvLines.length > 0 && blogLines.length > 1) {
@@ -200,6 +216,11 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         combinedCsv = csvHeader + '\n' + csvLines.slice(1).join('\n') + '\n' + blogLines.slice(1).join('\n');
       }
     }
+  }
+  
+  // 結合後のデータが空でないことを確認
+  if (!combinedCsv || combinedCsv.trim() === '' || combinedCsv.split('\n').length <= 1) {
+    throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
   }
   
   // CSVデータをサンプリング（最大50行に制限してさらに高速化）
@@ -1988,12 +2009,13 @@ export default function SNSGeneratorApp() {
         const tempCsvRows = [
           'Date,Title,Content,Category,Tags,URL',
           ...allPosts.filter((post: any) => !post.error).map((post: any) => {
-            const date = post.date;
-            const title = `"${post.title.replace(/"/g, '""')}"`;
-            const content = `"${post.content.replace(/"/g, '""')}"`; // 改行を保持
-            const category = `"${post.category.replace(/"/g, '""')}"`;
-            const tags = `"${post.tags.replace(/"/g, '""')}"`;
-            const url = `"${post.url}"`;
+            const date = post.date || ''; // 空欄の可能性があるため
+            const title = `"${(post.title || '').replace(/"/g, '""')}"`;
+            const content = `"${(post.content || '').replace(/"/g, '""')}"`; // 改行を保持
+            const category = `"${(post.category || '').replace(/"/g, '""')}"`;
+            // タグは必ずダブルクォートで囲む（カンマが含まれる可能性があるため）
+            const tags = `"${(post.tags || '').replace(/"/g, '""')}"`; // タグ（CSVエスケープ処理を徹底）
+            const url = `"${(post.url || '').replace(/"/g, '""')}"`;
             return `${date},${title},${content},${category},${tags},${url}`;
           }),
         ];
@@ -2042,12 +2064,13 @@ export default function SNSGeneratorApp() {
       const csvRows = [
         'Date,Title,Content,Category,Tags,URL',
         ...allPosts.filter((post: any) => !post.error).map((post: any) => {
-          const date = post.date;
-          const title = `"${post.title.replace(/"/g, '""')}"`;
-          const content = `"${post.content.replace(/"/g, '""')}"`; // 改行を保持
-          const category = `"${post.category.replace(/"/g, '""')}"`;
-          const tags = `"${post.tags.replace(/"/g, '""')}"`;
-          const url = `"${post.url}"`;
+          const date = post.date || ''; // 空欄の可能性があるため
+          const title = `"${(post.title || '').replace(/"/g, '""')}"`;
+          const content = `"${(post.content || '').replace(/"/g, '""')}"`; // 改行を保持
+          const category = `"${(post.category || '').replace(/"/g, '""')}"`;
+          // タグは必ずダブルクォートで囲む（カンマが含まれる可能性があるため）
+          const tags = `"${(post.tags || '').replace(/"/g, '""')}"`; // タグ（CSVエスケープ処理を徹底）
+          const url = `"${(post.url || '').replace(/"/g, '""')}"`;
           return `${date},${title},${content},${category},${tags},${url}`;
         }),
       ];
@@ -3398,6 +3421,15 @@ export default function SNSGeneratorApp() {
       const token = await user.getIdToken(); 
       const userId = user.uid;
       if (mode === 'mypost') {
+        // データの存在チェック（事前チェック）
+        const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+        const isCsvDataDefault = csvData === defaultCsv || !csvData || csvData.trim() === '';
+        const hasBlogData = blogData && blogData.trim() && blogData.split('\n').length > 1;
+        
+        if (isCsvDataDefault && !hasBlogData) {
+          throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
+        }
+        
         const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData);
         setMyPostThemes(analysisResult.themes || []); 
         if (analysisResult.settings) {
@@ -3825,11 +3857,9 @@ export default function SNSGeneratorApp() {
                         checked={useCsvData}
                         onChange={(e) => {
                           const newValue = e.target.checked;
-                          // 現在のuseBlogDataの値を直接参照（非同期の問題を回避）
-                          const currentBlogData = useBlogData;
                           setUseCsvData(newValue);
                           // 両方ともfalseになる場合は、ブログデータをtrueにする
-                          if (!newValue && !currentBlogData) {
+                          if (!newValue && !useBlogData) {
                             setUseBlogData(true);
                           }
                         }}
@@ -3843,11 +3873,9 @@ export default function SNSGeneratorApp() {
                         checked={useBlogData}
                         onChange={(e) => {
                           const newValue = e.target.checked;
-                          // 現在のuseCsvDataの値を直接参照（非同期の問題を回避）
-                          const currentCsvData = useCsvData;
                           setUseBlogData(newValue);
                           // 両方ともfalseになる場合は、Xの投稿データをtrueにする
-                          if (!newValue && !currentCsvData) {
+                          if (!newValue && !useCsvData) {
                             setUseCsvData(true);
                           }
                         }}
@@ -4010,42 +4038,69 @@ export default function SNSGeneratorApp() {
                         }
                       });
                       
-                      return filtered.map((post) => (
-                        <div
-                          key={post.id}
-                          className="p-3 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#066099]/50 transition-colors group"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                {post.likes !== undefined && post.likes > 0 && (
-                                  <span className="text-xs font-bold text-pink-600 bg-pink-50 px-2 py-0.5 rounded">
-                                    ❤️ {post.likes.toLocaleString()}
-                                  </span>
+                      return filtered.map((post) => {
+                        // ブログ投稿かどうかを判定
+                        const rawData = post.rawData || {};
+                        const hasTweetId = !!(
+                          post.tweet_id || 
+                          post.tweetId || 
+                          post['Tweet ID'] || 
+                          post['TweetID'] || 
+                          post['tweet_id'] ||
+                          rawData.tweet_id ||
+                          rawData.tweetId ||
+                          rawData['Tweet ID'] ||
+                          rawData['TweetID'] ||
+                          rawData['tweet_id']
+                        );
+                        const hasUrl = !!(post.URL || post.url || rawData.URL || rawData.url);
+                        const isBlogPost = hasUrl && !hasTweetId;
+                        
+                        // ブログ投稿の場合は、タイトルと本文の一部を表示
+                        // X投稿の場合は、従来通りコンテンツを表示
+                        const displayTitle = isBlogPost ? (post.title || '') : '';
+                        const displayContent = isBlogPost 
+                          ? (post.content ? post.content.substring(0, 200) + (post.content.length > 200 ? '...' : '') : '')
+                          : post.content || '';
+                        
+                        return (
+                          <div
+                            key={post.id}
+                            className="p-3 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#066099]/50 transition-colors group"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  {post.likes !== undefined && post.likes > 0 && (
+                                    <span className="text-xs font-bold text-pink-600 bg-pink-50 px-2 py-0.5 rounded">
+                                      ❤️ {post.likes.toLocaleString()}
+                                    </span>
+                                  )}
+                                  {post.views !== undefined && post.views > 0 && (
+                                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                                      👁️ {post.views.toLocaleString()}
+                                    </span>
+                                  )}
+                                  {post.engagement > 0 && (
+                                    <span className="text-xs font-bold text-[#066099] bg-[#066099]/10 px-2 py-0.5 rounded">
+                                      📊 {post.engagement.toLocaleString()}
+                                    </span>
+                                  )}
+                                  {post.date && (
+                                    <span className="text-xs text-slate-500">{post.date}</span>
+                                  )}
+                                </div>
+                                {displayTitle && (
+                                  <h4 className="text-sm font-bold text-slate-800 mb-1 whitespace-pre-line">{displayTitle}</h4>
                                 )}
-                                {post.views !== undefined && post.views > 0 && (
-                                  <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                                    👁️ {post.views.toLocaleString()}
-                                  </span>
-                                )}
-                                {post.engagement > 0 && (
-                                  <span className="text-xs font-bold text-[#066099] bg-[#066099]/10 px-2 py-0.5 rounded">
-                                    📊 {post.engagement.toLocaleString()}
-                                  </span>
-                                )}
-                                {post.date && (
-                                  <span className="text-xs text-slate-500">{post.date}</span>
-                                )}
+                                <p className="text-sm text-slate-700 line-clamp-2 whitespace-pre-line">{displayContent}</p>
                               </div>
-                              {post.title && (
-                                <h4 className="text-sm font-bold text-slate-800 mb-1 whitespace-pre-line">{post.title}</h4>
-                              )}
-                              <p className="text-sm text-slate-700 line-clamp-2 whitespace-pre-line">{post.content}</p>
-                            </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100">
                               <button
                                 onClick={() => {
-                                  setResult(post.content);
+                                  // ブログ投稿の場合は本文全体を取得
+                                  const fullContent = isBlogPost ? (post.content || '') : post.content;
+                                  setResult(fullContent || '');
                                   // 投稿分析の一覧は閉じない
                                 }}
                                 className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1"
@@ -4067,7 +4122,8 @@ export default function SNSGeneratorApp() {
                             </div>
                           </div>
                         </div>
-                      ));
+                      );
+                      });
                     })()}
                   </div>
                   
