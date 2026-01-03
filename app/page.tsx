@@ -1006,7 +1006,7 @@ export default function SNSGeneratorApp() {
   const [csvData, setCsvData] = useState('Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200');
   const [csvUploadDate, setCsvUploadDate] = useState<string | null>(null);
   
-  // ブログ・noteデータ
+  // ブログデータ
   const [blogData, setBlogData] = useState<string>('');
   const [blogUploadDate, setBlogUploadDate] = useState<string | null>(null);
   
@@ -1514,9 +1514,13 @@ export default function SNSGeneratorApp() {
         throw new Error('サイトマップからURLが見つかりませんでした');
       }
       
-      setSitemapUrls(data.urls);
+      // 既に取り込まれているURLを除外
+      const existingUrlsSet = new Set(blogUrls);
+      const filteredUrls = data.urls.filter((item: { url: string; date: string; title?: string }) => !existingUrlsSet.has(item.url));
+      
+      setSitemapUrls(filteredUrls);
       setSelectedUrls(new Set()); // 選択をリセット
-      setBlogImportProgress(`${data.urls.length}件のURLを取得しました`);
+      setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました（既存の${data.urls.length - filteredUrls.length}件は除外）`);
       setShowSitemapUrlModal(true); // モーダルを開く
     } catch (error: any) {
       console.error('Sitemap fetch error:', error);
@@ -3440,7 +3444,7 @@ export default function SNSGeneratorApp() {
                         onChange={(e) => setUseBlogData(e.target.checked)}
                         className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
                       />
-                      <span className="text-sm text-slate-700">ブログ・noteデータ</span>
+                      <span className="text-sm text-slate-700">ブログデータ</span>
                     </label>
                     {!useCsvData && !useBlogData && (
                       <p className="text-xs text-red-600">データソースを1つ以上選択してください</p>
@@ -3449,7 +3453,7 @@ export default function SNSGeneratorApp() {
                   
                   {parsedPosts.length === 0 && (
                     <p className="text-sm text-slate-400 text-center py-4">
-                      データがありません。CSVまたはブログ・noteデータを取り込んでください。
+                      データがありません。CSVまたはブログデータを取り込んでください。
                     </p>
                   )}
                   
@@ -3498,12 +3502,32 @@ export default function SNSGeneratorApp() {
                     {(() => {
                       // フィルタリングとソート
                       let filtered = parsedPosts.filter(post => {
-                        // キーワード検索
-                        if (!post.content.toLowerCase().includes(searchKeyword.toLowerCase())) {
+                        // データソースでフィルタリング
+                        const hasUrl = !!(post.URL || post.url);
+                        const isBlogPost = hasUrl;
+                        const isCsvPost = !hasUrl;
+                        
+                        // X投稿とブログ投稿のフィルター
+                        if (useCsvData && useBlogData) {
+                          // 両方選択されている場合は全て表示
+                        } else if (useCsvData && !useBlogData) {
+                          // X投稿のみ
+                          if (isBlogPost) return false;
+                        } else if (!useCsvData && useBlogData) {
+                          // ブログ投稿のみ
+                          if (isCsvPost) return false;
+                        } else {
+                          // どちらも選択されていない場合は何も表示しない
                           return false;
                         }
-                        // RTと返信の除外
-                        if (excludeRTAndReplies) {
+                        
+                        // キーワード検索
+                        if (searchKeyword && !post.content.toLowerCase().includes(searchKeyword.toLowerCase())) {
+                          return false;
+                        }
+                        
+                        // RTと返信の除外（X投稿のみに適用）
+                        if (excludeRTAndReplies && isCsvPost) {
                           const content = post.content.trim();
                           // RT（リツイート）を除外（"RT @" で始まる、または "RT:" で始まる）
                           if (content.startsWith('RT @') || content.startsWith('RT:') || content.startsWith('rt @') || content.startsWith('rt:')) {
@@ -3634,7 +3658,7 @@ export default function SNSGeneratorApp() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                       <BookOpen size={16} className="text-[#066099]" />
-                      ブログ・note取り込み
+                      ブログ取り込み
                     </h3>
                     <button
                       onClick={() => {
@@ -3695,45 +3719,65 @@ export default function SNSGeneratorApp() {
                     {/* 取り込んだURLの一覧 */}
                     {blogUrls && blogUrls.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-200">
-                        <p className="text-xs font-bold text-slate-700 mb-2">取り込んだURL一覧:</p>
-                        <div className="space-y-1 max-h-32 overflow-y-auto">
-                          {blogUrls.map((url: string, index: number) => (
-                            <div
-                              key={index}
-                              className="flex items-center justify-between gap-2 text-xs bg-slate-50 p-2 rounded hover:bg-slate-100"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <p className="text-slate-600 truncate" title={url}>
-                                  {index + 1}. {url}
-                                </p>
-                                {blogUrlDates[url] && (
-                                  <p className="text-slate-400 text-[10px]">
-                                    取込み日時: {blogUrlDates[url]}
-                                  </p>
-                                )}
+                        <p className="text-xs font-bold text-slate-700 mb-2">取り込んだブログ記事:</p>
+                        <div className="space-y-1 max-h-96 overflow-y-auto">
+                          {blogUrls.map((url: string) => {
+                            // ブログデータから該当するURLの投稿を探す
+                            const blogPost = parsedPosts.find((post: any) => {
+                              const postUrl = post.URL || post.url;
+                              return postUrl === url;
+                            });
+                            
+                            const postDate = blogPost?.Date || blogPost?.date || '';
+                            const postTitle = blogPost?.Title || blogPost?.title || '';
+                            const displayTitle = postTitle ? (postTitle.length > 50 ? postTitle.substring(0, 50) + '...' : postTitle) : 'タイトルなし';
+                            
+                            return (
+                              <div
+                                key={url}
+                                className="flex items-center justify-between gap-2 text-xs bg-slate-50 p-2 rounded hover:bg-slate-100"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-slate-700 hover:text-[#066099] hover:underline cursor-pointer"
+                                    title={url}
+                                  >
+                                    <p className="font-medium truncate">
+                                      {postDate ? `${postDate} - ` : ''}{displayTitle}
+                                    </p>
+                                  </a>
+                                  {blogUrlDates[url] && (
+                                    <p className="text-slate-400 text-[10px]">
+                                      取込み日時: {blogUrlDates[url]}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleUpdateUrl(url)}
+                                    disabled={isBlogImporting}
+                                    className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
+                                    title="このURLを更新"
+                                  >
+                                    <RefreshCcw size={10} />
+                                    更新
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteBlogUrl(url)}
+                                    disabled={isBlogImporting}
+                                    className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
+                                    title="このURLを削除"
+                                  >
+                                    <Trash2 size={10} />
+                                    削除
+                                  </button>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => handleUpdateUrl(url)}
-                                  disabled={isBlogImporting}
-                                  className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
-                                  title="このURLを更新"
-                                >
-                                  <RefreshCcw size={10} />
-                                  更新
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteBlogUrl(url)}
-                                  disabled={isBlogImporting}
-                                  className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
-                                  title="このURLを削除"
-                                >
-                                  <Trash2 size={10} />
-                                  削除
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -3920,9 +3964,9 @@ export default function SNSGeneratorApp() {
                       </div>
                       
                       <div className="flex-1 overflow-y-auto border border-slate-200 rounded-lg p-4 space-y-2">
-                        {sitemapUrls.map((item, index) => (
+                        {sitemapUrls.map((item) => (
                           <label
-                            key={index}
+                            key={item.url}
                             className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer border border-transparent hover:border-slate-200 transition-colors"
                           >
                             <input
@@ -3944,17 +3988,23 @@ export default function SNSGeneratorApp() {
                               className="mt-1 w-5 h-5 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
                             />
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
-                                {item.url}
-                              </p>
+                              {item.title ? (
+                                <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
+                                  {item.title}
+                                </p>
+                              ) : (
+                                <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
+                                  {item.url}
+                                </p>
+                              )}
                               {item.date && (
                                 <p className="text-xs text-slate-400 mt-1">
                                   更新日: {item.date}
                                 </p>
                               )}
-                              {item.title && (
-                                <p className="text-xs text-slate-500 mt-1 truncate" title={item.title}>
-                                  {item.title}
+                              {!item.title && (
+                                <p className="text-xs text-slate-500 mt-1 truncate" title={item.url}>
+                                  {item.url}
                                 </p>
                               )}
                             </div>
