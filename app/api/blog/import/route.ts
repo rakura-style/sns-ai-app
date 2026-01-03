@@ -260,6 +260,137 @@ function extractDate(html: string): string {
   return new Date().toISOString().split('T')[0];
 }
 
+// 記事のカテゴリを抽出
+function extractCategory(html: string): string {
+  // WordPressの場合
+  // パターン1: <a rel="category tag">タグから取得
+  const categoryMatch1 = html.match(/<a[^>]*rel=["']category[\s]*tag["'][^>]*>([^<]+)<\/a>/i);
+  if (categoryMatch1) {
+    return extractTextFromHTML(categoryMatch1[1]);
+  }
+  
+  // パターン2: .category クラスから取得
+  const categoryMatch2 = html.match(/<span[^>]*class=["'][^"']*category[^"']*["'][^>]*>([^<]+)<\/span>/i);
+  if (categoryMatch2) {
+    return extractTextFromHTML(categoryMatch2[1]);
+  }
+  
+  // パターン3: .post-category クラスから取得
+  const categoryMatch3 = html.match(/<div[^>]*class=["'][^"']*post-category[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+  if (categoryMatch3) {
+    return extractTextFromHTML(categoryMatch3[1]);
+  }
+  
+  // パターン4: JSON-LD構造化データから取得
+  const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (jsonLdMatch) {
+    try {
+      const json = JSON.parse(jsonLdMatch[1]);
+      if (json.articleSection) {
+        return String(json.articleSection);
+      }
+      if (Array.isArray(json) && json[0]?.articleSection) {
+        return String(json[0].articleSection);
+      }
+    } catch (e) {
+      // JSONパースエラーは無視
+    }
+  }
+  
+  // パターン5: メタタグから取得
+  const metaCategoryMatch = html.match(/<meta[^>]*property=["']article:section["'][^>]*content=["']([^"']+)["']/i);
+  if (metaCategoryMatch) {
+    return metaCategoryMatch[1];
+  }
+  
+  return '';
+}
+
+// 記事のタグを抽出（複数のタグをカンマ区切りで返す）
+function extractTags(html: string): string {
+  const tags: string[] = [];
+  
+  // WordPressの場合
+  // パターン1: <a rel="tag">タグから取得（複数）
+  const tagMatches1 = html.matchAll(/<a[^>]*rel=["']tag["'][^>]*>([^<]+)<\/a>/gi);
+  for (const match of tagMatches1) {
+    const tag = extractTextFromHTML(match[1]).trim();
+    if (tag && !tags.includes(tag)) {
+      tags.push(tag);
+    }
+  }
+  
+  // パターン2: .tag クラスから取得
+  const tagMatches2 = html.matchAll(/<span[^>]*class=["'][^"']*tag[^"']*["'][^>]*>([^<]+)<\/span>/gi);
+  for (const match of tagMatches2) {
+    const tag = extractTextFromHTML(match[1]).trim();
+    if (tag && !tags.includes(tag)) {
+      tags.push(tag);
+    }
+  }
+  
+  // パターン3: .post-tags クラスから取得
+  const tagsMatch3 = html.match(/<div[^>]*class=["'][^"']*post-tags[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+  if (tagsMatch3) {
+    const tagsHtml = tagsMatch3[1];
+    const tagLinks = tagsHtml.matchAll(/<a[^>]*>([^<]+)<\/a>/gi);
+    for (const match of tagLinks) {
+      const tag = extractTextFromHTML(match[1]).trim();
+      if (tag && !tags.includes(tag)) {
+        tags.push(tag);
+      }
+    }
+  }
+  
+  // パターン4: JSON-LD構造化データから取得
+  const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (jsonLdMatch) {
+    try {
+      const json = JSON.parse(jsonLdMatch[1]);
+      if (json.keywords) {
+        const keywords = Array.isArray(json.keywords) ? json.keywords : [json.keywords];
+        keywords.forEach((keyword: string) => {
+          const tag = String(keyword).trim();
+          if (tag && !tags.includes(tag)) {
+            tags.push(tag);
+          }
+        });
+      }
+      if (Array.isArray(json) && json[0]?.keywords) {
+        const keywords = Array.isArray(json[0].keywords) ? json[0].keywords : [json[0].keywords];
+        keywords.forEach((keyword: string) => {
+          const tag = String(keyword).trim();
+          if (tag && !tags.includes(tag)) {
+            tags.push(tag);
+          }
+        });
+      }
+    } catch (e) {
+      // JSONパースエラーは無視
+    }
+  }
+  
+  // パターン5: メタタグから取得
+  const metaTagsMatch = html.match(/<meta[^>]*property=["']article:tag["'][^>]*content=["']([^"']+)["']/i);
+  if (metaTagsMatch) {
+    const tag = metaTagsMatch[1].trim();
+    if (tag && !tags.includes(tag)) {
+      tags.push(tag);
+    }
+  }
+  
+  // 複数のメタタグを取得
+  const metaTagsMatches = html.matchAll(/<meta[^>]*property=["']article:tag["'][^>]*content=["']([^"']+)["']/gi);
+  for (const match of metaTagsMatches) {
+    const tag = match[1].trim();
+    if (tag && !tags.includes(tag)) {
+      tags.push(tag);
+    }
+  }
+  
+  return tags.join(', '); // カンマ区切りで返す
+}
+
 // note記事のURLを収集する関数
 async function collectNoteUrls(noteUrl: string, maxPosts: number = 50): Promise<string[]> {
   const articleUrls = new Set<string>();
@@ -545,6 +676,8 @@ export async function POST(request: NextRequest) {
       content: string;
       date: string;
       url: string;
+      category: string;
+      tags: string;
     }> = [];
     
     for (let i = 0; i < articleUrls.length; i++) {
@@ -561,6 +694,8 @@ export async function POST(request: NextRequest) {
           const title = extractTitle(html);
           const content = extractContent(html); // テキスト形式で抽出
           const date = extractDate(html);
+          const category = extractCategory(html); // カテゴリを抽出
+          const tags = extractTags(html); // タグを抽出
           
           if (content.trim()) {
             posts.push({
@@ -568,6 +703,8 @@ export async function POST(request: NextRequest) {
               content: content.trim(), // テキスト形式
               date,
               url,
+              category, // カテゴリを追加
+              tags, // タグを追加
             });
           }
         }
@@ -581,15 +718,17 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // CSV形式に変換（テキスト形式で保存）
+    // CSV形式に変換（テキスト形式で保存、カテゴリ・タグを含む）
     const csvRows = [
-      'Date,Title,Content,URL',
+      'Date,Title,Content,Category,Tags,URL',
       ...posts.map(post => {
         const date = post.date;
         const title = `"${post.title.replace(/"/g, '""')}"`;
         const content = `"${post.content.replace(/"/g, '""').replace(/\n/g, ' ')}"`; // テキスト形式
+        const category = `"${post.category.replace(/"/g, '""')}"`; // カテゴリ
+        const tags = `"${post.tags.replace(/"/g, '""')}"`; // タグ
         const url = `"${post.url}"`;
-        return `${date},${title},${content},${url}`;
+        return `${date},${title},${content},${category},${tags},${url}`;
       }),
     ];
     

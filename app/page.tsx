@@ -2037,6 +2037,28 @@ export default function SNSGeneratorApp() {
         }
       }
       
+      // カテゴリを取得
+      let category = '';
+      const categoryKeys = ['Category', 'category', 'カテゴリ'];
+      for (const key of categoryKeys) {
+        const val = post[key];
+        if (val !== undefined && val !== '') {
+          category = String(val);
+          break;
+        }
+      }
+      
+      // タグを取得
+      let tags = '';
+      const tagsKeys = ['Tags', 'tags', 'Tag', 'tag', 'タグ'];
+      for (const key of tagsKeys) {
+        const val = post[key];
+        if (val !== undefined && val !== '') {
+          tags = String(val);
+          break;
+        }
+      }
+      
       // contentが空でない場合のみ投稿を追加（ハッシュタグだけの場合は後で除外）
       if (content && content.trim()) {
         const trimmedContent = content.trim();
@@ -2046,6 +2068,8 @@ export default function SNSGeneratorApp() {
             id: `post-${i}`,
             title,
             content,
+            category, // カテゴリを追加
+            tags, // タグを追加
             likes,
             views,
             engagement,
