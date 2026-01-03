@@ -5,7 +5,7 @@ import {
   TrendingUp, BarChart3, RefreshCcw, Send, Copy, Check, Sparkles, Zap,
   Loader2, Settings, Pencil, ChevronRight, Lightbulb, Upload,
   ChevronDown, User as UserIcon, MessageCircle, Smile, ExternalLink, AlignLeft, Mail, Lock, CreditCard, LogOut,
-  X as XIcon, Trash2, BookOpen, Menu, HelpCircle
+  X as XIcon, Trash2, BookOpen, Menu, HelpCircle, Download
 } from 'lucide-react';
 
 // 🔥 Firebase認証・DB読み込み
@@ -740,7 +740,7 @@ const MobileMenu = ({ user, isSubscribed, onGoogleLogin, onLogout, onManageSubsc
 };
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, blogData }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -810,6 +810,34 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
               </div>
               X設定
             </button>
+
+            {blogData && blogData.trim() && (
+              <>
+                <div className="h-px bg-slate-100 my-1 mx-2"></div>
+                <button 
+                  onClick={() => {
+                    // CSVダウンロード処理
+                    const blob = new Blob([blogData], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', `blog_data_${new Date().toISOString().split('T')[0]}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    setIsOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+                >
+                  <div className="bg-[#066099] p-1 rounded text-white">
+                    <Download size={14} />
+                  </div>
+                  ブログデータCSVをダウンロード
+                </button>
+              </>
+            )}
 
             <div className="h-px bg-slate-100 my-1 mx-2"></div>
 
@@ -3659,6 +3687,7 @@ export default function SNSGeneratorApp() {
                 isPortalLoading={isPortalLoading}
                 onOpenFacebookSettings={() => setShowFacebookSettings(true)}
                 onOpenXSettings={() => setShowXSettings(true)}
+                blogData={blogData}
               />
             </div>
           ) : (
