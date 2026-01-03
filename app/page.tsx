@@ -182,15 +182,15 @@ const sampleCsvForAnalysis = (csvData: string, maxRows: number = 100): string =>
 };
 
 const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[]) => {
-  // CSVデータをサンプリング（最大100行に制限）
+  // CSVデータをサンプリング（最大50行に制限してさらに高速化）
   // これにより、大量のデータでもAPI呼び出しが高速化される
-  let optimizedCsv = sampleCsvForAnalysis(csvData, 100);
+  let optimizedCsv = sampleCsvForAnalysis(csvData, 50);
   
   // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択
   if (parseCsvToPostsFn && csvData) {
     try {
       const allPosts = parseCsvToPostsFn(csvData);
-      if (allPosts.length > 100) {
+      if (allPosts.length > 50) {
         // エンゲージメントでソート（高い順）
         const sortedPosts = [...allPosts].sort((a: any, b: any) => {
           const aEng = a.engagement || a.favorite_count || a.likes || a['Likes'] || 0;
@@ -198,9 +198,9 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           return Number(bEng) - Number(aEng);
         });
         
-        // 上位50件（エンゲージメントが高い）と最新50件（時系列の多様性）を選択
-        const topPosts = sortedPosts.slice(0, 50);
-        const recentPosts = allPosts.slice(-50);
+        // 上位30件（エンゲージメントが高い）と最新20件（時系列の多様性）を選択
+        const topPosts = sortedPosts.slice(0, 30);
+        const recentPosts = allPosts.slice(-20);
         
         // 重複を除去して結合（投稿内容で判定）
         const uniquePosts = new Map<string, any>();
@@ -211,7 +211,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           }
         });
         
-        const selectedPosts = Array.from(uniquePosts.values()).slice(0, 100);
+        const selectedPosts = Array.from(uniquePosts.values()).slice(0, 50);
         
         // 選択された投稿をCSV形式に戻す
         if (selectedPosts.length > 0) {
@@ -298,7 +298,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
       .replace(/\\(?!["\\/bfnrt])/g, '\\\\'); // 不正なエスケープを修正
 
     try {
-      return JSON.parse(cleanText);
+    return JSON.parse(cleanText);
     } catch (parseError: any) {
       console.error("JSON parse error:", parseError);
       console.error("Problematic JSON (first 500 chars):", cleanText.substring(0, 500));
@@ -3992,6 +3992,42 @@ export default function SNSGeneratorApp() {
                                       // ファイル選択を待つ
                                       const fileInput = fileInputRef.current;
                                       if (fileInput) {
+                                        // 一時的なイベントハンドラを設定
+                                        const tempHandler = async (e: Event) => {
+                                          const target = e.target as HTMLInputElement;
+                                          const file = target.files?.[0];
+                                          if (!file) return;
+                                          
+                                          const reader = new FileReader();
+                                          reader.onload = async (event) => {
+                                            const text = event.target?.result as string;
+                                            if (text) {
+                                              // ファイル選択後、モード選択ダイアログを表示
+                                              setPendingCsvFileData(text);
+                                              setShowCsvModeSelectModal(true);
+                                            }
+                                            target.value = '';
+                                            fileInput.removeEventListener('change', tempHandler);
+                                          };
+                                          reader.readAsText(file);
+                                        };
+                                        fileInput.addEventListener('change', tempHandler);
+                                        fileInput.click();
+                                      }
+                                    }}
+                                    disabled={isCsvLoading}
+                                    className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                    title="CSVデータを追加"
+                                  >
+                                    <Upload size={12} />
+                                    追加
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setShowDataImportModal(false);
+                                      // ファイル選択を待つ
+                                      const fileInput = fileInputRef.current;
+                                      if (fileInput) {
                                         // 一時的なイベントハンドラを設定（更新モード）
                                         const tempHandler = async (e: Event) => {
                                           const target = e.target as HTMLInputElement;
@@ -4046,11 +4082,25 @@ export default function SNSGeneratorApp() {
                         <div>
                           <div className="flex items-center justify-between mb-2">
                             <h4 className="text-sm font-bold text-slate-700">ブログURL一覧</h4>
-                            {blogUrls && blogUrls.length > 0 && (
-                              <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                                取込み済: {blogUrls.length}件
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {blogUrls && blogUrls.length > 0 && (
+                                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                  取込み済: {blogUrls.length}件
+                                </span>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setShowDataImportModal(false);
+                                  setShowUrlInputModal(true);
+                                }}
+                                disabled={isBlogImporting}
+                                className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                title="ブログURLを追加"
+                              >
+                                <Upload size={12} />
+                                追加
+                              </button>
+                            </div>
                           </div>
                           <div className="border border-slate-200 rounded-lg p-4 max-h-96 overflow-y-auto bg-slate-50">
                             {blogUrls && blogUrls.length > 0 ? (
@@ -4088,9 +4138,15 @@ export default function SNSGeneratorApp() {
                                   return (
                                     <div key={url || index} className="flex items-start justify-between gap-3 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50">
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-slate-700 font-medium break-words" title={displayUrl}>
+                                        <a
+                                          href={displayUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-xs text-[#066099] font-medium break-words hover:underline cursor-pointer"
+                                          title={displayUrl}
+                                        >
                                           {displayUrl}
-                                        </p>
+                                        </a>
                                         <div className="text-[10px] text-slate-500 mt-1">
                                           {blogPublishDate && (
                                             <p>ブログ公開日: {blogPublishDate}</p>
@@ -4140,73 +4196,6 @@ export default function SNSGeneratorApp() {
                         </div>
                       </div>
                       
-                      {/* 新規登録・追加登録ボタン */}
-                      <div className="space-y-3 pt-4 border-t border-slate-200">
-                        <p className="text-sm font-bold text-slate-800">取込み方法を選択してください</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          {/* XのCSV取込み */}
-                          <div className="space-y-2">
-                            <p className="text-xs font-bold text-slate-700">XのCSVデータ</p>
-                            <button
-                              onClick={() => {
-                                setShowDataImportModal(false);
-                                // ファイル選択を待つ
-                                const fileInput = fileInputRef.current;
-                                if (fileInput) {
-                                  // 一時的なイベントハンドラを設定
-                                  const tempHandler = async (e: Event) => {
-                                    const target = e.target as HTMLInputElement;
-                                    const file = target.files?.[0];
-                                    if (!file) return;
-                                    
-                                    const reader = new FileReader();
-                                    reader.onload = async (event) => {
-                                      const text = event.target?.result as string;
-                                      if (text) {
-                                        // ファイル選択後、モード選択ダイアログを表示
-                                        setPendingCsvFileData(text);
-                                        setShowCsvModeSelectModal(true);
-                                      }
-                                      target.value = '';
-                                      fileInput.removeEventListener('change', tempHandler);
-                                    };
-                                    reader.readAsText(file);
-                                  };
-                                  fileInput.addEventListener('change', tempHandler);
-                                  fileInput.click();
-                                }
-                              }}
-                              className="w-full px-3 py-2 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-1"
-                            >
-                              <Upload size={14} />
-                              追加
-                            </button>
-                          </div>
-                          
-                          {/* ブログURL取込み */}
-                          <div className="space-y-2">
-                            <p className="text-xs font-bold text-slate-700">ブログURL</p>
-                            <button
-                              onClick={() => {
-                                setShowDataImportModal(false);
-                                setShowUrlInputModal(true);
-                              }}
-                              className="w-full px-3 py-2 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-1"
-                            >
-                              <Upload size={14} />
-                              追加
-                            </button>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setShowDataImportModal(false);
-                          }}
-                          className="w-full px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-                        >
-                          キャンセル
-                        </button>
-                      </div>
                     </div>
                   </div>
                 </div>
