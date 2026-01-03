@@ -2724,6 +2724,8 @@ export default function SNSGeneratorApp() {
   const [result, setResult] = useState('');
   const [isPostLoading, setIsPostLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingPost, setEditingPost] = useState<{ title: string; content: string; id: string } | null>(null);
   const [showFacebookSettings, setShowFacebookSettings] = useState(false);
   const [facebookAppId, setFacebookAppId] = useState('');
   const [showXSettings, setShowXSettings] = useState(false);
@@ -4058,10 +4060,13 @@ export default function SNSGeneratorApp() {
                         
                         // ブログ投稿の場合は、タイトルと本文の一部を表示
                         // X投稿の場合は、従来通りコンテンツを表示
-                        const displayTitle = isBlogPost ? (post.title || '') : '';
+                        const displayTitle = isBlogPost ? (post.title || post.Title || 'タイトルなし') : '';
                         const displayContent = isBlogPost 
                           ? (post.content ? post.content.substring(0, 200) + (post.content.length > 200 ? '...' : '') : '')
                           : post.content || '';
+                        
+                        // 投稿日を取得（複数のパターンを確認）
+                        const postDate = post.date || post.Date || rawData.date || rawData.Date || '';
                         
                         return (
                           <div
@@ -4086,11 +4091,11 @@ export default function SNSGeneratorApp() {
                                       📊 {post.engagement.toLocaleString()}
                                     </span>
                                   )}
-                                  {post.date && (
-                                    <span className="text-xs text-slate-500">{post.date}</span>
+                                  {postDate && (
+                                    <span className="text-xs text-slate-500">📅 {postDate}</span>
                                   )}
                                 </div>
-                                {displayTitle && (
+                                {isBlogPost && (
                                   <h4 className="text-sm font-bold text-slate-800 mb-1 whitespace-pre-line">{displayTitle}</h4>
                                 )}
                                 <p className="text-sm text-slate-700 line-clamp-2 whitespace-pre-line">{displayContent}</p>
@@ -4098,13 +4103,23 @@ export default function SNSGeneratorApp() {
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100">
                               <button
                                 onClick={() => {
-                                  // ブログ投稿の場合は本文全体を取得
-                                  const fullContent = isBlogPost ? (post.content || '') : post.content;
-                                  setResult(fullContent || '');
+                                  if (isBlogPost) {
+                                    // ブログ投稿の場合は、タイトルと本文を編集できるモーダルを表示
+                                    setEditingPost({
+                                      title: post.title || post.Title || '',
+                                      content: post.content || post.Content || '',
+                                      id: post.id
+                                    });
+                                    setShowEditModal(true);
+                                  } else {
+                                    // X投稿の場合は従来通り本文のみを編集
+                                    const fullContent = post.content || '';
+                                    setResult(fullContent || '');
+                                  }
                                   // 投稿分析の一覧は閉じない
                                 }}
                                 className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center gap-1"
-                                title="この投稿を編集（全文）"
+                                title={isBlogPost ? "この投稿を編集（タイトルと本文）" : "この投稿を編集（全文）"}
                               >
                                 <Pencil size={12} />
                                 編集
@@ -4142,6 +4157,85 @@ export default function SNSGeneratorApp() {
                   })()}
                     </>
                   )}
+                </div>
+              )}
+
+              {/* ブログ投稿編集モーダル */}
+              {showEditModal && editingPost && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <Pencil size={20} className="text-[#066099]" />
+                        投稿を編集
+                      </h3>
+                      <button
+                        onClick={() => {
+                          setShowEditModal(false);
+                          setEditingPost(null);
+                        }}
+                        className="text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        <XIcon size={20} />
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                          タイトル
+                        </label>
+                        <input
+                          type="text"
+                          value={editingPost.title}
+                          onChange={(e) => setEditingPost({ ...editingPost, title: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                          placeholder="タイトルを入力"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                          本文
+                        </label>
+                        <textarea
+                          value={editingPost.content}
+                          onChange={(e) => setEditingPost({ ...editingPost, content: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black min-h-[300px] whitespace-pre-wrap resize-y"
+                          placeholder="本文を入力"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={() => {
+                          setShowEditModal(false);
+                          setEditingPost(null);
+                        }}
+                        className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        onClick={() => {
+                          // タイトルと本文を結合してresultに設定（タイトルがある場合は「タイトル\n\n本文」の形式）
+                          let combinedContent = '';
+                          if (editingPost.title.trim()) {
+                            combinedContent = editingPost.title.trim() + '\n\n' + editingPost.content.trim();
+                          } else {
+                            combinedContent = editingPost.content.trim();
+                          }
+                          setResult(combinedContent);
+                          setShowEditModal(false);
+                          setEditingPost(null);
+                        }}
+                        className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
