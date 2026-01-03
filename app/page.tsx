@@ -1117,9 +1117,15 @@ export default function SNSGeneratorApp() {
   const [isSitemapLoading, setIsSitemapLoading] = useState(false);
   const [blogImportProgress, setBlogImportProgress] = useState('');
   const [blogCacheInfo, setBlogCacheInfo] = useState<{ cachedAt: number; fromCache: boolean; isExpired?: boolean } | null>(null);
-  const [showBlogImport, setShowBlogImport] = useState(false);
   const [showSitemapUrlModal, setShowSitemapUrlModal] = useState(false); // サイトマップURL選択モーダル
   const [blogImportMode, setBlogImportMode] = useState<'append' | 'replace'>('append'); // 追加/上書きモード
+  
+  // ファイル選択後のモード選択ダイアログ
+  const [showCsvModeSelectModal, setShowCsvModeSelectModal] = useState(false);
+  const [pendingCsvFileData, setPendingCsvFileData] = useState<string>('');
+  
+  // URL入力ダイアログ
+  const [showUrlInputModal, setShowUrlInputModal] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -3027,7 +3033,6 @@ export default function SNSGeneratorApp() {
     if (mode === 'mypost') {
       setSelectedSection('analysis');
       setShowPostAnalysis(false);
-      setShowBlogImport(false);
     }
     try {
       const token = await user.getIdToken(); 
@@ -3379,7 +3384,6 @@ export default function SNSGeneratorApp() {
                           setSelectedSection(null);
                         } else {
                           setSelectedSection('analysis');
-                          setShowBlogImport(false);
                           setShowPostAnalysis(false);
                         }
                         handleUpdateThemes('mypost');
@@ -3405,7 +3409,6 @@ export default function SNSGeneratorApp() {
                             } else {
                               setSelectedSection('posts');
                               setShowPostAnalysis(true);
-                              setShowBlogImport(false);
                             }
                           }}
                           className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
@@ -3705,8 +3708,8 @@ export default function SNSGeneratorApp() {
                 </div>
               )}
 
-              {/* ブログ取り込みUI */}
-              {showBlogImport && activeMode === 'mypost' && selectedSection === 'import' && (
+              {/* ブログ取り込みUI - 削除済み */}
+              {false && (
                 <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 mb-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -3716,7 +3719,6 @@ export default function SNSGeneratorApp() {
                     <button
                       onClick={() => {
                         setSelectedSection(null);
-                        setShowBlogImport(false);
                         setSitemapUrl('');
                         setSitemapUrls([]);
                         setSelectedUrls(new Set());
@@ -3958,7 +3960,14 @@ export default function SNSGeneratorApp() {
                         
                         {/* ブログデータ（URL一覧） */}
                         <div>
-                          <h4 className="text-sm font-bold text-slate-700 mb-2">ブログURL一覧</h4>
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-bold text-slate-700">ブログURL一覧</h4>
+                            {blogUrls && blogUrls.length > 0 && (
+                              <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                取込み済: {blogUrls.length}件
+                              </span>
+                            )}
+                          </div>
                           <div className="border border-slate-200 rounded-lg p-4 max-h-64 overflow-y-auto bg-slate-50">
                             {blogUrls && blogUrls.length > 0 ? (
                               <div className="space-y-2">
@@ -3990,7 +3999,7 @@ export default function SNSGeneratorApp() {
                                           <div className="text-[10px] text-slate-500 mt-1">
                                             <p>取込み日: {uploadDate}</p>
                                             {expiryDateStr && (
-                                              <p>期限: {expiryDateStr}</p>
+                                              <p>保存期限: {expiryDateStr}</p>
                                             )}
                                           </div>
                                         )}
@@ -4040,105 +4049,55 @@ export default function SNSGeneratorApp() {
                           {/* XのCSV取込み */}
                           <div className="space-y-2">
                             <p className="text-xs font-bold text-slate-700">XのCSVデータ</p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={async () => {
-                                  setShowDataImportModal(false);
-                                  // ファイル選択を待つ
-                                  const fileInput = fileInputRef.current;
-                                  if (fileInput) {
-                                    // 一時的なイベントハンドラを設定
-                                    const tempHandler = async (e: Event) => {
-                                      const target = e.target as HTMLInputElement;
-                                      const file = target.files?.[0];
-                                      if (!file) return;
-                                      
-                                      const reader = new FileReader();
-                                      reader.onload = async (event) => {
-                                        const text = event.target?.result as string;
-                                        if (text) {
-                                          await applyCsvData(text, 'replace');
-                                        }
-                                        target.value = '';
-                                        fileInput.removeEventListener('change', tempHandler);
-                                      };
-                                      reader.readAsText(file);
+                            <button
+                              onClick={() => {
+                                setShowDataImportModal(false);
+                                // ファイル選択を待つ
+                                const fileInput = fileInputRef.current;
+                                if (fileInput) {
+                                  // 一時的なイベントハンドラを設定
+                                  const tempHandler = async (e: Event) => {
+                                    const target = e.target as HTMLInputElement;
+                                    const file = target.files?.[0];
+                                    if (!file) return;
+                                    
+                                    const reader = new FileReader();
+                                    reader.onload = async (event) => {
+                                      const text = event.target?.result as string;
+                                      if (text) {
+                                        // ファイル選択後、モード選択ダイアログを表示
+                                        setPendingCsvFileData(text);
+                                        setShowCsvModeSelectModal(true);
+                                      }
+                                      target.value = '';
+                                      fileInput.removeEventListener('change', tempHandler);
                                     };
-                                    fileInput.addEventListener('change', tempHandler);
-                                    fileInput.click();
-                                  }
-                                }}
-                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-1"
-                              >
-                                <Upload size={14} />
-                                新規
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setShowDataImportModal(false);
-                                  // ファイル選択を待つ
-                                  const fileInput = fileInputRef.current;
-                                  if (fileInput) {
-                                    // 一時的なイベントハンドラを設定
-                                    const tempHandler = async (e: Event) => {
-                                      const target = e.target as HTMLInputElement;
-                                      const file = target.files?.[0];
-                                      if (!file) return;
-                                      
-                                      const reader = new FileReader();
-                                      reader.onload = async (event) => {
-                                        const text = event.target?.result as string;
-                                        if (text) {
-                                          await applyCsvData(text, 'append');
-                                        }
-                                        target.value = '';
-                                        fileInput.removeEventListener('change', tempHandler);
-                                      };
-                                      reader.readAsText(file);
-                                    };
-                                    fileInput.addEventListener('change', tempHandler);
-                                    fileInput.click();
-                                  }
-                                }}
-                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-1"
-                              >
-                                <Upload size={14} />
-                                追加
-                              </button>
-                            </div>
+                                    reader.readAsText(file);
+                                  };
+                                  fileInput.addEventListener('change', tempHandler);
+                                  fileInput.click();
+                                }
+                              }}
+                              className="w-full px-3 py-2 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-1"
+                            >
+                              <Upload size={14} />
+                              追加
+                            </button>
                           </div>
                           
                           {/* ブログURL取込み */}
                           <div className="space-y-2">
                             <p className="text-xs font-bold text-slate-700">ブログURL</p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  setShowDataImportModal(false);
-                                  setBlogImportMode('replace');
-                                  setSelectedSection('import');
-                                  setShowBlogImport(true);
-                                  setShowPostAnalysis(false);
-                                }}
-                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-1"
-                              >
-                                <Upload size={14} />
-                                新規
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setShowDataImportModal(false);
-                                  setBlogImportMode('append');
-                                  setSelectedSection('import');
-                                  setShowBlogImport(true);
-                                  setShowPostAnalysis(false);
-                                }}
-                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-1"
-                              >
-                                <Upload size={14} />
-                                追加
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => {
+                                setShowDataImportModal(false);
+                                setShowUrlInputModal(true);
+                              }}
+                              className="w-full px-3 py-2 text-xs font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors flex items-center justify-center gap-1"
+                            >
+                              <Upload size={14} />
+                              追加
+                            </button>
                           </div>
                         </div>
                         <button
@@ -4252,6 +4211,174 @@ export default function SNSGeneratorApp() {
                 </div>
               )}
 
+              {/* CSVモード選択モーダル */}
+              {showCsvModeSelectModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <Upload size={20} className="text-[#066099]" />
+                        CSV取込み方法を選択
+                      </h3>
+                      <button
+                        onClick={() => {
+                          setShowCsvModeSelectModal(false);
+                          setPendingCsvFileData('');
+                        }}
+                        className="text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        <XIcon size={20} />
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <p className="text-sm text-slate-600">
+                        既存の投稿データ（{parsedPosts.length}件）があります。
+                        <br />
+                        取込み方法を選択してください。
+                      </p>
+                      
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
+                          <input
+                            type="radio"
+                            name="csvMode"
+                            value="replace"
+                            checked={csvImportMode === 'replace'}
+                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">書き換え</p>
+                            <p className="text-xs text-slate-500">既存データを削除して、新しいCSVデータに置き換えます</p>
+                          </div>
+                        </label>
+                        
+                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
+                          <input
+                            type="radio"
+                            name="csvMode"
+                            value="append"
+                            checked={csvImportMode === 'append'}
+                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">追加</p>
+                            <p className="text-xs text-slate-500">既存データに新しいCSVデータを追加します</p>
+                          </div>
+                        </label>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 pt-2">
+                        <button
+                          onClick={async () => {
+                            if (pendingCsvFileData) {
+                              await applyCsvData(pendingCsvFileData, csvImportMode);
+                            }
+                            setShowCsvModeSelectModal(false);
+                            setPendingCsvFileData('');
+                          }}
+                          className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors"
+                        >
+                          決定
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowCsvModeSelectModal(false);
+                            setPendingCsvFileData('');
+                          }}
+                          className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                        >
+                          キャンセル
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* URL入力モーダル */}
+              {showUrlInputModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <BookOpen size={20} className="text-[#066099]" />
+                        サイトマップURL入力
+                      </h3>
+                      <button
+                        onClick={() => {
+                          setShowUrlInputModal(false);
+                          setSitemapUrl('');
+                        }}
+                        className="text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        <XIcon size={20} />
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                          サイトマップURL
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="例: https://example.com/post-sitemap.xml"
+                          value={sitemapUrl}
+                          onChange={(e) => setSitemapUrl(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                          disabled={isSitemapLoading}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !isSitemapLoading && sitemapUrl.trim()) {
+                              handleFetchSitemap();
+                              setShowUrlInputModal(false);
+                            }
+                          }}
+                        />
+                      </div>
+                      
+                      <div className="flex items-center gap-2 pt-2">
+                        <button
+                          onClick={async () => {
+                            if (sitemapUrl.trim()) {
+                              await handleFetchSitemap();
+                              setShowUrlInputModal(false);
+                            } else {
+                              alert('サイトマップURLを入力してください');
+                            }
+                          }}
+                          disabled={isSitemapLoading || !sitemapUrl.trim()}
+                          className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {isSitemapLoading ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              取得中...
+                            </>
+                          ) : (
+                            <>
+                              <Upload size={16} />
+                              決定
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowUrlInputModal(false);
+                            setSitemapUrl('');
+                          }}
+                          className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                        >
+                          キャンセル
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* サイトマップURL選択モーダル */}
               {showSitemapUrlModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -4273,9 +4400,9 @@ export default function SNSGeneratorApp() {
                     </div>
                     
                     <div className="flex-1 overflow-hidden flex flex-col p-6">
-                      {/* 取込みモード選択 */}
+                      {/* 既存URLデータの扱い選択 */}
                       <div className="mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                        <p className="text-sm font-bold text-slate-800 mb-3">取込み方法を選択</p>
+                        <p className="text-sm font-bold text-slate-800 mb-3">既存URLデータの扱い</p>
                         <div className="space-y-2">
                           <label className="flex items-center gap-3 p-2 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
                             <input
@@ -4287,8 +4414,8 @@ export default function SNSGeneratorApp() {
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
-                              <p className="text-sm font-bold text-slate-800">追加</p>
-                              <p className="text-xs text-slate-500">既存データに新しいURLのデータを追加します（既存URLは更新）</p>
+                              <p className="text-sm font-bold text-slate-800">既存URLデータを残す</p>
+                              <p className="text-xs text-slate-500">既存のURLデータを保持し、選択したURLのデータを追加します</p>
                             </div>
                           </label>
                           
@@ -4302,8 +4429,8 @@ export default function SNSGeneratorApp() {
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
-                              <p className="text-sm font-bold text-slate-800">書き換え</p>
-                              <p className="text-xs text-slate-500">既存データを削除して、選択したURLのデータに置き換えます</p>
+                              <p className="text-sm font-bold text-slate-800">既存URLデータを削除</p>
+                              <p className="text-xs text-slate-500">既存のURLデータを削除し、選択したURLのデータのみに置き換えます</p>
                             </div>
                           </label>
                         </div>
