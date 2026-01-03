@@ -332,7 +332,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
       .replace(/\\u0000/g, '');          // null文字を除去
 
     try {
-      return JSON.parse(cleanText);
+    return JSON.parse(cleanText);
     } catch (parseError: any) {
       console.error("JSON parse error:", parseError);
       console.error("Problematic JSON (first 1000 chars):", cleanText.substring(0, 1000));
@@ -1844,7 +1844,22 @@ export default function SNSGeneratorApp() {
             });
             
             const data = await response.json();
-            if (response.ok && data.csv) {
+            if (!response.ok) {
+              const errorMsg = data.error || `HTTP ${response.status}`;
+              console.error(`ブログ取り込みエラー (${url}):`, errorMsg);
+              setBlogImportProgress(`エラー: ${url} - ${errorMsg}`);
+              return {
+                title: '',
+                content: '',
+                date: new Date().toISOString().split('T')[0],
+                url: url,
+                category: '',
+                tags: '',
+                error: errorMsg, // エラー情報を追加
+              };
+            }
+            
+            if (data.csv) {
               // CSVから投稿を抽出
               const lines = data.csv.split('\n');
               if (lines.length > 1) {
@@ -1885,17 +1900,32 @@ export default function SNSGeneratorApp() {
                   const isValidUrl = extractedUrl && 
                     (extractedUrl.startsWith('http://') || extractedUrl.startsWith('https://'));
                   
+                  const title = parts[1]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  const content = parts[2]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '';
+                  
+                  // タイトルやコンテンツが空の場合は警告
+                  if (!title.trim() || !content.trim()) {
+                    console.warn(`ブログ取り込み警告 (${url}): タイトルまたはコンテンツが空です。タイトル: "${title}", コンテンツ長: ${content.length}`);
+                  }
+                  
                   return {
-                    title: parts[1]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
-                    content: parts[2]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
+                    title,
+                    content,
                     date: parts[0]?.replace(/^"|"$/g, '') || '',
                     url: isValidUrl ? extractedUrl : url, // 正しいURLでない場合は元のURLを使用
                     category: parts[3]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
                     tags: parts[4]?.replace(/^"|"$/g, '').replace(/""/g, '"') || '',
                   };
+                } else {
+                  console.warn(`ブログ取り込み警告 (${url}): CSVの列数が不足しています。期待: 6列, 実際: ${parts.length}列`);
                 }
+              } else {
+                console.warn(`ブログ取り込み警告 (${url}): CSVデータが空です。`);
               }
+            } else {
+              console.warn(`ブログ取り込み警告 (${url}): API応答にCSVデータが含まれていません。`, data);
             }
+            
             // CSVが取得できない場合でも、元のURLを返す
             return {
               title: '',
@@ -1904,17 +1934,37 @@ export default function SNSGeneratorApp() {
               url: url,
               category: '',
               tags: '',
+              error: 'CSVデータが取得できませんでした', // エラー情報を追加
             };
-          } catch (error) {
-            console.error(`Failed to import ${url}:`, error);
-            return null;
+          } catch (error: any) {
+            const errorMsg = error.message || String(error);
+            console.error(`ブログ取り込み例外 (${url}):`, errorMsg, error);
+            setBlogImportProgress(`例外エラー: ${url} - ${errorMsg}`);
+            return {
+              title: '',
+              content: '',
+              date: new Date().toISOString().split('T')[0],
+              url: url,
+              category: '',
+              tags: '',
+              error: errorMsg, // エラー情報を追加
+            };
           }
         });
         
         const batchResults = await Promise.all(batchPromises);
         const validPosts = batchResults.filter(p => p !== null) as any[];
-        allPosts.push(...validPosts);
-        processedCount += validPosts.length;
+        const errorPosts = validPosts.filter((p: any) => p.error) as any[];
+        const successPosts = validPosts.filter((p: any) => !p.error) as any[];
+        
+        allPosts.push(...successPosts);
+        processedCount += successPosts.length;
+        
+        // エラーがあった場合は進捗に表示
+        if (errorPosts.length > 0) {
+          const errorUrls = errorPosts.map((p: any) => p.url).join(', ');
+          setBlogImportProgress(`${successPosts.length}件成功, ${errorPosts.length}件エラー (${errorUrls.substring(0, 100)}...)`);
+        }
         
         // バッチ処理後にサイズをチェック
         const tempCsvRows = [
@@ -2107,22 +2157,45 @@ export default function SNSGeneratorApp() {
         blogUrlDates: updatedBlogUrlDates
       }, { merge: true });
       
-      const successMessage = shouldStop 
-        ? `${processedCount}件の記事を取り込みました（サイズ制限により一部のURLは取り込まれていません）`
-        : `${allPosts.length}件の記事を取得しました`;
+      // エラーがあった投稿をカウント
+      const errorCount = allPosts.filter((p: any) => p.error).length;
+      const successCount = allPosts.filter((p: any) => !p.error).length;
+      
+      let successMessage = '';
+      if (shouldStop) {
+        successMessage = `${successCount}件の記事を取り込みました（サイズ制限により一部のURLは取り込まれていません）`;
+      } else {
+        successMessage = `${successCount}件の記事を取得しました`;
+      }
+      
+      if (errorCount > 0) {
+        const errorPosts = allPosts.filter((p: any) => p.error);
+        const errorUrls = errorPosts.map((p: any) => p.url).slice(0, 5);
+        const errorMessages = errorPosts.map((p: any) => `${p.url}: ${p.error || '不明なエラー'}`).slice(0, 5);
+        successMessage += `\n\nエラー: ${errorCount}件のURLで取り込みに失敗しました。\n失敗したURL（最大5件）:\n${errorMessages.join('\n')}`;
+        if (errorCount > 5) {
+          successMessage += `\n...他${errorCount - 5}件`;
+        }
+        successMessage += '\n\n詳細はブラウザのコンソール（F12）を確認してください。';
+        console.error('ブログ取り込みエラー詳細:', errorPosts);
+      }
+      
       setBlogImportProgress(successMessage);
       
-      if (shouldStop) {
+      if (shouldStop || errorCount > 0) {
         alert(successMessage);
       }
       
       setSelectedUrls(new Set()); // 選択をリセット
     } catch (error: any) {
       console.error('Blog import error:', error);
-      alert(`ブログの取り込みに失敗しました: ${error.message}`);
+      const errorDetails = error.stack || error.message || String(error);
+      console.error('エラー詳細:', errorDetails);
+      alert(`ブログの取り込みに失敗しました: ${error.message}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+      setBlogImportProgress(`エラー: ${error.message}`);
     } finally {
       setIsBlogImporting(false);
-      setBlogImportProgress('');
+      // エラーがある場合は進捗メッセージを保持（既に設定済み）
     }
   };
 
