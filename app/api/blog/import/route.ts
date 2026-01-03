@@ -330,7 +330,26 @@ function extractContent(html: string): string {
   // HTMLタグを除去（すべてのタグを除去）
   let textContent = contentHtml.replace(/<[^>]+>/g, '');
   
-  // HTMLエンティティをデコード
+  // HTMLエンティティをデコード（文字化け対策: より包括的に）
+  // 数値エンティティ（&#123;形式）を先に処理
+  textContent = textContent.replace(/&#(\d+);/g, (match, dec) => {
+    try {
+      return String.fromCharCode(parseInt(dec, 10));
+    } catch (e) {
+      return match; // デコードに失敗した場合は元の文字列を返す
+    }
+  });
+  
+  // 16進数エンティティ（&#x1F;形式）を処理
+  textContent = textContent.replace(/&#x([0-9A-Fa-f]+);/g, (match, hex) => {
+    try {
+      return String.fromCharCode(parseInt(hex, 16));
+    } catch (e) {
+      return match; // デコードに失敗した場合は元の文字列を返す
+    }
+  });
+  
+  // 名前付きエンティティ（一般的なもの）
   textContent = textContent
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -346,7 +365,27 @@ function extractContent(html: string): string {
     .replace(/&#160;/g, ' ')
     .replace(/&hellip;/g, '…')
     .replace(/&mdash;/g, '—')
-    .replace(/&ndash;/g, '–');
+    .replace(/&ndash;/g, '–')
+    .replace(/&copy;/g, '©')
+    .replace(/&reg;/g, '®')
+    .replace(/&trade;/g, '™')
+    .replace(/&yen;/g, '¥')
+    .replace(/&euro;/g, '€')
+    .replace(/&pound;/g, '£')
+    .replace(/&cent;/g, '¢')
+    .replace(/&deg;/g, '°')
+    .replace(/&times;/g, '×')
+    .replace(/&divide;/g, '÷')
+    .replace(/&plusmn;/g, '±')
+    .replace(/&frac12;/g, '½')
+    .replace(/&frac14;/g, '¼')
+    .replace(/&frac34;/g, '¾')
+    .replace(/&lsquo;/g, ''')
+    .replace(/&rsquo;/g, ''')
+    .replace(/&ldquo;/g, '"')
+    .replace(/&rdquo;/g, '"')
+    .replace(/&sbquo;/g, ',')
+    .replace(/&bdquo;/g, '"');
   
   // 連続する過剰な空白や改行を整理
   // 3つ以上の連続する改行を2つに制限
@@ -918,16 +957,47 @@ export async function POST(request: NextRequest) {
           });
           
           if (response.ok) {
-            const html = await response.text();
+            // 文字化け対策: レスポンスをArrayBufferとして取得し、適切なエンコーディングでデコード
+            const arrayBuffer = await response.arrayBuffer();
+            let html = '';
             
-            // HTMLサイズチェック（5MB以上はスキップ）
-            if (html.length > 5 * 1024 * 1024) {
+            // Content-Typeヘッダーからcharsetを取得
+            const contentType = response.headers.get('content-type') || '';
+            const charsetMatch = contentType.match(/charset=([^;]+)/i);
+            const charset = charsetMatch ? charsetMatch[1].trim().toLowerCase() : 'utf-8';
+            
+            // HTMLのmetaタグからcharsetを取得（より正確）
+            const decoder = new TextDecoder(charset === 'utf-8' ? 'utf-8' : charset);
+            let tempHtml = decoder.decode(arrayBuffer);
+            
+            // HTMLのmetaタグからcharsetを確認
+            const metaCharsetMatch = tempHtml.match(/<meta[^>]*charset=["']?([^"'\s>]+)["']?/i);
+            if (metaCharsetMatch) {
+              const htmlCharset = metaCharsetMatch[1].toLowerCase();
+              if (htmlCharset !== charset) {
+                // HTMLで指定されたcharsetが異なる場合は再デコード
+                try {
+                  const htmlDecoder = new TextDecoder(htmlCharset);
+                  html = htmlDecoder.decode(arrayBuffer);
+                } catch (e) {
+                  // デコードに失敗した場合は元のデコード結果を使用
+                  html = tempHtml;
+                }
+              } else {
+                html = tempHtml;
+              }
+            } else {
+              html = tempHtml;
+            }
+            
+            // HTMLサイズチェック（10MB以上はスキップ）
+            if (html.length > 10 * 1024 * 1024) {
               console.warn(`記事が大きすぎます（${url}）: ${(html.length / 1024 / 1024).toFixed(2)}MB`);
               return null;
             }
             
             const title = extractTitle(html);
-            const content = extractContent(html); // テキスト形式で抽出
+            const content = extractContent(html); // テキスト形式で抽出（全文）
             const date = extractDate(html, url); // URLも渡して日付抽出
             const category = extractCategory(html); // カテゴリを抽出
             const tags = extractTags(html); // タグを抽出
@@ -944,11 +1014,8 @@ export async function POST(request: NextRequest) {
               console.warn(`記事の内容が短すぎます（${url}）: ${content.trim().length}文字`);
             }
             
-            // コンテンツが長すぎる場合は切り詰め（100k文字まで）
-            let trimmedContent = content.trim();
-            if (trimmedContent.length > 100000) {
-              trimmedContent = trimmedContent.substring(0, 100000) + '...';
-            }
+            // 本文は長くても全て読み取る（切り詰め処理を削除）
+            const trimmedContent = content.trim();
             
             return {
               title: title || 'タイトルなし',
