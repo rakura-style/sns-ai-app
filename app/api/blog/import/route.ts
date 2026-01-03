@@ -265,6 +265,61 @@ function extractTitle(html: string): string {
   return '';
 }
 
+// ネストされたタグを正確にマッチングする関数
+function extractNestedTag(html: string, tagName: string, className?: string): string {
+  if (!html) return '';
+  
+  let startPattern: RegExp;
+  if (className) {
+    // クラス名が指定されている場合
+    startPattern = new RegExp(`<${tagName}[^>]*class=["'][^"']*${className}[^"']*["'][^>]*>`, 'i');
+  } else {
+    // クラス名が指定されていない場合
+    startPattern = new RegExp(`<${tagName}[^>]*>`, 'i');
+  }
+  
+  const startMatch = html.match(startPattern);
+  if (!startMatch || startMatch.index === undefined) return '';
+  
+  const startIndex = startMatch.index + startMatch[0].length;
+  let depth = 1;
+  let i = startIndex;
+  const tagLength = tagName.length;
+  
+  // 対応する終了タグを探す（ネストを考慮）
+  while (i < html.length && depth > 0) {
+    // 開始タグを探す（<tagName または <tagName>）
+    const openTagPattern = new RegExp(`<${tagName}(?:\\s|>)`, 'i');
+    const openMatch = html.substring(i).match(openTagPattern);
+    const openIndex = openMatch ? html.substring(i).indexOf(openMatch[0]) : -1;
+    
+    // 終了タグを探す（</tagName>）
+    const closeTagPattern = new RegExp(`</${tagName}>`, 'i');
+    const closeMatch = html.substring(i).match(closeTagPattern);
+    const closeIndex = closeMatch ? html.substring(i).indexOf(closeMatch[0]) : -1;
+    
+    if (closeIndex === -1) break; // 終了タグが見つからない
+    
+    if (openIndex !== -1 && openIndex < closeIndex) {
+      // 開始タグが先に見つかった（ネスト）
+      depth++;
+      // 開始タグの終了位置を探す
+      const tagEnd = html.substring(i + openIndex).indexOf('>');
+      if (tagEnd === -1) break;
+      i += openIndex + tagEnd + 1;
+    } else {
+      // 終了タグが見つかった
+      depth--;
+      if (depth === 0) {
+        return html.substring(startIndex, i + closeIndex);
+      }
+      i += closeIndex + `</${tagName}>`.length;
+    }
+  }
+  
+  return '';
+}
+
 // 記事の本文を抽出（テキスト形式、改行を保持）
 function extractContent(html: string): string {
   if (!html) return '';
@@ -278,24 +333,86 @@ function extractContent(html: string): string {
   // 範囲指定: .entry-content > .post-content > article の順で取得を試みる
   let contentHtml = '';
   
-  // 1. .entry-content クラスから取得
-  const entryContentMatch = text.match(/<[^>]*class=["'][^"']*entry-content[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
-  if (entryContentMatch) {
-    contentHtml = entryContentMatch[1];
-  } else {
-    // 2. .post-content クラスから取得
-    const postContentMatch = text.match(/<[^>]*class=["'][^"']*post-content[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
-    if (postContentMatch) {
-      contentHtml = postContentMatch[1];
-    } else {
-      // 3. <article>タグから取得
-      const articleMatch = text.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-      if (articleMatch) {
-        contentHtml = articleMatch[1];
-      } else {
-        // 範囲が見つからない場合は全体を使用
-        contentHtml = text;
+  // 1. .entry-content クラスから取得（複数のタグを試す）
+  const entryContentPatterns = [
+    { tag: 'div', class: 'entry-content' },
+    { tag: 'section', class: 'entry-content' },
+    { tag: 'main', class: 'entry-content' },
+    { tag: 'article', class: 'entry-content' },
+  ];
+  
+  for (const pattern of entryContentPatterns) {
+    contentHtml = extractNestedTag(text, pattern.tag, pattern.class);
+    if (contentHtml && contentHtml.trim().length > 50) {
+      break; // 十分なコンテンツが見つかった
+    }
+  }
+  
+  // 2. .post-content クラスから取得
+  if (!contentHtml || contentHtml.trim().length <= 50) {
+    const postContentPatterns = [
+      { tag: 'div', class: 'post-content' },
+      { tag: 'section', class: 'post-content' },
+      { tag: 'main', class: 'post-content' },
+    ];
+    
+    for (const pattern of postContentPatterns) {
+      contentHtml = extractNestedTag(text, pattern.tag, pattern.class);
+      if (contentHtml && contentHtml.trim().length > 50) {
+        break;
       }
+    }
+  }
+  
+  // 3. <article>タグから取得（クラス指定なし）
+  if (!contentHtml || contentHtml.trim().length <= 50) {
+    contentHtml = extractNestedTag(text, 'article');
+    // articleタグ内の不要な部分（ヘッダー、フッターなど）を除外
+    if (contentHtml) {
+      // article内のheader、footer、asideを除外
+      contentHtml = contentHtml.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+      contentHtml = contentHtml.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+      contentHtml = contentHtml.replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '');
+    }
+  }
+  
+  // 4. その他の一般的なパターンを試す
+  if (!contentHtml || contentHtml.trim().length <= 50) {
+    const commonPatterns = [
+      { tag: 'div', class: 'content' },
+      { tag: 'div', class: 'post' },
+      { tag: 'div', class: 'article' },
+      { tag: 'div', class: 'entry' },
+      { tag: 'main', class: '' },
+      { tag: 'section', class: 'content' },
+    ];
+    
+    for (const pattern of commonPatterns) {
+      if (pattern.class) {
+        contentHtml = extractNestedTag(text, pattern.tag, pattern.class);
+      } else {
+        contentHtml = extractNestedTag(text, pattern.tag);
+      }
+      if (contentHtml && contentHtml.trim().length > 50) {
+        break;
+      }
+    }
+  }
+  
+  // 5. 範囲が見つからない場合は、bodyタグ内の主要なコンテンツを取得
+  if (!contentHtml || contentHtml.trim().length <= 50) {
+    const bodyMatch = text.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) {
+      let bodyContent = bodyMatch[1];
+      // 不要な要素を除外
+      bodyContent = bodyContent.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+      bodyContent = bodyContent.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+      bodyContent = bodyContent.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
+      bodyContent = bodyContent.replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '');
+      contentHtml = bodyContent;
+    } else {
+      // 最後の手段：全体を使用
+      contentHtml = text;
     }
   }
   
@@ -1013,10 +1130,16 @@ export async function POST(request: NextRequest) {
             const category = extractCategory(html); // カテゴリを抽出
             const tags = extractTags(html); // タグを抽出
             
-            // コンテンツが空の場合はスキップ
-            if (!content.trim()) {
+            // コンテンツが空の場合はスキップ（デバッグ情報を追加）
+            if (!content || !content.trim()) {
               console.warn(`記事の内容が空です（${url}）`);
+              console.warn(`HTMLサイズ: ${html.length}文字, タイトル: ${title || 'なし'}`);
               return null;
+            }
+            
+            // コンテンツが短すぎる場合も警告（50文字未満）
+            if (content.trim().length < 50) {
+              console.warn(`記事の内容が短すぎます（${url}）: ${content.trim().length}文字`);
             }
             
             // コンテンツが長すぎる場合は切り詰め（100k文字まで）
