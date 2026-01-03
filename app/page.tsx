@@ -2142,13 +2142,24 @@ export default function SNSGeneratorApp() {
   };
 
   // WordPressのブロックコメントとHTMLタグを除去してテキストのみを抽出する関数
-  const extractTextFromWordPress = (html: string): string => {
+  // 改行を保持するバージョン
+  const extractTextFromWordPress = (html: string, preserveLineBreaks: boolean = true): string => {
     if (!html) return '';
     
     let text = html;
     
     // WordPressのブロックコメントを除去（<!-- wp:xxx --> や <!-- /wp:xxx -->）
     text = text.replace(/<!--\s*\/?wp:[^>]+-->/g, '');
+    
+    // 改行を保持する場合、<br>、<p>、<div>などの改行要素を改行に変換
+    if (preserveLineBreaks) {
+      text = text
+        .replace(/<br\s*\/?>/gi, '\n')  // <br>を改行に
+        .replace(/<\/p>/gi, '\n')       // </p>を改行に
+        .replace(/<\/div>/gi, '\n')     // </div>を改行に
+        .replace(/<\/h[1-6]>/gi, '\n')  // 見出しタグの終了を改行に
+        .replace(/<\/li>/gi, '\n');     // リスト項目の終了を改行に
+    }
     
     // HTMLタグを除去
     text = text.replace(/<[^>]+>/g, '');
@@ -2174,11 +2185,21 @@ export default function SNSGeneratorApp() {
         .replace(/&#8230;/g, '…');
     }
     
-    // 連続する空白や改行を整理
-    text = text.replace(/\s+/g, ' ').trim();
-    text = text.replace(/\n\s*\n/g, '\n');
+    if (preserveLineBreaks) {
+      // 改行を保持しつつ、連続する空白を整理
+      // 3つ以上の連続する改行を2つに制限
+      text = text.replace(/\n{3,}/g, '\n\n');
+      // 行頭・行末の空白を除去
+      text = text.split('\n').map(line => line.trim()).join('\n');
+      // 連続する空白（改行以外）を1つに
+      text = text.replace(/[ \t]+/g, ' ');
+    } else {
+      // 改行を保持しない場合（従来の動作）
+      text = text.replace(/\s+/g, ' ').trim();
+      text = text.replace(/\n\s*\n/g, '\n');
+    }
     
-    return text;
+    return text.trim();
   };
 
   // CSV行をパースするヘルパー関数（カンマ区切り、ダブルクォート対応）
@@ -2429,12 +2450,19 @@ export default function SNSGeneratorApp() {
         engagement = likes + views;
       }
       
-      // タイトルを取得
+      // タイトルを取得（ブログデータの場合は改行を保持）
       let title = '';
       for (const key of titleKeys) {
         const val = post[key];
         if (val !== undefined && val !== '') {
-          title = String(val);
+          const rawTitle = String(val);
+          // ブログデータの場合（text列がない場合）は、HTMLタグを除去しつつ改行を保持
+          if (!hasTextColumn) {
+            title = extractTextFromWordPress(rawTitle, true);
+          } else {
+            // XのCSVデータの場合はそのまま使用
+            title = rawTitle;
+          }
           break;
         }
       }
@@ -2468,8 +2496,8 @@ export default function SNSGeneratorApp() {
             const rawContent = String(val).trim();
             // 空でない場合は使用
             if (rawContent && rawContent.length > 0) {
-              // ブログデータ（Content列など）の場合はWordPress処理を適用
-              const extractedContent = extractTextFromWordPress(rawContent);
+              // ブログデータ（Content列など）の場合はWordPress処理を適用（改行を保持）
+              const extractedContent = extractTextFromWordPress(rawContent, true);
               if (extractedContent.trim()) {
                 content = extractedContent;
                 break;
@@ -3660,7 +3688,15 @@ export default function SNSGeneratorApp() {
                       <input
                         type="checkbox"
                         checked={useCsvData}
-                        onChange={(e) => setUseCsvData(e.target.checked)}
+                        onChange={(e) => {
+                          const newValue = e.target.checked;
+                          setUseCsvData(newValue);
+                          // 強制的に再レンダリングをトリガー
+                          if (!newValue && !useBlogData) {
+                            // 両方ともfalseになる場合は、ブログデータをtrueにする
+                            setUseBlogData(true);
+                          }
+                        }}
                         className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
                       />
                       <span className="text-sm text-slate-700">Xの投稿データ</span>
@@ -3669,7 +3705,15 @@ export default function SNSGeneratorApp() {
                       <input
                         type="checkbox"
                         checked={useBlogData}
-                        onChange={(e) => setUseBlogData(e.target.checked)}
+                        onChange={(e) => {
+                          const newValue = e.target.checked;
+                          setUseBlogData(newValue);
+                          // 強制的に再レンダリングをトリガー
+                          if (!newValue && !useCsvData) {
+                            // 両方ともfalseになる場合は、Xの投稿データをtrueにする
+                            setUseCsvData(true);
+                          }
+                        }}
                         className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
                       />
                       <span className="text-sm text-slate-700">ブログデータ</span>
@@ -3856,7 +3900,10 @@ export default function SNSGeneratorApp() {
                                   <span className="text-xs text-slate-500">{post.date}</span>
                                 )}
                               </div>
-                              <p className="text-sm text-slate-700 line-clamp-2">{post.content}</p>
+                              {post.title && (
+                                <h4 className="text-sm font-bold text-slate-800 mb-1 whitespace-pre-line">{post.title}</h4>
+                              )}
+                              <p className="text-sm text-slate-700 line-clamp-2 whitespace-pre-line">{post.content}</p>
                             </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100">
                               <button
@@ -4061,7 +4108,45 @@ export default function SNSGeneratorApp() {
                       <div className="mb-4 space-y-4">
                         {/* X投稿データ（CSV） */}
                         <div>
-                          <h4 className="text-sm font-bold text-slate-700 mb-2">XのCSVデータ</h4>
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-bold text-slate-700">XのCSVデータ</h4>
+                            <button
+                              onClick={() => {
+                                setShowDataImportModal(false);
+                                // ファイル選択を待つ
+                                const fileInput = fileInputRef.current;
+                                if (fileInput) {
+                                  // 一時的なイベントハンドラを設定
+                                  const tempHandler = async (e: Event) => {
+                                    const target = e.target as HTMLInputElement;
+                                    const file = target.files?.[0];
+                                    if (!file) return;
+                                    
+                                    const reader = new FileReader();
+                                    reader.onload = async (event) => {
+                                      const text = event.target?.result as string;
+                                      if (text) {
+                                        // ファイル選択後、モード選択ダイアログを表示
+                                        setPendingCsvFileData(text);
+                                        setShowCsvModeSelectModal(true);
+                                      }
+                                      target.value = '';
+                                      fileInput.removeEventListener('change', tempHandler);
+                                    };
+                                    reader.readAsText(file);
+                                  };
+                                  fileInput.addEventListener('change', tempHandler);
+                                  fileInput.click();
+                                }
+                              }}
+                              disabled={isCsvLoading}
+                              className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                              title="CSVデータを追加"
+                            >
+                              <Upload size={12} />
+                              追加
+                            </button>
+                          </div>
                           <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                             {csvData && csvData !== 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200' ? (
                               <div className="flex items-center justify-between gap-3">
@@ -4099,42 +4184,6 @@ export default function SNSGeneratorApp() {
                                   )}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => {
-                                      setShowDataImportModal(false);
-                                      // ファイル選択を待つ
-                                      const fileInput = fileInputRef.current;
-                                      if (fileInput) {
-                                        // 一時的なイベントハンドラを設定
-                                        const tempHandler = async (e: Event) => {
-                                          const target = e.target as HTMLInputElement;
-                                          const file = target.files?.[0];
-                                          if (!file) return;
-                                          
-                                          const reader = new FileReader();
-                                          reader.onload = async (event) => {
-                                            const text = event.target?.result as string;
-                                            if (text) {
-                                              // ファイル選択後、モード選択ダイアログを表示
-                                              setPendingCsvFileData(text);
-                                              setShowCsvModeSelectModal(true);
-                                            }
-                                            target.value = '';
-                                            fileInput.removeEventListener('change', tempHandler);
-                                          };
-                                          reader.readAsText(file);
-                                        };
-                                        fileInput.addEventListener('change', tempHandler);
-                                        fileInput.click();
-                                      }
-                                    }}
-                                    disabled={isCsvLoading}
-                                    className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                    title="CSVデータを追加"
-                                  >
-                                    <Upload size={12} />
-                                    追加
-                                  </button>
                                   <button
                                     onClick={() => {
                                       setShowDataImportModal(false);
