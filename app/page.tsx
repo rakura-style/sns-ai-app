@@ -4162,7 +4162,7 @@ export default function SNSGeneratorApp() {
                                     </span>
                                   )}
                                   {postDate && (
-                                    <span className="text-xs text-slate-500">📅 {postDate}</span>
+                                    <span className="text-xs text-slate-500">投稿日：{postDate}</span>
                                   )}
                                 </div>
                                 <h4 className="text-sm font-bold text-slate-800 mb-1 whitespace-pre-line">{displayTitle}</h4>
