@@ -1267,9 +1267,8 @@ export default function SNSGeneratorApp() {
   const [blogData, setBlogData] = useState<string>('');
   const [blogUploadDate, setBlogUploadDate] = useState<string | null>(null);
   
-  // 分析用のデータソース選択
-  const [useCsvData, setUseCsvData] = useState<boolean>(true);
-  const [useBlogData, setUseBlogData] = useState<boolean>(false);
+  // 分析用のデータソース選択（ラジオボタン用）
+  const [dataSource, setDataSource] = useState<'csv' | 'blog' | 'all'>('csv');
   
   // マイ投稿分析用の状態（選択されたデータソースから生成）
   const [parsedPosts, setParsedPosts] = useState<any[]>([]);
@@ -3189,28 +3188,31 @@ export default function SNSGeneratorApp() {
     loadUserData();
   }, [user]);
 
-  // 選択されたデータソースから分析用データを生成（フィルタリングは表示時に行うため、常に全てのデータを含める）
+  // 選択されたデータソースから分析用データを生成
   useEffect(() => {
     const posts: any[] = [];
     
-    // CSVデータは常に含める（フィルタリングは表示時に行う）
-    if (csvData) {
-      const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
-      if (csvData !== defaultCsv) {
-        const csvPosts = parseCsvToPosts(csvData);
-        posts.push(...csvPosts);
+    // データソースに応じてフィルタリング
+    if (dataSource === 'csv' || dataSource === 'all') {
+      if (csvData) {
+        const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+        if (csvData !== defaultCsv) {
+          const csvPosts = parseCsvToPosts(csvData);
+          posts.push(...csvPosts);
+        }
       }
     }
     
-    // ブログデータは常に含める（フィルタリングは表示時に行う）
-    if (blogData) {
-      const blogPosts = parseCsvToPosts(blogData);
-      // 取り込まれたURLのブログは全て参照する
-      posts.push(...blogPosts);
+    if (dataSource === 'blog' || dataSource === 'all') {
+      if (blogData) {
+        const blogPosts = parseCsvToPosts(blogData);
+        // 取り込まれたURLのブログは全て参照する
+        posts.push(...blogPosts);
+      }
     }
     
     setParsedPosts(posts);
-  }, [csvData, blogData]);
+  }, [csvData, blogData, dataSource]);
 
   // XのCSVデータをクリア
   const handleClearCsvData = async () => {
@@ -3263,9 +3265,26 @@ export default function SNSGeneratorApp() {
       const updatedPosts = parsedPosts.filter(p => p.id !== postId);
       setParsedPosts(updatedPosts);
       
-      // 元のデータからも削除
-      if (useCsvData && csvData) {
-        // CSVデータから該当する行を削除
+      // 投稿の種類を判定（X投稿かブログ投稿か）
+      const rawData = postToDelete.rawData || {};
+      const hasTweetId = !!(
+        postToDelete.tweet_id || 
+        postToDelete.tweetId || 
+        postToDelete['Tweet ID'] || 
+        postToDelete['TweetID'] || 
+        postToDelete['tweet_id'] ||
+        rawData.tweet_id ||
+        rawData.tweetId ||
+        rawData['Tweet ID'] ||
+        rawData['TweetID'] ||
+        rawData['tweet_id']
+      );
+      const hasUrl = !!(postToDelete.URL || postToDelete.url || rawData.URL || rawData.url);
+      const isBlogPost = hasUrl && !hasTweetId;
+      
+      // 元のデータからも削除（投稿の種類に基づいて判定）
+      if (!isBlogPost && csvData) {
+        // X投稿の場合はCSVデータから削除
         const lines = csvData.split('\n');
         const header = lines[0];
         const dataLines = lines.slice(1);
@@ -3299,9 +3318,8 @@ export default function SNSGeneratorApp() {
         } catch (error) {
           console.error('ローカルストレージ更新エラー:', error);
         }
-      } else if (useBlogData && blogData) {
-        // ブログデータから該当する投稿を削除
-        // ブログデータはCSV形式なので、同様の処理
+      } else if (isBlogPost && blogData) {
+        // ブログ投稿の場合はブログデータから削除
         const lines = blogData.split('\n');
         const header = lines[0];
         const dataLines = lines.slice(1);
@@ -3925,43 +3943,41 @@ export default function SNSGeneratorApp() {
                     </button>
                   </div>
                   
-                  {/* データソース選択 */}
+                  {/* データソース選択（ラジオボタン） */}
                   <div className="flex flex-col sm:flex-row gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
-                        type="checkbox"
-                        checked={useCsvData}
-                        onChange={(e) => {
-                          const newValue = e.target.checked;
-                          setUseCsvData(newValue);
-                          // 両方ともfalseになる場合は、ブログデータをtrueにする
-                          if (!newValue && !useBlogData) {
-                            setUseBlogData(true);
-                          }
-                        }}
-                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                        type="radio"
+                        name="dataSource"
+                        value="csv"
+                        checked={dataSource === 'csv'}
+                        onChange={(e) => setDataSource('csv')}
+                        className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                       />
                       <span className="text-sm text-slate-700">Xの投稿データ</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
-                        type="checkbox"
-                        checked={useBlogData}
-                        onChange={(e) => {
-                          const newValue = e.target.checked;
-                          setUseBlogData(newValue);
-                          // 両方ともfalseになる場合は、Xの投稿データをtrueにする
-                          if (!newValue && !useCsvData) {
-                            setUseCsvData(true);
-                          }
-                        }}
-                        className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
+                        type="radio"
+                        name="dataSource"
+                        value="blog"
+                        checked={dataSource === 'blog'}
+                        onChange={(e) => setDataSource('blog')}
+                        className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                       />
                       <span className="text-sm text-slate-700">ブログデータ</span>
                     </label>
-                    {!useCsvData && !useBlogData && (
-                      <p className="text-xs text-red-600">データソースを1つ以上選択してください</p>
-                    )}
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="dataSource"
+                        value="all"
+                        checked={dataSource === 'all'}
+                        onChange={(e) => setDataSource('all')}
+                        className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                      />
+                      <span className="text-sm text-slate-700">全データ</span>
+                    </label>
                   </div>
                   
                   {parsedPosts.length === 0 && (
@@ -4038,12 +4054,12 @@ export default function SNSGeneratorApp() {
                         const isBlogPost = hasUrl && !hasTweetId;
                         
                         // X投稿とブログ投稿のフィルター
-                        if (useCsvData && useBlogData) {
-                          // 両方選択されている場合は全て表示
-                        } else if (useCsvData && !useBlogData) {
+                        if (dataSource === 'all') {
+                          // 全データ選択の場合は全て表示
+                        } else if (dataSource === 'csv') {
                           // X投稿のみ
                           if (!isCsvPost) return false;
-                        } else if (!useCsvData && useBlogData) {
+                        } else if (dataSource === 'blog') {
                           // ブログ投稿のみ
                           if (!isBlogPost) return false;
                         } else {
