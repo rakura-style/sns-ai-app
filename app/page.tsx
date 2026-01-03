@@ -245,10 +245,25 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   // CSVデータを安全に処理（プロンプトに埋め込むため）
   // テンプレートリテラル内では改行はそのまま保持されるが、
   // 制御文字や不正な文字を除去
-  const safeCsv = optimizedCsv
+  let safeCsv = optimizedCsv
     .replace(/\r\n/g, '\n')  // CRLFをLFに統一
     .replace(/\r/g, '\n')     // CRをLFに統一
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // 制御文字を除去（改行とタブは保持）
+  
+  // CSVデータが長すぎる場合（50000文字以上）、さらに切り詰める
+  // これにより、API応答のサイズを制限してJSON解析エラーを防ぐ
+  if (safeCsv.length > 50000) {
+    const lines = safeCsv.split('\n');
+    const header = lines[0];
+    const dataLines = lines.slice(1);
+    // 最初の25行と最後の25行のみを保持（合計50行）
+    const trimmedLines = [
+      header,
+      ...dataLines.slice(0, 25),
+      ...dataLines.slice(-25)
+    ];
+    safeCsv = trimmedLines.join('\n');
+  }
   
   const prompt = `
     あなたはSNSコンサルタントです。以下の[過去の投稿CSVデータ]を分析してください。
@@ -293,35 +308,133 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     // JSONパース前に、不正な文字を除去
     // 制御文字や不正なエスケープシーケンスを除去
     cleanText = cleanText
-      .replace(/[\x00-\x1F\x7F]/g, '') // 制御文字を除去
-      .replace(/\\u0000/g, '')          // null文字を除去
-      .replace(/\\(?!["\\/bfnrt])/g, '\\\\'); // 不正なエスケープを修正
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // 制御文字を除去（改行とタブは保持）
+      .replace(/\\u0000/g, '');          // null文字を除去
 
     try {
-    return JSON.parse(cleanText);
+      return JSON.parse(cleanText);
     } catch (parseError: any) {
       console.error("JSON parse error:", parseError);
-      console.error("Problematic JSON (first 500 chars):", cleanText.substring(0, 500));
-      console.error("Problematic JSON (last 500 chars):", cleanText.substring(Math.max(0, cleanText.length - 500)));
+      console.error("Problematic JSON (first 1000 chars):", cleanText.substring(0, 1000));
+      console.error("Problematic JSON (last 1000 chars):", cleanText.substring(Math.max(0, cleanText.length - 1000)));
       
       // より積極的な修正を試みる
-      // 文字列内の不正な改行や制御文字を除去
       let fixedText = cleanText;
+      
       try {
-        // 文字列リテラル内の不正な文字を除去
-        fixedText = fixedText.replace(/"([^"]*)"/g, (match: string, content: string) => {
-          const cleaned = content
-            .replace(/[\x00-\x1F\x7F]/g, '')
-            .replace(/\n/g, '\\n')
-            .replace(/\r/g, '\\r')
-            .replace(/\t/g, '\\t');
-          return `"${cleaned}"`;
+        // 方法1: 文字列リテラル内の不正な文字を除去（ネストされた引用符に対応）
+        fixedText = fixedText.replace(/"([^"\\]|\\.)*"/g, (match: string) => {
+          // エスケープされた文字を保護しながら処理
+          let content = match.slice(1, -1); // 最初と最後の引用符を除去
+          // エスケープシーケンスを一時的に置換
+          const escapes: string[] = [];
+          content = content.replace(/\\(.)/g, (_, char) => {
+            const id = `__ESCAPE_${escapes.length}__`;
+            escapes.push(char);
+            return id;
+          });
+          
+          // 制御文字を除去
+          content = content.replace(/[\x00-\x1F\x7F]/g, '');
+          
+          // エスケープシーケンスを復元
+          content = content.replace(/__ESCAPE_(\d+)__/g, (_, index) => {
+            const char = escapes[parseInt(index)];
+            if (char === 'n') return '\\n';
+            if (char === 'r') return '\\r';
+            if (char === 't') return '\\t';
+            if (char === '"') return '\\"';
+            if (char === '\\') return '\\\\';
+            return `\\${char}`;
+          });
+          
+          return `"${content}"`;
         });
         
         return JSON.parse(fixedText);
       } catch (secondError: any) {
         console.error("Second parse attempt failed:", secondError);
-        throw new Error(`JSON解析エラー: ${parseError.message}. 応答データに不正な文字が含まれている可能性があります。`);
+        
+        // 方法2: 不完全なJSONを検出して修復を試みる
+        try {
+          // 最後の不完全な文字列を検出して修復
+          let repairedText = fixedText;
+          
+          // 開いている引用符の数をカウント
+          let quoteCount = 0;
+          let inString = false;
+          let escapeNext = false;
+          
+          for (let i = 0; i < repairedText.length; i++) {
+            const char = repairedText[i];
+            if (escapeNext) {
+              escapeNext = false;
+              continue;
+            }
+            if (char === '\\') {
+              escapeNext = true;
+              continue;
+            }
+            if (char === '"') {
+              inString = !inString;
+              if (inString) quoteCount++;
+            }
+          }
+          
+          // 文字列が閉じられていない場合、閉じる
+          if (inString) {
+            repairedText += '"';
+          }
+          
+          // 最後の不完全なオブジェクトを検出
+          let braceCount = 0;
+          let bracketCount = 0;
+          for (let i = 0; i < repairedText.length; i++) {
+            const char = repairedText[i];
+            if (char === '{') braceCount++;
+            if (char === '}') braceCount--;
+            if (char === '[') bracketCount++;
+            if (char === ']') bracketCount--;
+          }
+          
+          // 閉じられていない括弧を閉じる
+          while (braceCount > 0) {
+            repairedText += '}';
+            braceCount--;
+          }
+          while (bracketCount > 0) {
+            repairedText += ']';
+            bracketCount--;
+          }
+          
+          return JSON.parse(repairedText);
+        } catch (thirdError: any) {
+          console.error("Third parse attempt failed:", thirdError);
+          
+          // 方法3: 部分的なJSON抽出を試みる
+          try {
+            // settingsオブジェクトを個別に抽出
+            const settingsMatch = cleanText.match(/"settings"\s*:\s*\{[^}]*\}/);
+            const themesMatch = cleanText.match(/"themes"\s*:\s*\[[^\]]*\]/);
+            
+            if (settingsMatch && themesMatch) {
+              const settingsStr = settingsMatch[0].replace(/"settings"\s*:\s*/, '');
+              const themesStr = themesMatch[0].replace(/"themes"\s*:\s*/, '');
+              
+              try {
+                const settings = JSON.parse(settingsStr);
+                const themes = JSON.parse(themesStr);
+                return { settings, themes };
+              } catch (e) {
+                // 個別パースも失敗
+              }
+            }
+          } catch (fourthError: any) {
+            console.error("Fourth parse attempt failed:", fourthError);
+          }
+          
+          throw new Error(`JSON解析エラー: ${parseError.message}. 応答データに不正な文字が含まれている可能性があります。`);
+        }
       }
     }
   } catch (error: any) {
