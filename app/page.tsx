@@ -3968,11 +3968,15 @@ export default function SNSGeneratorApp() {
                               </span>
                             )}
                           </div>
-                          <div className="border border-slate-200 rounded-lg p-4 max-h-64 overflow-y-auto bg-slate-50">
+                          <div className="border border-slate-200 rounded-lg p-4 max-h-96 overflow-y-auto bg-slate-50">
                             {blogUrls && blogUrls.length > 0 ? (
                               <div className="space-y-2">
-                                {blogUrls.map((url: string) => {
-                                  const uploadDate = blogUrlDates[url];
+                                {blogUrls.map((url: string, index: number) => {
+                                  // URLが正しい形式かチェック（http://またはhttps://で始まる）
+                                  const isValidUrl = url && typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
+                                  const displayUrl = isValidUrl ? url : (url || `URL ${index + 1}`);
+                                  
+                                  const uploadDate = blogUrlDates[url] || blogUrlDates[displayUrl];
                                   let expiryDateStr = '';
                                   if (uploadDate) {
                                     try {
@@ -3990,10 +3994,10 @@ export default function SNSGeneratorApp() {
                                   }
                                   
                                   return (
-                                    <div key={url} className="flex items-center justify-between gap-3 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50">
+                                    <div key={url || index} className="flex items-start justify-between gap-3 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50">
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-slate-700 font-medium truncate" title={url}>
-                                          {url}
+                                        <p className="text-xs text-slate-700 font-medium break-words" title={displayUrl}>
+                                          {displayUrl}
                                         </p>
                                         {uploadDate && (
                                           <div className="text-[10px] text-slate-500 mt-1">
@@ -4004,11 +4008,11 @@ export default function SNSGeneratorApp() {
                                           </div>
                                         )}
                                       </div>
-                                      <div className="flex items-center gap-1">
+                                      <div className="flex items-center gap-1 flex-shrink-0">
                                         <button
                                           onClick={() => {
                                             setShowDataImportModal(false);
-                                            handleUpdateUrl(url);
+                                            handleUpdateUrl(url || displayUrl);
                                           }}
                                           disabled={isBlogImporting}
                                           className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
@@ -4019,8 +4023,8 @@ export default function SNSGeneratorApp() {
                                         </button>
                                         <button
                                           onClick={async () => {
-                                            if (confirm(`このURLを削除しますか？\n${url}\n\nこの操作は取り消せません。`)) {
-                                              await handleDeleteBlogUrl(url);
+                                            if (confirm(`このURLを削除しますか？\n${displayUrl}\n\nこの操作は取り消せません。`)) {
+                                              await handleDeleteBlogUrl(url || displayUrl);
                                             }
                                           }}
                                           disabled={isBlogImporting}
