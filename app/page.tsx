@@ -257,11 +257,20 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択し、残りをランダムにサンプリング
   if (parseCsvToPostsFn && combinedCsv) {
     try {
+      // デバッグ: combinedCsvの内容を確認
+      console.log('分析データソース:', analysisDataSource);
+      console.log('combinedCsvの行数:', combinedCsv.split('\n').length);
+      console.log('combinedCsvの最初の3行:', combinedCsv.split('\n').slice(0, 3));
+      
       let allPosts = parseCsvToPostsFn(combinedCsv);
+      
+      console.log('パース後の投稿数:', allPosts.length);
       
       // Xのデータの場合、リツイートと返信を排除
       if (analysisDataSource === 'x' || analysisDataSource === 'all') {
         const beforeFilterCount = allPosts.length;
+        console.log('フィルタリング前の投稿数:', beforeFilterCount);
+        
         allPosts = allPosts.filter((post: any) => {
           // X投稿かどうかを判定（tweet_idがあるかどうか）
           const rawData = post.rawData || {};
@@ -306,6 +315,8 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           return true;
         });
         
+        console.log('フィルタリング後の投稿数:', allPosts.length);
+        
         // フィルタリング後のデータが空の場合、より詳細なエラーメッセージを表示
         if (allPosts.length === 0) {
           if (analysisDataSource === 'x') {
@@ -331,7 +342,8 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         const dataRows = allPosts.map((post: any) => {
           const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
           return headers.map((header: string) => {
-            const value = post[header] || post[header.toLowerCase()] || '';
+            // ヘッダー名に基づいて値を取得（大文字小文字を区別しない）
+            const value = post[header] || post[header.toLowerCase()] || post[header.toUpperCase()] || '';
             const strValue = String(value);
             if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
               return `"${strValue.replace(/"/g, '""')}"`;
@@ -340,6 +352,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           }).join(',');
         });
         optimizedCsv = [originalHeader, ...dataRows].join('\n');
+        console.log('optimizedCsvの行数:', optimizedCsv.split('\n').length);
       } else {
         // 100件を超える場合
         // エンゲージメントが分かる投稿を抽出
@@ -408,7 +421,10 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           
           const dataRows = finalPosts.map((post: any) => {
             return headers.map((header: string) => {
-              const value = post[header] || post[header.toLowerCase()] || '';
+              // ヘッダー名に基づいて値を取得（大文字小文字を区別しない、複数のキーを試す）
+              const headerLower = header.toLowerCase();
+              const value = post[header] || post[header.toLowerCase()] || post[header.toUpperCase()] || 
+                           post[headerLower] || post[headerLower.charAt(0).toUpperCase() + headerLower.slice(1)] || '';
               const strValue = String(value);
               
               // CSV形式にエスケープ（カンマ、ダブルクォート、改行を含む場合）
