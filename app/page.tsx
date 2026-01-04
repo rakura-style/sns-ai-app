@@ -181,7 +181,7 @@ const sampleCsvForAnalysis = (csvData: string, maxRows: number = 100): string =>
   return [header, ...sampledLines].join('\n');
 };
 
-const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[], blogData?: string) => {
+const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[], blogData?: string, analysisDataSource: 'x' | 'blog' | 'all' = 'all') => {
   // デフォルトのサンプルデータを定義
   const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
   
@@ -189,42 +189,58 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   const isCsvDataDefault = csvData === defaultCsv || !csvData || csvData.trim() === '';
   const hasBlogData = blogData && blogData.trim() && blogData.split('\n').length > 1;
   
-  // 両方のデータが存在しない場合はエラー
-  if (isCsvDataDefault && !hasBlogData) {
-    throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
-  }
+  // データソースに応じてデータを選択
+  let combinedCsv = '';
   
-  // XのCSVデータとブログデータの両方を結合
-  let combinedCsv = csvData;
-  
-  // CSVデータがデフォルト値の場合は、ブログデータのみを使用
-  if (isCsvDataDefault && hasBlogData) {
-    combinedCsv = blogData;
-  } else if (blogData && blogData.trim()) {
-    const csvLines = csvData.split('\n');
-    const blogLines = blogData.split('\n');
-    if (csvLines.length > 0 && blogLines.length > 1) {
-      // ヘッダーが異なる可能性があるため、両方のヘッダーを確認
-      const csvHeader = csvLines[0];
-      const blogHeader = blogLines[0];
-      
-      // データ行を取得（空行を除外）
-      const csvDataLines = csvLines.slice(1).filter(line => line.trim());
-      const blogDataLines = blogLines.slice(1).filter(line => line.trim());
-      
-      // データ行が存在する場合のみ結合
-      if (csvDataLines.length > 0 || blogDataLines.length > 0) {
-        // ヘッダーが同じ場合は結合、異なる場合は両方を含める
-        if (csvHeader === blogHeader) {
-          combinedCsv = csvHeader + '\n' + [...csvDataLines, ...blogDataLines].join('\n');
+  if (analysisDataSource === 'x') {
+    // Xのデータのみを使用
+    if (isCsvDataDefault) {
+      throw new Error('分析するデータがありません。\n\nXのCSVデータを取り込んでください。');
+    }
+    combinedCsv = csvData;
+  } else if (analysisDataSource === 'blog') {
+    // ブログデータのみを使用
+    if (!hasBlogData) {
+      throw new Error('分析するデータがありません。\n\nブログデータを取り込んでください。');
+    }
+    combinedCsv = blogData || '';
+  } else {
+    // 両方のデータを使用
+    if (isCsvDataDefault && !hasBlogData) {
+      throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
+    }
+    
+    // XのCSVデータとブログデータの両方を結合
+    if (isCsvDataDefault && hasBlogData) {
+      combinedCsv = blogData || '';
+    } else if (blogData && blogData.trim()) {
+      const csvLines = csvData.split('\n');
+      const blogLines = blogData.split('\n');
+      if (csvLines.length > 0 && blogLines.length > 1) {
+        // ヘッダーが異なる可能性があるため、両方のヘッダーを確認
+        const csvHeader = csvLines[0];
+        const blogHeader = blogLines[0];
+        
+        // データ行を取得（空行を除外）
+        const csvDataLines = csvLines.slice(1).filter(line => line.trim());
+        const blogDataLines = blogLines.slice(1).filter(line => line.trim());
+        
+        // データ行が存在する場合のみ結合
+        if (csvDataLines.length > 0 || blogDataLines.length > 0) {
+          // ヘッダーが同じ場合は結合、異なる場合は両方を含める
+          if (csvHeader === blogHeader) {
+            combinedCsv = csvHeader + '\n' + [...csvDataLines, ...blogDataLines].join('\n');
+          } else {
+            // ヘッダーが異なる場合は、両方のデータを含める（ブログデータを追加）
+            combinedCsv = csvHeader + '\n' + [...csvDataLines, ...blogDataLines].join('\n');
+          }
         } else {
-          // ヘッダーが異なる場合は、両方のデータを含める（ブログデータを追加）
-          combinedCsv = csvHeader + '\n' + [...csvDataLines, ...blogDataLines].join('\n');
+          // データ行が存在しない場合は、ブログデータのみを使用
+          combinedCsv = blogData;
         }
-      } else {
-        // データ行が存在しない場合は、ブログデータのみを使用
-        combinedCsv = blogData;
       }
+    } else {
+      combinedCsv = csvData;
     }
   }
   
@@ -241,7 +257,49 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択し、残りをランダムにサンプリング
   if (parseCsvToPostsFn && combinedCsv) {
     try {
-      const allPosts = parseCsvToPostsFn(combinedCsv);
+      let allPosts = parseCsvToPostsFn(combinedCsv);
+      
+      // Xのデータの場合、リツイートと返信を排除
+      if (analysisDataSource === 'x' || analysisDataSource === 'all') {
+        allPosts = allPosts.filter((post: any) => {
+          // X投稿かどうかを判定（tweet_idがあるかどうか）
+          const rawData = post.rawData || {};
+          const hasTweetId = !!(
+            post.tweet_id || 
+            post.tweetId || 
+            post['Tweet ID'] || 
+            post['TweetID'] || 
+            post['tweet_id'] ||
+            rawData.tweet_id ||
+            rawData.tweetId ||
+            rawData['Tweet ID'] ||
+            rawData['TweetID'] ||
+            rawData['tweet_id']
+          );
+          
+          // X投稿でない場合はそのまま通過
+          if (!hasTweetId) return true;
+          
+          // X投稿の場合は、リツイートと返信を除外
+          const content = (post.content || post.text || post['Post Content'] || post['Text'] || '').trim();
+          
+          if (!content) return false;
+          
+          // RT（リツイート）を除外（"RT @" で始まる、または "RT:" で始まる）
+          const rtPattern = /^(RT\s*@|RT\s*:|rt\s*@|rt\s*:)/i;
+          if (rtPattern.test(content)) {
+            return false;
+          }
+          
+          // 返信を除外（先頭の空白や改行を除いた後に"@"で始まる）
+          const trimmedContent = content.replace(/^[\s\n\r\t]+/, '');
+          if (trimmedContent.startsWith('@')) {
+            return false;
+          }
+          
+          return true;
+        });
+      }
       
       // パース結果が空の場合はエラー
       if (allPosts.length === 0) {
@@ -1355,6 +1413,9 @@ export default function SNSGeneratorApp() {
   
   // 分析用のデータソース選択（ラジオボタン用）
   const [dataSource, setDataSource] = useState<'csv' | 'blog' | 'all'>('csv');
+  
+  // 分析・更新用のデータソース選択（'x' | 'blog' | 'all'）
+  const [analysisDataSource, setAnalysisDataSource] = useState<'x' | 'blog' | 'all'>('all');
   
   // マイ投稿分析用の状態（選択されたデータソースから生成）
   const [parsedPosts, setParsedPosts] = useState<any[]>([]);
@@ -3609,7 +3670,7 @@ export default function SNSGeneratorApp() {
           throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
         }
         
-        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData);
+        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData, analysisDataSource);
         setMyPostThemes(analysisResult.themes || []); 
         if (analysisResult.settings) {
           // styleをpersonaに変換し、characterの最後に注意事項を追加
@@ -3950,26 +4011,64 @@ export default function SNSGeneratorApp() {
                       データ取込み
                     </button>
                     <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
-                    <button 
-                      onClick={() => {
-                        if (selectedSection === 'analysis') {
-                          setSelectedSection(null);
-                        } else {
-                          setSelectedSection('analysis');
-                          setShowPostAnalysis(false);
-                        }
-                        handleUpdateThemes('mypost');
-                      }}
-                      disabled={isThemesLoading}
-                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
-                        selectedSection === 'analysis'
-                          ? 'bg-[#066099] text-white'
-                          : 'bg-[#066099] hover:bg-[#055080] text-white'
-                      }`}
-                    >
-                      {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12}/>}
-                      分析・更新
-                    </button>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+                      {/* データソース選択（分析・更新用） */}
+                      <div className="flex flex-col sm:flex-row gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
+                            value="x"
+                            checked={analysisDataSource === 'x'}
+                            onChange={(e) => setAnalysisDataSource('x')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <span className="text-xs text-slate-700">Xから</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
+                            value="blog"
+                            checked={analysisDataSource === 'blog'}
+                            onChange={(e) => setAnalysisDataSource('blog')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <span className="text-xs text-slate-700">ブログから</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
+                            value="all"
+                            checked={analysisDataSource === 'all'}
+                            onChange={(e) => setAnalysisDataSource('all')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <span className="text-xs text-slate-700 font-bold">両方から</span>
+                        </label>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (selectedSection === 'analysis') {
+                            setSelectedSection(null);
+                          } else {
+                            setSelectedSection('analysis');
+                            setShowPostAnalysis(false);
+                          }
+                          handleUpdateThemes('mypost');
+                        }}
+                        disabled={isThemesLoading}
+                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
+                          selectedSection === 'analysis'
+                            ? 'bg-[#066099] text-white'
+                            : 'bg-[#066099] hover:bg-[#055080] text-white'
+                        }`}
+                      >
+                        {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12}/>}
+                        分析・更新
+                      </button>
+                    </div>
                     {parsedPosts.length > 0 && (
                       <>
                         <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
