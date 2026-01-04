@@ -4068,8 +4068,9 @@ export default function SNSGeneratorApp() {
                           // X投稿のみ
                           if (!isCsvPost) return false;
                         } else if (dataSource === 'blog') {
-                          // ブログ投稿のみ
-                          if (!isBlogPost) return false;
+                          // ブログ投稿のみ - Xのデータ（tweet_idがあるもの）は確実に除外
+                          if (hasTweetId) return false;
+                          if (!hasUrl) return false;
                         } else {
                           // どちらも選択されていない場合は何も表示しない
                           return false;
@@ -4549,10 +4550,8 @@ export default function SNSGeneratorApp() {
                                   </button>
                                   <button
                                     onClick={async () => {
-                                      if (confirm('XのCSVデータを削除しますか？この操作は取り消せません。')) {
-                                        await handleClearCsvData();
-                                        setShowDataImportModal(false);
-                                      }
+                                      await handleClearCsvData();
+                                      setShowDataImportModal(false);
                                     }}
                                     disabled={isCsvLoading}
                                     className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
