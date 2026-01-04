@@ -261,6 +261,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
       
       // Xのデータの場合、リツイートと返信を排除
       if (analysisDataSource === 'x' || analysisDataSource === 'all') {
+        const beforeFilterCount = allPosts.length;
         allPosts = allPosts.filter((post: any) => {
           // X投稿かどうかを判定（tweet_idがあるかどうか）
           const rawData = post.rawData || {};
@@ -277,7 +278,12 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
             rawData['tweet_id']
           );
           
-          // X投稿でない場合はそのまま通過
+          // Xからを選択した場合、X投稿のみを対象とする
+          if (analysisDataSource === 'x' && !hasTweetId) {
+            return false;
+          }
+          
+          // X投稿でない場合はそのまま通過（両方からの場合）
           if (!hasTweetId) return true;
           
           // X投稿の場合は、リツイートと返信を除外
@@ -299,6 +305,19 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           
           return true;
         });
+        
+        // フィルタリング後のデータが空の場合、より詳細なエラーメッセージを表示
+        if (allPosts.length === 0) {
+          if (analysisDataSource === 'x') {
+            if (beforeFilterCount === 0) {
+              throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
+            } else {
+              throw new Error('XのCSVデータからリツイートと返信を除外した結果、分析可能な投稿が残りませんでした。リツイートや返信以外の投稿が含まれていることを確認してください。');
+            }
+          } else {
+            throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
+          }
+        }
       }
       
       // パース結果が空の場合はエラー
