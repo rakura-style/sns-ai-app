@@ -4165,7 +4165,7 @@ export default function SNSGeneratorApp() {
                         
                         return (
                           <div
-                            key={post.id}
+                            key={`${dataSource}-${post.id}`}
                             className="p-3 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#066099]/50 transition-colors group"
                           >
                             <div className="flex items-start justify-between gap-3">
