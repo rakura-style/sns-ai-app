@@ -234,11 +234,11 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
   }
   
-  // CSVデータをサンプリング（最大50行に制限してさらに高速化）
+  // CSVデータをサンプリング（最大100行に制限）
   // これにより、大量のデータでもAPI呼び出しが高速化される
-  let optimizedCsv = sampleCsvForAnalysis(combinedCsv, 50);
+  let optimizedCsv = sampleCsvForAnalysis(combinedCsv, 100);
   
-  // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択
+  // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択し、残りをランダムにサンプリング
   if (parseCsvToPostsFn && combinedCsv) {
     try {
       const allPosts = parseCsvToPostsFn(combinedCsv);
@@ -248,53 +248,8 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
       }
       
-      if (allPosts.length > 50) {
-        // エンゲージメントでソート（高い順）
-        const sortedPosts = [...allPosts].sort((a: any, b: any) => {
-          const aEng = a.engagement || a.favorite_count || a.likes || a['Likes'] || 0;
-          const bEng = b.engagement || b.favorite_count || b.likes || b['Likes'] || 0;
-          return Number(bEng) - Number(aEng);
-        });
-        
-        // 上位30件（エンゲージメントが高い）と最新20件（時系列の多様性）を選択
-        const topPosts = sortedPosts.slice(0, 30);
-        const recentPosts = allPosts.slice(-20);
-        
-        // 重複を除去して結合（投稿内容で判定）
-        const uniquePosts = new Map<string, any>();
-        [...topPosts, ...recentPosts].forEach((post: any) => {
-          const key = post.content || post.text || post['Post Content'] || post['Text'] || '';
-          if (key && !uniquePosts.has(key)) {
-            uniquePosts.set(key, post);
-          }
-        });
-        
-        const selectedPosts = Array.from(uniquePosts.values()).slice(0, 50);
-        
-        // 選択された投稿をCSV形式に戻す
-        if (selectedPosts.length > 0) {
-          // 元のCSVのヘッダーを取得
-          const originalHeader = combinedCsv.split('\n')[0];
-          const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
-          
-          const dataRows = selectedPosts.map((post: any) => {
-            return headers.map((header: string) => {
-              // ヘッダー名に基づいて値を取得
-              const value = post[header] || post[header.toLowerCase()] || '';
-              const strValue = String(value);
-              
-              // CSV形式にエスケープ（カンマ、ダブルクォート、改行を含む場合）
-              if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
-                return `"${strValue.replace(/"/g, '""')}"`;
-              }
-              return strValue;
-            }).join(',');
-          });
-          
-          optimizedCsv = [originalHeader, ...dataRows].join('\n');
-        }
-      } else {
-        // 50件以下の場合は、そのまま使用（ヘッダー + データ行）
+      // 100件以下の場合は全て使用
+      if (allPosts.length <= 100) {
         const originalHeader = combinedCsv.split('\n')[0];
         const dataRows = allPosts.map((post: any) => {
           const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
@@ -308,6 +263,87 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           }).join(',');
         });
         optimizedCsv = [originalHeader, ...dataRows].join('\n');
+      } else {
+        // 100件を超える場合
+        // エンゲージメントが分かる投稿を抽出
+        const postsWithEngagement = allPosts.filter((post: any) => {
+          const eng = post.engagement || post.favorite_count || post.likes || post['Likes'] || 0;
+          return Number(eng) > 0;
+        });
+        
+        let selectedPosts: any[] = [];
+        
+        if (postsWithEngagement.length > 0) {
+          // エンゲージメントでソート（高い順）
+          const sortedByEngagement = [...postsWithEngagement].sort((a: any, b: any) => {
+            const aEng = a.engagement || a.favorite_count || a.likes || a['Likes'] || 0;
+            const bEng = b.engagement || b.favorite_count || b.likes || b['Likes'] || 0;
+            return Number(bEng) - Number(aEng);
+          });
+          
+          // エンゲージメント上位30件を優先的に選択
+          const topEngagementPosts = sortedByEngagement.slice(0, 30);
+          
+          // 残りの投稿からランダムにサンプリング（重複を避ける）
+          const remainingPosts = allPosts.filter((post: any) => {
+            const key = post.content || post.text || post['Post Content'] || post['Text'] || '';
+            return !topEngagementPosts.some((topPost: any) => {
+              const topKey = topPost.content || topPost.text || topPost['Post Content'] || topPost['Text'] || '';
+              return key && topKey && key === topKey;
+            });
+          });
+          
+          // ランダムに70件をサンプリング（Fisher-Yatesシャッフル）
+          const shuffled = [...remainingPosts];
+          for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+          }
+          const randomPosts = shuffled.slice(0, 70);
+          
+          // エンゲージメント上位とランダムを結合（合計100件）
+          selectedPosts = [...topEngagementPosts, ...randomPosts];
+        } else {
+          // エンゲージメントが分からない場合は、全てからランダムに100件をサンプリング
+          const shuffled = [...allPosts];
+          for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+          }
+          selectedPosts = shuffled.slice(0, 100);
+        }
+        
+        // 重複を除去（投稿内容で判定）
+        const uniquePosts = new Map<string, any>();
+        selectedPosts.forEach((post: any) => {
+          const key = post.content || post.text || post['Post Content'] || post['Text'] || '';
+          if (key && !uniquePosts.has(key)) {
+            uniquePosts.set(key, post);
+          }
+        });
+        
+        const finalPosts = Array.from(uniquePosts.values()).slice(0, 100);
+        
+        // 選択された投稿をCSV形式に戻す
+        if (finalPosts.length > 0) {
+          const originalHeader = combinedCsv.split('\n')[0];
+          const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
+          
+          const dataRows = finalPosts.map((post: any) => {
+            return headers.map((header: string) => {
+              const value = post[header] || post[header.toLowerCase()] || '';
+              const strValue = String(value);
+              
+              // CSV形式にエスケープ（カンマ、ダブルクォート、改行を含む場合）
+              if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+                return `"${strValue.replace(/"/g, '""')}"`;
+              }
+              return strValue;
+            }).join(',');
+          });
+          
+          optimizedCsv = [originalHeader, ...dataRows].join('\n');
+        }
       }
     } catch (error) {
       console.warn('CSV最適化に失敗:', error);
