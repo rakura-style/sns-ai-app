@@ -322,9 +322,8 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     次回投稿すべき**「具体的なテーマ案を3つ」**を作成してください。
     
     【重要】
-    - 「○○のような投稿」「○○について」といった汎用的な表現は一切使わないでください
-    - 過去の投稿で実際に扱われた具体的なトピックや内容を基に、具体的なテーマを提案してください
-    - CSVデータにTitle列がある場合、投稿にはタイトルが含まれています。タイトルの具体的な内容も分析し、同様の具体的なテーマを生成してください
+    - 過去の投稿で実際に扱われた具体的なトピックや内容を基に、必ず具体的なテーマを3つ提案してください
+    - CSVデータにtitle列がある場合、投稿にはタイトルが含まれています。タイトルの具体的な内容も分析し、同様の具体的なテーマを生成してください。タイトルの具体的な内容も分析し、同様の具体的なテーマを生成してください。
     - 各テーマは、過去の投稿の具体的な内容から抽出した具体的なトピックとして記載してください
     - 例（悪い例。絶対に避ける）：「効率化のコツ」「○○の進め方について」「日常の出来事」
     - 例（良い例）：「朝の時間を有効活用する3つの方法」「リモートワークで集中力を保つ工夫」「週末のカフェ巡りで見つけたお気に入りスポット」
@@ -3958,6 +3957,17 @@ export default function SNSGeneratorApp() {
                       <input
                         type="radio"
                         name="dataSource"
+                        value="all"
+                        checked={dataSource === 'all'}
+                        onChange={(e) => setDataSource('all')}
+                        className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                      />
+                      <span className="text-sm text-slate-700 font-bold">全データ</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="dataSource"
                         value="csv"
                         checked={dataSource === 'csv'}
                         onChange={(e) => setDataSource('csv')}
@@ -3975,17 +3985,6 @@ export default function SNSGeneratorApp() {
                         className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                       />
                       <span className="text-sm text-slate-700">ブログデータ</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="dataSource"
-                        value="all"
-                        checked={dataSource === 'all'}
-                        onChange={(e) => setDataSource('all')}
-                        className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                      />
-                      <span className="text-sm text-slate-700">全データ</span>
                     </label>
                   </div>
                   
