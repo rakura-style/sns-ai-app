@@ -4035,7 +4035,7 @@ export default function SNSGeneratorApp() {
                   </div>
                   
                   {/* 投稿一覧 */}
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <div key={dataSource} className="space-y-2 max-h-96 overflow-y-auto">
                     {(() => {
                       // フィルタリングとソート
                       let filtered = parsedPosts.filter(post => {
@@ -4069,7 +4069,9 @@ export default function SNSGeneratorApp() {
                           if (!isCsvPost) return false;
                         } else if (dataSource === 'blog') {
                           // ブログ投稿のみ - Xのデータ（tweet_idがあるもの）は確実に除外
-                          if (hasTweetId) return false;
+                          // tweet_idがある場合は確実に除外（Xのデータ）
+                          if (hasTweetId || isCsvPost) return false;
+                          // URLがない場合は除外（ブログ投稿ではない）
                           if (!hasUrl) return false;
                         } else {
                           // どちらも選択されていない場合は何も表示しない
