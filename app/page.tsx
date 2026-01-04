@@ -208,19 +208,30 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
       const csvHeader = csvLines[0];
       const blogHeader = blogLines[0];
       
-      // ヘッダーが同じ場合は結合、異なる場合は両方を含める
-      if (csvHeader === blogHeader) {
-        combinedCsv = csvHeader + '\n' + csvLines.slice(1).join('\n') + '\n' + blogLines.slice(1).join('\n');
+      // データ行を取得（空行を除外）
+      const csvDataLines = csvLines.slice(1).filter(line => line.trim());
+      const blogDataLines = blogLines.slice(1).filter(line => line.trim());
+      
+      // データ行が存在する場合のみ結合
+      if (csvDataLines.length > 0 || blogDataLines.length > 0) {
+        // ヘッダーが同じ場合は結合、異なる場合は両方を含める
+        if (csvHeader === blogHeader) {
+          combinedCsv = csvHeader + '\n' + [...csvDataLines, ...blogDataLines].join('\n');
+        } else {
+          // ヘッダーが異なる場合は、両方のデータを含める（ブログデータを追加）
+          combinedCsv = csvHeader + '\n' + [...csvDataLines, ...blogDataLines].join('\n');
+        }
       } else {
-        // ヘッダーが異なる場合は、両方のデータを含める（ブログデータを追加）
-        combinedCsv = csvHeader + '\n' + csvLines.slice(1).join('\n') + '\n' + blogLines.slice(1).join('\n');
+        // データ行が存在しない場合は、ブログデータのみを使用
+        combinedCsv = blogData;
       }
     }
   }
   
-  // 結合後のデータが空でないことを確認
-  if (!combinedCsv || combinedCsv.trim() === '' || combinedCsv.split('\n').length <= 1) {
-    throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
+  // 結合後のデータが空でないことを確認（空行を除外してチェック）
+  const combinedLines = combinedCsv.split('\n').filter(line => line.trim());
+  if (!combinedCsv || combinedCsv.trim() === '' || combinedLines.length <= 1) {
+    throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
   }
   
   // CSVデータをサンプリング（最大50行に制限してさらに高速化）
@@ -231,6 +242,12 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   if (parseCsvToPostsFn && combinedCsv) {
     try {
       const allPosts = parseCsvToPostsFn(combinedCsv);
+      
+      // パース結果が空の場合はエラー
+      if (allPosts.length === 0) {
+        throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
+      }
+      
       if (allPosts.length > 50) {
         // エンゲージメントでソート（高い順）
         const sortedPosts = [...allPosts].sort((a: any, b: any) => {
@@ -276,11 +293,36 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           
           optimizedCsv = [originalHeader, ...dataRows].join('\n');
         }
+      } else {
+        // 50件以下の場合は、そのまま使用（ヘッダー + データ行）
+        const originalHeader = combinedCsv.split('\n')[0];
+        const dataRows = allPosts.map((post: any) => {
+          const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
+          return headers.map((header: string) => {
+            const value = post[header] || post[header.toLowerCase()] || '';
+            const strValue = String(value);
+            if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+              return `"${strValue.replace(/"/g, '""')}"`;
+            }
+            return strValue;
+          }).join(',');
+        });
+        optimizedCsv = [originalHeader, ...dataRows].join('\n');
       }
     } catch (error) {
-      console.warn('CSV最適化に失敗、サンプリングデータを使用:', error);
-      // エラーが発生した場合は、サンプリングデータを使用
+      console.warn('CSV最適化に失敗:', error);
+      // エラーが発生した場合は、エラーを再スロー（呼び出し元で処理）
+      if (error instanceof Error && error.message.includes('ヘッダー行のみ')) {
+        throw error;
+      }
+      // その他のエラーの場合は、サンプリングデータを使用
     }
+  }
+  
+  // optimizedCsvがヘッダー行のみでないかチェック
+  const csvLines = optimizedCsv.split('\n').filter(line => line.trim());
+  if (csvLines.length <= 1) {
+    throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
   }
   
   // CSVデータを安全に処理（プロンプトに埋め込むため）
