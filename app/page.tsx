@@ -339,6 +339,34 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
       }
       
+      // X投稿の場合、テキストデータが含まれているか確認
+      if (analysisDataSource === 'x' || analysisDataSource === 'all') {
+        const postsWithContent = allPosts.filter((post: any) => {
+          const content = post.content || post.text || post['Post Content'] || post['Text'] || '';
+          return content && content.trim().length > 0;
+        });
+        
+        console.log(`テキストデータチェック: 全投稿数=${allPosts.length}, テキストあり=${postsWithContent.length}`);
+        if (postsWithContent.length > 0 && postsWithContent.length <= 3) {
+          console.log('テキストデータのサンプル:', postsWithContent.map((p: any) => ({
+            content: (p.content || p.text || '').substring(0, 50),
+            hasText: !!(p.text),
+            hasContent: !!(p.content)
+          })));
+        }
+        
+        if (postsWithContent.length === 0) {
+          console.error('X投稿のテキストデータが取得できませんでした。最初の3件の投稿:', allPosts.slice(0, 3).map((p: any) => ({
+            keys: Object.keys(p),
+            text: p.text,
+            content: p.content,
+            Text: p.Text,
+            'Post Content': p['Post Content']
+          })));
+          throw new Error('提供されたCSVデータには、投稿内容を分析するための具体的なテキストデータが含まれておりません。そのため、投稿者のパーソナリティ、絵文字の使用傾向、性格・特徴・興味・話の構成などを分析することができません。AIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない');
+        }
+      }
+      
       // 100件以下の場合は全て使用
       if (allPosts.length <= 100) {
         const originalHeader = combinedCsv.split('\n')[0];
@@ -2820,32 +2848,49 @@ export default function SNSGeneratorApp() {
       if (textColumnIndex >= 0) {
         let textValue = '';
         
-        // シンプルな方法：最初のカンマの後から、,jaの前までを取得
-        // text列の内容は、'IDの数字',から,jaの間の文字列
-        const firstCommaIndex = row.indexOf(',');
-        const jaCommaIndex = row.indexOf(',ja');
-        
-        if (firstCommaIndex >= 0 && jaCommaIndex > firstCommaIndex) {
-          // 最初のカンマの次の文字から、,jaの前までを抽出
-          textValue = row.slice(firstCommaIndex + 1, jaCommaIndex);
-          
-          // 先頭と末尾のダブルクォートを除去
+        // まず、parseCsvRowで正しくパースした値を取得
+        if (values[textColumnIndex] !== undefined && values[textColumnIndex] !== null) {
+          textValue = String(values[textColumnIndex]);
+          // ダブルクォートを除去
           if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
             textValue = textValue.slice(1, -1).replace(/""/g, '"');
           }
-          // 前後の空白を除去
           textValue = textValue.trim();
+        }
+        
+        // パースに失敗した場合、フォールバックとして行データから直接抽出を試みる
+        if (!textValue || textValue === '') {
+          // シンプルな方法：最初のカンマの後から、,jaの前までを取得
+          // text列の内容は、'IDの数字',から,jaの間の文字列
+          const firstCommaIndex = row.indexOf(',');
+          const jaCommaIndex = row.indexOf(',ja');
+          
+          if (firstCommaIndex >= 0 && jaCommaIndex > firstCommaIndex) {
+            // 最初のカンマの次の文字から、,jaの前までを抽出
+            textValue = row.slice(firstCommaIndex + 1, jaCommaIndex);
+            
+            // 先頭と末尾のダブルクォートを除去
+            if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
+              textValue = textValue.slice(1, -1).replace(/""/g, '"');
+            }
+            // 前後の空白を除去
+            textValue = textValue.trim();
+          }
         }
         
         // デバッグログ（最初の5行のみ）
         if (i <= 5) {
-          console.log(`行${i}: firstCommaIndex =`, firstCommaIndex, 'jaCommaIndex =', jaCommaIndex, 'textValue =', textValue);
+          console.log(`行${i}: textColumnIndex =`, textColumnIndex, 'textValue =', textValue?.substring(0, 50), 'values[textColumnIndex] =', values[textColumnIndex]?.substring(0, 50));
         }
         
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
         post[headers[textColumnIndex]] = textValue;
         post['text'] = textValue;
         post['Text'] = textValue;
+        // contentフィールドにも設定（analyzeCsvAndGenerateThemesで使用）
+        post['content'] = textValue;
+        post['Content'] = textValue;
+        post['Post Content'] = textValue;
       }
       
       // すべての列を処理
@@ -2937,16 +2982,34 @@ export default function SNSGeneratorApp() {
       // text列が存在する場合は、必ずtext列のみを使用（他の列は無視）
       if (hasTextColumn && textColumnIndex >= 0) {
         // text列の値を取得（複数のキーを試す）
-        const textVal = post['text'] || post['Text'] || post[headers[textColumnIndex]];
+        const textVal = post['text'] || post['Text'] || post['content'] || post['Content'] || post[headers[textColumnIndex]];
         
         // デバッグログ（最初の5行のみ）
         if (i <= 5) {
-          console.log(`行${i}: hasTextColumn =`, hasTextColumn, 'textColumnIndex =', textColumnIndex, 'textVal =', textVal, 'post[text] =', post['text'], 'post[Text] =', post['Text'], 'post[headers[textColumnIndex]] =', post[headers[textColumnIndex]]);
+          console.log(`行${i}: hasTextColumn =`, hasTextColumn, 'textColumnIndex =', textColumnIndex, 'textVal =', textVal?.substring(0, 50), 'post[text] =', post['text']?.substring(0, 50), 'post[content] =', post['content']?.substring(0, 50));
         }
         
         if (textVal !== undefined && textVal !== null && textVal !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
           content = String(textVal).trim();
+        } else {
+          // text列が空の場合は、values配列から直接取得を試みる
+          if (values[textColumnIndex] !== undefined && values[textColumnIndex] !== null && values[textColumnIndex] !== '') {
+            let rawValue = String(values[textColumnIndex]);
+            // ダブルクォートを除去
+            if (rawValue.startsWith('"') && rawValue.endsWith('"') && rawValue.length >= 2) {
+              rawValue = rawValue.slice(1, -1).replace(/""/g, '"');
+            }
+            content = rawValue.trim();
+            if (i <= 5) {
+              console.log(`行${i}: values配列から取得したcontent =`, content.substring(0, 50));
+            }
+          }
+        }
+        
+        // contentが空の場合の警告
+        if (!content && i <= 5) {
+          console.warn(`行${i}: contentが空です。post =`, Object.keys(post), 'values[textColumnIndex] =', values[textColumnIndex]);
         }
         // hasTextColumnがtrueの場合、text列が空でも他の列は使用しない
       } else {
