@@ -2319,9 +2319,23 @@ export default function SNSGeneratorApp() {
       }
       
       // CSV形式に変換（エラーのない投稿のみ）
+      const validPosts = allPosts.filter((post: any) => !post.error);
+      console.log(`ブログ取り込み: エラーのない投稿数 = ${validPosts.length} / 全投稿数 = ${allPosts.length}`);
+      
+      // 重複を除外（同じURLの投稿は1つだけ残す）
+      const uniquePosts = new Map<string, any>();
+      for (const post of validPosts) {
+        const url = (post.url || '').trim();
+        if (url && !uniquePosts.has(url)) {
+          uniquePosts.set(url, post);
+        }
+      }
+      const uniquePostsArray = Array.from(uniquePosts.values());
+      console.log(`ブログ取り込み: 重複除外後の投稿数 = ${uniquePostsArray.length}`);
+      
       const csvRows = [
         'Date,Title,Content,Category,Tags,URL',
-        ...allPosts.filter((post: any) => !post.error).map((post: any) => {
+        ...uniquePostsArray.map((post: any) => {
           // すべてのフィールドをダブルクォートで囲む（一貫性と安全性のため）
           const date = `"${(post.date || '').replace(/"/g, '""')}"`;
           const title = `"${(post.title || '').replace(/"/g, '""')}"`;
@@ -2335,23 +2349,44 @@ export default function SNSGeneratorApp() {
       ];
       
       const csv = csvRows.join('\n');
+      console.log(`ブログ取り込み: 生成したCSV行数 = ${csvRows.length} (ヘッダー含む)`);
       
       // 既存のブログデータと結合（モードに応じて）
       let finalBlogData: string;
+      console.log(`ブログ取り込み: allPosts.length = ${allPosts.length}, 成功した投稿数 = ${allPosts.filter((p: any) => !p.error).length}`);
+      console.log(`ブログ取り込み: 新しいCSV行数 = ${csv.split('\n').length}`);
+      
       if (mode === 'append' && blogData && blogData.trim()) {
         const existingLines = blogData.split('\n');
         const newLines = csv.split('\n');
         
+        console.log(`ブログ取り込み: 既存データ行数 = ${existingLines.length}, 新しいデータ行数 = ${newLines.length}`);
+        
         if (existingLines.length > 0 && newLines.length > 1) {
           // 既存データから新しいURLのデータを除外（重複を避ける）
           const existingPosts = parseCsvToPosts(blogData);
-          const newUrlsSet = new Set(allPosts.map(p => p.url));
+          console.log(`ブログ取り込み: 既存データからパースした投稿数 = ${existingPosts.length}`);
+          
+          // URLの正規化関数（末尾のスラッシュを統一）
+          const normalizeUrl = (url: string) => {
+            if (!url) return '';
+            return url.trim().replace(/\/$/, '');
+          };
+          
+          const newUrlsSet = new Set(allPosts.map(p => normalizeUrl(p.url)));
+          console.log(`ブログ取り込み: 新しいURL数 = ${newUrlsSet.size}`);
           
           // 既存データから新しいURLのデータを除外
           const filteredExistingPosts = existingPosts.filter(post => {
-            const url = post.URL || post.url;
-            return !newUrlsSet.has(url);
+            const url = normalizeUrl(post.URL || post.url || '');
+            const isDuplicate = newUrlsSet.has(url);
+            if (isDuplicate) {
+              console.log(`ブログ取り込み: 重複を除外 - ${url}`);
+            }
+            return !isDuplicate;
           });
+          
+          console.log(`ブログ取り込み: 重複除外後の既存投稿数 = ${filteredExistingPosts.length}`);
           
           // フィルタリングされた既存データをCSVに変換
           const filteredExistingCsv = [
@@ -2397,6 +2432,16 @@ export default function SNSGeneratorApp() {
       });
       
       await saveBlogDataToFirestore(user.uid, finalBlogData, dateStr);
+      
+      // デバッグ: 保存前のデータを確認
+      const finalLines = finalBlogData.split('\n');
+      console.log(`ブログ取り込み: 保存するデータの行数 = ${finalLines.length}`);
+      console.log(`ブログ取り込み: 保存するデータの最初の3行:`, finalLines.slice(0, 3));
+      
+      // パースして投稿数を確認
+      const testParsed = parseCsvToPosts(finalBlogData);
+      console.log(`ブログ取り込み: 保存するデータからパースした投稿数 = ${testParsed.length}`);
+      
       setBlogData(finalBlogData);
       setBlogUploadDate(dateStr);
       
@@ -2404,6 +2449,7 @@ export default function SNSGeneratorApp() {
       if (finalBlogData && finalBlogData.trim() && finalBlogData.split('\n').length > 1) {
         setDataSource('all');
         setAnalysisDataSource('all');
+        console.log(`ブログ取り込み: dataSourceを'all'に変更しました`);
       }
       
       // 取り込んだURLを記録（重複しないように）
