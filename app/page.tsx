@@ -4109,43 +4109,49 @@ export default function SNSGeneratorApp() {
                     <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
                       {/* データソース選択（分析・更新用） */}
-                      <div className="flex flex-col gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto">
-                        <div className="text-xs font-bold text-slate-700 mb-1">分析データソース</div>
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="analysisDataSource"
-                              value="x"
-                              checked={analysisDataSource === 'x'}
-                              onChange={(e) => setAnalysisDataSource('x')}
-                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                            />
-                            <span className="text-xs text-slate-700">Xから</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="analysisDataSource"
-                              value="blog"
-                              checked={analysisDataSource === 'blog'}
-                              onChange={(e) => setAnalysisDataSource('blog')}
-                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                            />
-                            <span className="text-xs text-slate-700">ブログから</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="analysisDataSource"
-                              value="all"
-                              checked={analysisDataSource === 'all'}
-                              onChange={(e) => setAnalysisDataSource('all')}
-                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                            />
-                            <span className="text-xs text-slate-700 font-bold">両方から</span>
-                          </label>
-                        </div>
+                      <div className="flex flex-col sm:flex-row gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
+                            value="all"
+                            checked={analysisDataSource === 'all'}
+                            onChange={(e) => {
+                              setAnalysisDataSource('all');
+                              setDataSource('all');
+                            }}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <span className="text-xs text-slate-700 font-bold">全データ</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
+                            value="x"
+                            checked={analysisDataSource === 'x'}
+                            onChange={(e) => {
+                              setAnalysisDataSource('x');
+                              setDataSource('csv');
+                            }}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <span className="text-xs text-slate-700">X投稿</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
+                            value="blog"
+                            checked={analysisDataSource === 'blog'}
+                            onChange={(e) => {
+                              setAnalysisDataSource('blog');
+                              setDataSource('blog');
+                            }}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <span className="text-xs text-slate-700">ブログ</span>
+                        </label>
                       </div>
                       <button
                         onClick={() => {
@@ -4227,45 +4233,6 @@ export default function SNSGeneratorApp() {
                     </button>
                   </div>
                   
-                  {/* データソース選択（ラジオボタン） */}
-                  <div className="flex flex-col gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="text-sm font-bold text-slate-700 mb-1">表示データ</div>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="dataSource"
-                          value="all"
-                          checked={dataSource === 'all'}
-                          onChange={(e) => setDataSource('all')}
-                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                        />
-                        <span className="text-sm text-slate-700 font-bold">全データ表示</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="dataSource"
-                          value="csv"
-                          checked={dataSource === 'csv'}
-                          onChange={(e) => setDataSource('csv')}
-                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                        />
-                        <span className="text-sm text-slate-700">Xの投稿一覧表示</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="dataSource"
-                          value="blog"
-                          checked={dataSource === 'blog'}
-                          onChange={(e) => setDataSource('blog')}
-                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                        />
-                        <span className="text-sm text-slate-700">ブログ一覧表示</span>
-                      </label>
-                    </div>
-                  </div>
                   
                   {parsedPosts.length === 0 && (
                     <p className="text-sm text-slate-400 text-center py-4">
