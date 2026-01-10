@@ -2849,7 +2849,7 @@ export default function SNSGeneratorApp() {
         let textValue = '';
         
         // まず、parseCsvRowで正しくパースした値を取得
-        if (values[textColumnIndex] !== undefined && values[textColumnIndex] !== null) {
+        if (values[textColumnIndex] !== undefined && values[textColumnIndex] !== null && values[textColumnIndex] !== '') {
           textValue = String(values[textColumnIndex]);
           // ダブルクォートを除去
           if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
@@ -2860,8 +2860,7 @@ export default function SNSGeneratorApp() {
         
         // パースに失敗した場合、フォールバックとして行データから直接抽出を試みる
         if (!textValue || textValue === '') {
-          // シンプルな方法：最初のカンマの後から、,jaの前までを取得
-          // text列の内容は、'IDの数字',から,jaの間の文字列
+          // 方法1: 最初のカンマの後から、,jaの前までを取得（XのCSVデータの形式に対応）
           const firstCommaIndex = row.indexOf(',');
           const jaCommaIndex = row.indexOf(',ja');
           
@@ -2876,11 +2875,66 @@ export default function SNSGeneratorApp() {
             // 前後の空白を除去
             textValue = textValue.trim();
           }
+          
+          // 方法2: 引用符で囲まれたtext列を抽出（より堅牢な方法）
+          if (!textValue || textValue === '') {
+            // text列は通常、引用符で囲まれている
+            // ヘッダーの位置を考慮して、text列の位置を特定
+            let quoteStartIndex = -1;
+            let quoteEndIndex = -1;
+            let commaCount = 0;
+            let inQuotes = false;
+            
+            for (let j = 0; j < row.length; j++) {
+              const char = row[j];
+              const nextChar = j + 1 < row.length ? row[j + 1] : null;
+              
+              if (char === '"') {
+                if (inQuotes && nextChar === '"') {
+                  // エスケープされたダブルクォート
+                  j++;
+                  continue;
+                }
+                inQuotes = !inQuotes;
+                if (inQuotes && commaCount === textColumnIndex) {
+                  quoteStartIndex = j + 1; // 引用符の次の文字から開始
+                } else if (!inQuotes && commaCount === textColumnIndex && quoteStartIndex >= 0) {
+                  quoteEndIndex = j; // 引用符の前まで
+                  break;
+                }
+              } else if (char === ',' && !inQuotes) {
+                commaCount++;
+                if (commaCount > textColumnIndex) {
+                  break;
+                }
+              }
+            }
+            
+            if (quoteStartIndex >= 0 && quoteEndIndex > quoteStartIndex) {
+              textValue = row.slice(quoteStartIndex, quoteEndIndex);
+              textValue = textValue.replace(/""/g, '"').trim();
+            }
+          }
+          
+          // 方法3: ヘッダー名から列の位置を特定して抽出（最後の手段）
+          if (!textValue || textValue === '') {
+            // ヘッダー行からtext列の位置を確認
+            const headerRow = rows[0];
+            const headerParts = parseCsvRow(headerRow);
+            const textHeaderIndex = headerParts.findIndex((h: string) => h.toLowerCase().trim().replace(/^"|"$/g, '') === 'text');
+            
+            if (textHeaderIndex >= 0 && values.length > textHeaderIndex) {
+              textValue = String(values[textHeaderIndex] || '').trim();
+              if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
+                textValue = textValue.slice(1, -1).replace(/""/g, '"');
+              }
+            }
+          }
         }
         
         // デバッグログ（最初の5行のみ）
         if (i <= 5) {
-          console.log(`行${i}: textColumnIndex =`, textColumnIndex, 'textValue =', textValue?.substring(0, 50), 'values[textColumnIndex] =', values[textColumnIndex]?.substring(0, 50));
+          console.log(`行${i}: textColumnIndex =`, textColumnIndex, 'textValue長 =', textValue?.length || 0, 'textValue先頭50文字 =', textValue?.substring(0, 50), 'values[textColumnIndex] =', values[textColumnIndex]?.substring(0, 50) || '(空)', 'values.length =', values.length);
         }
         
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
