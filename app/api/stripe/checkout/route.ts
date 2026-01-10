@@ -51,8 +51,24 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error('Stripe Checkout Error:', error);
+    // セキュリティ: 詳細なエラー情報をクライアントに返さない
+    // 認証エラーの場合は詳細を返す
+    if (error.code === 'auth/id-token-expired' || error.code === 'auth/argument-error') {
+      return NextResponse.json(
+        { error: '認証エラーが発生しました。再度ログインしてください。' },
+        { status: 401 }
+      );
+    }
+    // Stripe APIエラーの場合は、ユーザー向けメッセージを返す
+    if (error.type === 'StripeCardError' || error.type === 'StripeInvalidRequestError') {
+      return NextResponse.json(
+        { error: '決済処理中にエラーが発生しました。カード情報を確認してください。' },
+        { status: 400 }
+      );
+    }
+    // その他のエラーは汎用的なメッセージを返す
     return NextResponse.json(
-      { error: error.message || '内部サーバーエラーが発生しました' },
+      { error: '内部サーバーエラーが発生しました' },
       { status: 500 }
     );
   }

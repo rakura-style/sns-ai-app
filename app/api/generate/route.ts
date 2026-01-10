@@ -135,7 +135,19 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error('API Error:', error);
-    // エラー内容をJSONで返すように統一
-    return new NextResponse(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    // セキュリティ: 詳細なエラーメッセージをクライアントに返さない
+    const errorMessage = error.message || 'Internal server error';
+    // 認証エラーの場合は詳細を返す（ユーザーに分かりやすくするため）
+    if (error.code === 'auth/id-token-expired' || error.code === 'auth/argument-error') {
+      return new NextResponse(
+        JSON.stringify({ error: '認証エラーが発生しました。再度ログインしてください。' }), 
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    // その他のエラーは汎用的なメッセージを返す
+    return new NextResponse(
+      JSON.stringify({ error: 'Internal server error' }), 
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }

@@ -43,9 +43,16 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('X post error:', error);
+    // セキュリティ: 詳細なエラー情報をクライアントに返さない
+    // 認証エラーの場合は詳細を返す
+    if (error.code === 'auth/id-token-expired' || error.code === 'auth/argument-error') {
+      return NextResponse.json({ 
+        error: '認証エラーが発生しました。再度ログインしてください。'
+      }, { status: 401 });
+    }
+    // その他のエラーは汎用的なメッセージを返す
     return NextResponse.json({ 
-      error: error.message || 'Xへの投稿に失敗しました',
-      details: error.data || error
+      error: 'Xへの投稿に失敗しました'
     }, { status: 500 });
   }
 }

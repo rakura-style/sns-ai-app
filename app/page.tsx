@@ -2400,6 +2400,12 @@ export default function SNSGeneratorApp() {
       setBlogData(finalBlogData);
       setBlogUploadDate(dateStr);
       
+      // ブログデータを取り込んだ場合、dataSourceを'all'に変更して過去投稿に表示されるようにする
+      if (finalBlogData && finalBlogData.trim() && finalBlogData.split('\n').length > 1) {
+        setDataSource('all');
+        setAnalysisDataSource('all');
+      }
+      
       // 取り込んだURLを記録（重複しないように）
       const updatedBlogUrls = mode === 'replace' ? [] : [...blogUrls];
       const updatedBlogUrlDates = mode === 'replace' ? {} : { ...blogUrlDates };
@@ -3389,13 +3395,19 @@ export default function SNSGeneratorApp() {
     }
     
     if (dataSource === 'blog' || dataSource === 'all') {
-      if (blogData) {
-        const blogPosts = parseCsvToPosts(blogData);
-        // 取り込まれたURLのブログは全て参照する
-        posts.push(...blogPosts);
+      if (blogData && blogData.trim()) {
+        try {
+          const blogPosts = parseCsvToPosts(blogData);
+          // 取り込まれたURLのブログは全て参照する
+          posts.push(...blogPosts);
+          console.log(`ブログデータから${blogPosts.length}件の投稿を読み込みました`);
+        } catch (error) {
+          console.error('ブログデータのパースエラー:', error);
+        }
       }
     }
     
+    console.log(`parsedPosts更新: 合計${posts.length}件 (dataSource: ${dataSource}, csvData: ${csvData ? 'あり' : 'なし'}, blogData: ${blogData ? 'あり' : 'なし'})`);
     setParsedPosts(posts);
   }, [csvData, blogData, dataSource]);
 
