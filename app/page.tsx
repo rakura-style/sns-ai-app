@@ -184,7 +184,7 @@ const sampleCsvForAnalysis = (csvData: string, maxRows: number = 100): string =>
   return [header, ...sampledLines].join('\n');
 };
 
-const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[], blogData?: string, analysisDataSource: 'x' | 'blog' | 'all' = 'all') => {
+const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userId: string, parseCsvToPostsFn?: (csv: string) => any[], blogData?: string, analysisDataSource: 'x' | 'blog' | 'all' = 'all', deletedPostIdentifiers?: Set<string>) => {
   // デフォルトのサンプルデータを定義
   const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
   
@@ -268,6 +268,53 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
       let allPosts = parseCsvToPostsFn(combinedCsv);
       
       console.log('パース後の投稿数:', allPosts.length);
+      
+      // 削除された投稿を除外
+      if (deletedPostIdentifiers && deletedPostIdentifiers.size > 0) {
+        const beforeDeletedFilterCount = allPosts.length;
+        allPosts = allPosts.filter((post: any) => {
+          const rawData = post.rawData || {};
+          const tweetId = post.tweet_id || 
+            post.tweetId || 
+            post['Tweet ID'] || 
+            post['TweetID'] || 
+            post['tweet_id'] ||
+            rawData.tweet_id ||
+            rawData.tweetId ||
+            rawData['Tweet ID'] ||
+            rawData['TweetID'] ||
+            rawData['tweet_id'] ||
+            '';
+          const url = post.URL || post.url || rawData.URL || rawData.url || '';
+          const hasTweetId = !!tweetId;
+          const hasUrl = !!url;
+          const isBlogPost = hasUrl && !hasTweetId;
+          
+          // 識別子を取得
+          const identifier = isBlogPost ? url : tweetId;
+          let identifierToCheck = identifier;
+          if (!identifierToCheck) {
+            // 内容の最初の50文字を識別子として使用
+            identifierToCheck = `content:${(post.content || '').substring(0, 50).toLowerCase().trim()}`;
+          }
+          
+          // URLの正規化（末尾のスラッシュを統一）
+          if (identifierToCheck && !identifierToCheck.startsWith('content:')) {
+            identifierToCheck = identifierToCheck.replace(/\/$/, '');
+          }
+          
+          // 削除された投稿の識別子と一致する場合は除外
+          for (const deletedIdentifier of deletedPostIdentifiers) {
+            const normalizedDeleted = deletedIdentifier.replace(/\/$/, '');
+            if (normalizedDeleted === identifierToCheck) {
+              return false; // 削除された投稿なので除外
+            }
+          }
+          
+          return true; // 削除されていない投稿なので含める
+        });
+        console.log(`削除された投稿を除外: ${beforeDeletedFilterCount}件 → ${allPosts.length}件`);
+      }
       
       // Xのデータの場合、リツイートと返信を排除
       if (analysisDataSource === 'x' || analysisDataSource === 'all') {
@@ -722,6 +769,10 @@ const generateTrendThemes = async (token: string, userId: string) => {
 };
 
 const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string, hasTitle: boolean = false) => {
+  // 文字数設定を数値に変換（文字列の場合に対応）
+  const minLength = typeof settings.minLength === 'number' ? settings.minLength : (parseInt(String(settings.minLength || 50), 10) || 50);
+  const maxLength = typeof settings.maxLength === 'number' ? settings.maxLength : (parseInt(String(settings.maxLength || 150), 10) || 150);
+  
   const personaInstruction = `
     【パーソナリティ設定】
     - 一人称・自身の名前: ${settings.persona || settings.style || '私・投稿主'}（一人称と名前を「・」で区切った形式）
@@ -729,7 +780,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
     - 性格・特徴: ${settings.character}
 
     【重要: 出力ルール（必ず守ること）】
-    1. 文字数: **絶対に${settings.minLength}文字以上、${settings.maxLength}文字以内**にしてください。これは厳密な要件です。文字数を数えて必ず範囲内に収めてください。
+    1. 文字数: **絶対に${minLength}文字以上、${maxLength}文字以内**にしてください。これは厳密な要件です。文字数を数えて必ず範囲内に収めてください。
     2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは絶対に厳守してください。
        - Markdownの見出し記号（#）や強調（**）、箇条書き（-）は不要です。これは絶対に厳守してください。
        - 箇条書き等の装飾にもこれらを使わないでください。これは絶対に厳守してください。
@@ -1151,6 +1202,14 @@ const ModeButton = ({ active, icon: Icon, label, onClick }: any) => (
 );
 
 const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
+  // 文字数設定のエラー状態を管理
+  const [minLengthError, setMinLengthError] = useState<string>('');
+  const [maxLengthError, setMaxLengthError] = useState<string>('');
+  
+  // 文字数設定の値を文字列として管理（空文字列を許容）
+  const minLengthValue = settings.minLength === undefined || settings.minLength === null ? '' : String(settings.minLength);
+  const maxLengthValue = settings.maxLength === undefined || settings.maxLength === null ? '' : String(settings.maxLength);
+  
   const handleChange = async (key: string, value: string | number) => {
     const updatedSettings = { ...settings, [key]: value };
     // 状態を更新（updateCurrentSettings関数を呼び出す）
@@ -1175,6 +1234,60 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
       }
     }
   };
+  
+  // 自然数かどうかをチェック（1以上の整数）
+  const isNaturalNumber = (value: string): boolean => {
+    if (value === '' || value === null || value === undefined) return false;
+    const num = Number(value);
+    return Number.isInteger(num) && num >= 1;
+  };
+  
+  // 文字数設定の変更処理（入力時は空欄を許容）
+  const handleLengthChange = (key: 'minLength' | 'maxLength', value: string) => {
+    // 入力時は文字列のまま保存（空文字列も許容）
+    handleChange(key, value);
+    // エラーをクリア
+    if (key === 'minLength') {
+      setMinLengthError('');
+    } else {
+      setMaxLengthError('');
+    }
+  };
+  
+  // 文字数設定の確定処理（フォーカスアウト時）
+  const handleLengthBlur = (key: 'minLength' | 'maxLength', defaultValue: number) => {
+    const currentValue = key === 'minLength' ? minLengthValue : maxLengthValue;
+    
+    if (currentValue === '') {
+      // 空欄の場合はデフォルト値を設定
+      handleChange(key, defaultValue);
+      if (key === 'minLength') {
+        setMinLengthError('');
+      } else {
+        setMaxLengthError('');
+      }
+    } else if (!isNaturalNumber(currentValue)) {
+      // 自然数でない場合はエラー表示とデフォルト値の設定
+      const errorMsg = '自然数（1以上の整数）を入力してください';
+      if (key === 'minLength') {
+        setMinLengthError(errorMsg);
+      } else {
+        setMaxLengthError(errorMsg);
+      }
+      // デフォルト値を設定
+      handleChange(key, defaultValue);
+    } else {
+      // 正常な値の場合は数値として保存
+      const numValue = parseInt(currentValue, 10);
+      handleChange(key, numValue);
+      if (key === 'minLength') {
+        setMinLengthError('');
+      } else {
+        setMaxLengthError('');
+      }
+    }
+  };
+  
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4 shadow-sm mt-4">
       <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-slate-700 font-bold text-sm">
@@ -1193,25 +1306,39 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
           <div>
             <span className="text-[10px] text-slate-400 block mb-1">最小</span>
             <input 
-              type="number" 
-              value={settings.minLength} 
-              onChange={(e) => handleChange('minLength', parseInt(e.target.value) || 50)}
-              className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none text-right bg-slate-50 focus:bg-white transition-colors text-black"
+              type="text" 
+              inputMode="numeric"
+              value={minLengthValue} 
+              onChange={(e) => handleLengthChange('minLength', e.target.value)}
+              onBlur={() => handleLengthBlur('minLength', 50)}
+              className={`w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-[#066099] outline-none text-right bg-slate-50 focus:bg-white transition-colors text-black ${
+                minLengthError ? 'border-red-300 focus:ring-red-300' : 'border-slate-200'
+              }`}
             />
+            {minLengthError && (
+              <p className="text-[10px] text-red-500 mt-1">{minLengthError}</p>
+            )}
           </div>
           <div>
             <span className="text-[10px] text-slate-400 block mb-1">最大</span>
             <input 
-              type="number" 
-              value={settings.maxLength} 
-              onChange={(e) => handleChange('maxLength', parseInt(e.target.value) || 150)}
-              className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none text-right bg-slate-50 focus:bg-white transition-colors text-black"
+              type="text" 
+              inputMode="numeric"
+              value={maxLengthValue} 
+              onChange={(e) => handleLengthChange('maxLength', e.target.value)}
+              onBlur={() => handleLengthBlur('maxLength', 150)}
+              className={`w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-[#066099] outline-none text-right bg-slate-50 focus:bg-white transition-colors text-black ${
+                maxLengthError ? 'border-red-300 focus:ring-red-300' : 'border-slate-200'
+              }`}
             />
+            {maxLengthError && (
+              <p className="text-[10px] text-red-500 mt-1">{maxLengthError}</p>
+            )}
           </div>
         </div>
       </div>
 
-      {mode === 'mypost' && <p className="text-[10px] text-slate-400 leading-tight">※CSVデータに基づいてこれらの設定が自動更新されます。</p>}
+      {mode === 'mypost' && <p className="text-[10px] text-slate-400 leading-tight">※CSVデータに基づいてパーソナリティ設定が自動更新されます（文字数設定は変更されません）。</p>}
     </div>
   );
 };
@@ -1476,6 +1603,9 @@ export default function SNSGeneratorApp() {
   // ブログデータ
   const [blogData, setBlogData] = useState<string>('');
   const [blogUploadDate, setBlogUploadDate] = useState<string | null>(null);
+  
+  // 削除された投稿の識別子を保存（tweet_idやURL）
+  const [deletedPostIdentifiers, setDeletedPostIdentifiers] = useState<Set<string>>(new Set());
   
   // 分析用のデータソース選択（ラジオボタン用）
   const [dataSource, setDataSource] = useState<'csv' | 'blog' | 'all'>('csv');
@@ -2695,6 +2825,7 @@ export default function SNSGeneratorApp() {
   };
 
   // CSV行をパースするヘルパー関数（カンマ区切り、ダブルクォート対応）
+  // CSV行をパースする関数（外部からも使用可能）
   const parseCsvRow = (row: string): string[] => {
     const values: string[] = [];
     let current = '';
@@ -3490,6 +3621,10 @@ export default function SNSGeneratorApp() {
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
           else setIsSubscribed(false);
+          // 削除された投稿の識別子をロード
+          if (data.deletedPostIdentifiers && Array.isArray(data.deletedPostIdentifiers)) {
+            setDeletedPostIdentifiers(new Set(data.deletedPostIdentifiers));
+          }
           // 🔥 Facebook App IDをロード
           if (data.facebookAppId) setFacebookAppId(data.facebookAppId);
           // 🔥 X API認証情報をロード（平文）
@@ -3570,9 +3705,52 @@ export default function SNSGeneratorApp() {
       }
     }
     
-    console.log(`parsedPosts更新: 合計${posts.length}件 (dataSource: ${dataSource}, csvData: ${csvData ? 'あり' : 'なし'}, blogData: ${blogData ? 'あり' : 'なし'})`);
-    setParsedPosts(posts);
-  }, [csvData, blogData, dataSource]);
+    // 削除された投稿を除外
+    const filteredPosts = posts.filter((post) => {
+      const rawData = post.rawData || {};
+      const tweetId = post.tweet_id || 
+        post.tweetId || 
+        post['Tweet ID'] || 
+        post['TweetID'] || 
+        post['tweet_id'] ||
+        rawData.tweet_id ||
+        rawData.tweetId ||
+        rawData['Tweet ID'] ||
+        rawData['TweetID'] ||
+        rawData['tweet_id'] ||
+        '';
+      const url = post.URL || post.url || rawData.URL || rawData.url || '';
+      const hasTweetId = !!tweetId;
+      const hasUrl = !!url;
+      const isBlogPost = hasUrl && !hasTweetId;
+      
+      // 識別子を取得
+      const identifier = isBlogPost ? url : tweetId;
+      let identifierToCheck = identifier;
+      if (!identifierToCheck) {
+        // 内容の最初の50文字を識別子として使用
+        identifierToCheck = `content:${post.content.substring(0, 50).toLowerCase().trim()}`;
+      }
+      
+      // URLの正規化（末尾のスラッシュを統一）
+      if (identifierToCheck && !identifierToCheck.startsWith('content:')) {
+        identifierToCheck = identifierToCheck.replace(/\/$/, '');
+      }
+      
+      // 削除された投稿の識別子と一致する場合は除外
+      for (const deletedIdentifier of deletedPostIdentifiers) {
+        const normalizedDeleted = deletedIdentifier.replace(/\/$/, '');
+        if (normalizedDeleted === identifierToCheck) {
+          return false; // 削除された投稿なので除外
+        }
+      }
+      
+      return true; // 削除されていない投稿なので含める
+    });
+    
+    console.log(`parsedPosts更新: 合計${filteredPosts.length}件 (元の投稿数: ${posts.length}, 削除された投稿数: ${posts.length - filteredPosts.length}, dataSource: ${dataSource}, csvData: ${csvData ? 'あり' : 'なし'}, blogData: ${blogData ? 'あり' : 'なし'})`);
+    setParsedPosts(filteredPosts);
+  }, [csvData, blogData, dataSource, deletedPostIdentifiers]);
 
   // XのCSVデータをクリア
   const handleClearCsvData = async () => {
@@ -3627,8 +3805,7 @@ export default function SNSGeneratorApp() {
       
       // 投稿の種類を判定（X投稿かブログ投稿か）
       const rawData = postToDelete.rawData || {};
-      const hasTweetId = !!(
-        postToDelete.tweet_id || 
+      const tweetId = postToDelete.tweet_id || 
         postToDelete.tweetId || 
         postToDelete['Tweet ID'] || 
         postToDelete['TweetID'] || 
@@ -3637,10 +3814,27 @@ export default function SNSGeneratorApp() {
         rawData.tweetId ||
         rawData['Tweet ID'] ||
         rawData['TweetID'] ||
-        rawData['tweet_id']
-      );
-      const hasUrl = !!(postToDelete.URL || postToDelete.url || rawData.URL || rawData.url);
+        rawData['tweet_id'] ||
+        '';
+      const url = postToDelete.URL || postToDelete.url || rawData.URL || rawData.url || '';
+      const hasTweetId = !!tweetId;
+      const hasUrl = !!url;
       const isBlogPost = hasUrl && !hasTweetId;
+      
+      // 削除された投稿の識別子を取得
+      const identifier = isBlogPost ? url : tweetId;
+      
+      // 識別子がない場合は、内容で判定（フォールバック）
+      let identifierToDelete = identifier;
+      if (!identifierToDelete) {
+        // 内容の最初の50文字を識別子として使用
+        identifierToDelete = `content:${postToDelete.content.substring(0, 50).toLowerCase().trim()}`;
+      }
+      
+      // 削除された投稿の識別子を追加
+      const updatedDeletedIdentifiers = new Set(deletedPostIdentifiers);
+      updatedDeletedIdentifiers.add(identifierToDelete);
+      setDeletedPostIdentifiers(updatedDeletedIdentifiers);
       
       // 元のデータからも削除（投稿の種類に基づいて判定）
       if (!isBlogPost && csvData) {
@@ -3649,18 +3843,30 @@ export default function SNSGeneratorApp() {
         const header = lines[0];
         const dataLines = lines.slice(1);
         
+        // ヘッダーからtweet_id列のインデックスを取得
+        const headerValues = parseCsvRow(header);
+        const tweetIdColumnIndex = headerValues.findIndex((h: string) => {
+          const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
+          return normalized === 'tweet id' || normalized === 'tweet_id' || normalized === 'tweetid';
+        });
+        
         // rawDataを使って該当する行を特定
-        const filteredLines = dataLines.filter((line, index) => {
-          // rawDataのインデックスと一致する行を削除
-          // 簡易的な方法: 投稿の内容が含まれている行を削除
-          if (postToDelete.rawData) {
-            // rawDataの内容と一致する行を探す
-            const lineContent = line.toLowerCase();
-            const postContent = postToDelete.content.toLowerCase().substring(0, 50);
-            // 完全一致ではなく、部分一致で判定（より確実な方法が必要な場合は改善が必要）
-            return !lineContent.includes(postContent);
+        const filteredLines = dataLines.filter((line) => {
+          // tweet_idがある場合は、tweet_idで一致判定
+          if (tweetId && tweetIdColumnIndex >= 0) {
+            const values = parseCsvRow(line);
+            const lineTweetId = values[tweetIdColumnIndex] || '';
+            const normalizedLineTweetId = lineTweetId.trim().replace(/^"|"$/g, '');
+            const normalizedTweetId = tweetId.trim();
+            if (normalizedLineTweetId === normalizedTweetId) {
+              return false; // 削除対象
+            }
           }
-          return true;
+          
+          // tweet_idがない場合は、内容で判定（フォールバック）
+          const lineContent = line.toLowerCase();
+          const postContent = postToDelete.content.toLowerCase().substring(0, 50);
+          return !lineContent.includes(postContent);
         });
         
         const updatedCsvData = [header, ...filteredLines].join('\n');
@@ -3668,7 +3874,8 @@ export default function SNSGeneratorApp() {
         
         // Firestoreに保存
         await setDoc(doc(db, 'users', user.uid), {
-          csvData: updatedCsvData
+          csvData: updatedCsvData,
+          deletedPostIdentifiers: Array.from(updatedDeletedIdentifiers)
         }, { merge: true });
         
         // ローカルストレージも更新
@@ -3684,16 +3891,26 @@ export default function SNSGeneratorApp() {
         const header = lines[0];
         const dataLines = lines.slice(1);
         
+        // ヘッダーからURL列のインデックスを取得
+        const headerValues = parseCsvRow(header);
+        const urlColumnIndex = headerValues.findIndex((h: string) => {
+          const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
+          return normalized === 'url';
+        });
+        
         const filteredLines = dataLines.filter((line) => {
-          if (postToDelete.rawData && postToDelete.rawData.URL) {
-            // URLが一致する行を削除
-            const lineUrl = line.match(/"([^"]+)"/g)?.[5]; // URLは6番目のカラム（0-indexedで5）
-            if (lineUrl) {
-              const url = lineUrl.replace(/"/g, '');
-              return url !== postToDelete.rawData.URL;
+          // URLがある場合は、URLで一致判定
+          if (url && urlColumnIndex >= 0) {
+            const values = parseCsvRow(line);
+            const lineUrl = values[urlColumnIndex] || '';
+            const normalizedLineUrl = lineUrl.trim().replace(/^"|"$/g, '').replace(/\/$/, '');
+            const normalizedUrl = url.trim().replace(/\/$/, '');
+            if (normalizedLineUrl === normalizedUrl) {
+              return false; // 削除対象
             }
           }
-          // rawDataがない場合は、内容で判定
+          
+          // URLがない場合は、内容で判定（フォールバック）
           const lineContent = line.toLowerCase();
           const postContent = postToDelete.content.toLowerCase().substring(0, 50);
           return !lineContent.includes(postContent);
@@ -3704,7 +3921,13 @@ export default function SNSGeneratorApp() {
         
         // Firestoreに保存
         await setDoc(doc(db, 'users', user.uid), {
-          blogData: updatedBlogData
+          blogData: updatedBlogData,
+          deletedPostIdentifiers: Array.from(updatedDeletedIdentifiers)
+        }, { merge: true });
+      } else {
+        // 識別子のみを保存（CSVデータがない場合）
+        await setDoc(doc(db, 'users', user.uid), {
+          deletedPostIdentifiers: Array.from(updatedDeletedIdentifiers)
         }, { merge: true });
       }
       
@@ -3883,53 +4106,62 @@ export default function SNSGeneratorApp() {
           throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
         }
         
-        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData, analysisDataSource);
+        const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData, analysisDataSource, deletedPostIdentifiers);
         setMyPostThemes(analysisResult.themes || []); 
         if (analysisResult.settings) {
           // styleをpersonaに変換し、characterの最後に注意事項を追加
-          const migratedSettings = {
-            ...analysisResult.settings,
-            persona: analysisResult.settings.persona || analysisResult.settings.style || '私・投稿主',
-            character: (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' &&
-              (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*')))
-                ? analysisResult.settings.character
-                : (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' ? analysisResult.settings.character : '') + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない',
-            // minLengthとmaxLengthも確実に含める
-            minLength: analysisResult.settings.minLength || 50,
-            maxLength: analysisResult.settings.maxLength || 150
-          };
-          // 状態を更新
-          setAllSettings(prev => ({
-            ...prev,
-            mypost: { ...prev.mypost, ...migratedSettings }
-          }));
-          
-          // マイ投稿分析後のパーソナリティ設定をFirestoreに保存
-          // 既存の設定とマージして、mypostモードの設定を更新
-          try {
-            const userRef = doc(db, 'users', user.uid);
-            const userDoc = await getDoc(userRef);
-            const currentData = userDoc.exists() ? userDoc.data() : {};
-            const currentSettings = currentData.settings || {};
-            
-            // 既存のmypost設定とマージ（分析結果を優先）
-            const updatedMypostSettings = {
-              ...(currentSettings.mypost || {}),
-              ...migratedSettings
+          // 文字数設定（minLengthとmaxLength）は既存の設定を保持
+          setAllSettings(prev => {
+            const migratedSettings = {
+              ...analysisResult.settings,
+              persona: analysisResult.settings.persona || analysisResult.settings.style || '私・投稿主',
+              character: (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' &&
+                (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*')))
+                  ? analysisResult.settings.character
+                  : (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' ? analysisResult.settings.character : '') + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない',
+              // 文字数設定は既存の設定を保持（分析結果で上書きしない）
+              minLength: prev.mypost.minLength,
+              maxLength: prev.mypost.maxLength
             };
             
-            await setDoc(userRef, {
-              settings: {
-                ...currentSettings,
-                mypost: updatedMypostSettings
-              }
-            }, { merge: true });
+            // マイ投稿分析後のパーソナリティ設定をFirestoreに保存
+            // 既存の設定とマージして、mypostモードの設定を更新
+            if (user) {
+              (async () => {
+                try {
+                  const userRef = doc(db, 'users', user.uid);
+                  const userDoc = await getDoc(userRef);
+                  const currentData = userDoc.exists() ? userDoc.data() : {};
+                  const currentSettings = currentData.settings || {};
+                  
+                  // 既存のmypost設定とマージ（分析結果を優先、ただし文字数設定は既存の設定を保持）
+                  const updatedMypostSettings = {
+                    ...(currentSettings.mypost || {}),
+                    ...migratedSettings,
+                    // 文字数設定は既存の設定を保持
+                    minLength: currentSettings.mypost?.minLength || prev.mypost.minLength,
+                    maxLength: currentSettings.mypost?.maxLength || prev.mypost.maxLength
+                  };
+                  
+                  await setDoc(userRef, {
+                    settings: {
+                      ...currentSettings,
+                      mypost: updatedMypostSettings
+                    }
+                  }, { merge: true });
+                  
+                  console.log("パーソナリティ設定を保存しました:", updatedMypostSettings);
+                } catch (error) {
+                  console.error("パーソナリティ設定の保存に失敗:", error);
+                }
+              })();
+            }
             
-            console.log("パーソナリティ設定を保存しました:", updatedMypostSettings);
-          } catch (err) {
-            console.error("パーソナリティ設定の保存に失敗:", err);
-            alert("パーソナリティ設定の保存に失敗しました。設定は画面に表示されていますが、リロードすると元に戻る可能性があります。");
-          }
+            return {
+              ...prev,
+              mypost: { ...prev.mypost, ...migratedSettings }
+            };
+          });
         }
       } else if (mode === 'trend') {
         const themes = await generateTrendThemes(token, userId);
