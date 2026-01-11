@@ -4591,31 +4591,76 @@ export default function SNSGeneratorApp() {
                 
                 {activeMode === 'mypost' && (
                   <div className="flex flex-col gap-3">
-                    {/* 上段: データ取込みボタンと過去投稿ボタン */}
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                      <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        onChange={handleFileChange} 
-                        className="hidden" 
-                        accept=".csv, .txt" 
-                      />
-                      <button 
-                        onClick={() => setShowDataImportModal(true)}
-                        disabled={isCsvLoading || isBlogImporting}
-                        className="text-xs px-3 py-1.5 rounded-lg font-bold text-white bg-[#066099] hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 shadow-sm w-full sm:w-auto"
-                        title="データ取込み"
-                      >
-                        {(isCsvLoading || isBlogImporting) ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <Upload size={12} />
-                        )}
-                        データ取込み
-                      </button>
-                      {parsedPosts.length > 0 && (
-                        <>
-                          <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
+                    {/* データソース選択（分析・更新用） */}
+                    <div className="flex flex-col sm:flex-row gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="analysisDataSource"
+                          value="all"
+                          checked={analysisDataSource === 'all'}
+                          onChange={(e) => {
+                            setAnalysisDataSource('all');
+                            setDataSource('all');
+                          }}
+                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                        />
+                        <span className="text-xs text-slate-700 font-bold">全データ</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="analysisDataSource"
+                          value="x"
+                          checked={analysisDataSource === 'x'}
+                          onChange={(e) => {
+                            setAnalysisDataSource('x');
+                            setDataSource('csv');
+                          }}
+                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                        />
+                        <span className="text-xs text-slate-700">X投稿</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="analysisDataSource"
+                          value="blog"
+                          checked={analysisDataSource === 'blog'}
+                          onChange={(e) => {
+                            setAnalysisDataSource('blog');
+                            setDataSource('blog');
+                          }}
+                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                        />
+                        <span className="text-xs text-slate-700">ブログ</span>
+                      </label>
+                    </div>
+                    
+                    {/* 2×2グリッド: データ取込み、過去投稿、パーソナリティ分析、テーマ候補更新 */}
+                    <div className="flex justify-end">
+                      <div className="grid grid-cols-2 gap-2 w-auto">
+                        <input 
+                          type="file" 
+                          ref={fileInputRef} 
+                          onChange={handleFileChange} 
+                          className="hidden" 
+                          accept=".csv, .txt" 
+                        />
+                        <button 
+                          onClick={() => setShowDataImportModal(true)}
+                          disabled={isCsvLoading || isBlogImporting}
+                          className="text-xs px-3 py-1.5 rounded-lg font-bold border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 shadow-sm"
+                          title="データ取込み"
+                        >
+                          {(isCsvLoading || isBlogImporting) ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Upload size={12} />
+                          )}
+                          データ取込み
+                        </button>
+                        {parsedPosts.length > 0 ? (
                           <button 
                             onClick={() => {
                               if (selectedSection === 'posts') {
@@ -4626,7 +4671,7 @@ export default function SNSGeneratorApp() {
                                 setShowPostAnalysis(true);
                               }
                             }}
-                            className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
+                            className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1 font-bold shadow-sm ${
                               selectedSection === 'posts'
                                 ? 'bg-slate-100 border-slate-400 text-slate-800'
                                 : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -4635,64 +4680,18 @@ export default function SNSGeneratorApp() {
                             <BarChart3 size={12} />
                             過去投稿 ({parsedPosts.length})
                           </button>
-                        </>
-                      )}
-                    </div>
-                    
-                    {/* 下段: データソース選択、パーソナリティ分析、テーマ候補更新 */}
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                      {/* データソース選択（分析・更新用） */}
-                      <div className="flex flex-col sm:flex-row gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="analysisDataSource"
-                            value="all"
-                            checked={analysisDataSource === 'all'}
-                            onChange={(e) => {
-                              setAnalysisDataSource('all');
-                              setDataSource('all');
-                            }}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <span className="text-xs text-slate-700 font-bold">全データ</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="analysisDataSource"
-                            value="x"
-                            checked={analysisDataSource === 'x'}
-                            onChange={(e) => {
-                              setAnalysisDataSource('x');
-                              setDataSource('csv');
-                            }}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <span className="text-xs text-slate-700">X投稿</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="analysisDataSource"
-                            value="blog"
-                            checked={analysisDataSource === 'blog'}
-                            onChange={(e) => {
-                              setAnalysisDataSource('blog');
-                              setDataSource('blog');
-                            }}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <span className="text-xs text-slate-700">ブログ</span>
-                        </label>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                        ) : (
+                          <div className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 flex items-center justify-center gap-1 font-bold shadow-sm">
+                            <BarChart3 size={12} />
+                            過去投稿 (0)
+                          </div>
+                        )}
                         <button
                           onClick={() => {
                             handleAnalyzePersonality();
                           }}
                           disabled={isThemesLoading}
-                          className="text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto bg-[#066099] hover:bg-[#055080] text-white"
+                          className="text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1 font-bold shadow-sm bg-[#066099] hover:bg-[#055080] text-white"
                         >
                           {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <UserIcon size={12}/>}
                           パーソナリティ分析
@@ -4708,7 +4707,7 @@ export default function SNSGeneratorApp() {
                             handleUpdateThemes('mypost');
                           }}
                           disabled={isThemesLoading}
-                          className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
+                          className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1 font-bold shadow-sm ${
                             selectedSection === 'analysis'
                               ? 'bg-[#066099] text-white'
                               : 'bg-[#066099] hover:bg-[#055080] text-white'
