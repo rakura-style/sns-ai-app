@@ -169,17 +169,15 @@ const sampleCsvForAnalysis = (csvData: string, maxRows: number = 100): string =>
     return csvData;
   }
   
-  // データが多い場合は、最初の50%と最後の50%をサンプリング
-  // 時系列の多様性を確保するため、最初と最後から均等に取得
-  const sampleSize = Math.min(maxRows, dataLines.length);
-  const firstHalf = Math.floor(sampleSize / 2);
-  const secondHalf = sampleSize - firstHalf;
+  // データが多い場合は、ランダムにサンプリング（Fisher-Yatesシャッフル）
+  const shuffled = [...dataLines];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
   
-  // 最初の部分と最後の部分を取得
-  const sampledLines = [
-    ...dataLines.slice(0, firstHalf),
-    ...dataLines.slice(-secondHalf)
-  ];
+  // ランダムにサンプリングされた行を取得
+  const sampledLines = shuffled.slice(0, maxRows);
   
   return [header, ...sampledLines].join('\n');
 };
@@ -253,19 +251,21 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
   }
   
-  // CSVデータをサンプリング（最大100行に制限）
-  // これにより、大量のデータでもAPI呼び出しが高速化される
-  let optimizedCsv = sampleCsvForAnalysis(combinedCsv, 100);
-  
   // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択し、残りをランダムにサンプリング
+  // 高速化のため、パース前にCSVデータをサンプリング（最大200行に制限）
+  let optimizedCsv: string = '';
   if (parseCsvToPostsFn && combinedCsv) {
     try {
       // デバッグ: combinedCsvの内容を確認
       console.log('分析データソース:', analysisDataSource);
       console.log('combinedCsvの行数:', combinedCsv.split('\n').length);
-      console.log('combinedCsvの最初の3行:', combinedCsv.split('\n').slice(0, 3));
       
-      let allPosts = parseCsvToPostsFn(combinedCsv);
+      // 高速化のため、パース前にCSVデータをサンプリング（最大200行に制限）
+      // これにより、大量のデータでもパース処理が高速化される
+      const sampledCsv = sampleCsvForAnalysis(combinedCsv, 200);
+      console.log('サンプリング後のCSV行数:', sampledCsv.split('\n').length);
+      
+      let allPosts = parseCsvToPostsFn(sampledCsv);
       
       console.log('パース後の投稿数:', allPosts.length);
       
@@ -414,32 +414,16 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         }
       }
       
-      // 100件以下の場合は全て使用
+      // 100件以下の場合は全て使用、100件を超える場合はランダムに100件をサンプリング
+      let selectedPosts: any[] = [];
       if (allPosts.length <= 100) {
-        const originalHeader = combinedCsv.split('\n')[0];
-        const dataRows = allPosts.map((post: any) => {
-          const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
-          return headers.map((header: string) => {
-            // ヘッダー名に基づいて値を取得（大文字小文字を区別しない）
-            const value = post[header] || post[header.toLowerCase()] || post[header.toUpperCase()] || '';
-            const strValue = String(value);
-            if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
-              return `"${strValue.replace(/"/g, '""')}"`;
-            }
-            return strValue;
-          }).join(',');
-        });
-        optimizedCsv = [originalHeader, ...dataRows].join('\n');
-        console.log('optimizedCsvの行数:', optimizedCsv.split('\n').length);
+        selectedPosts = allPosts;
       } else {
-        // 100件を超える場合
         // エンゲージメントが分かる投稿を抽出
         const postsWithEngagement = allPosts.filter((post: any) => {
           const eng = post.engagement || post.favorite_count || post.likes || post['Likes'] || 0;
           return Number(eng) > 0;
         });
-        
-        let selectedPosts: any[] = [];
         
         if (postsWithEngagement.length > 0) {
           // エンゲージメントでソート（高い順）
@@ -490,31 +474,34 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
           }
         });
         
-        const finalPosts = Array.from(uniquePosts.values()).slice(0, 100);
+        selectedPosts = Array.from(uniquePosts.values()).slice(0, 100);
+      }
+      
+      // 選択された投稿をCSV形式に戻す
+      if (selectedPosts.length > 0) {
+        const originalHeader = sampledCsv.split('\n')[0];
+        const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
         
-        // 選択された投稿をCSV形式に戻す
-        if (finalPosts.length > 0) {
-          const originalHeader = combinedCsv.split('\n')[0];
-          const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
-          
-          const dataRows = finalPosts.map((post: any) => {
-            return headers.map((header: string) => {
-              // ヘッダー名に基づいて値を取得（大文字小文字を区別しない、複数のキーを試す）
-              const headerLower = header.toLowerCase();
-              const value = post[header] || post[header.toLowerCase()] || post[header.toUpperCase()] || 
-                           post[headerLower] || post[headerLower.charAt(0).toUpperCase() + headerLower.slice(1)] || '';
-              const strValue = String(value);
-              
-              // CSV形式にエスケープ（カンマ、ダブルクォート、改行を含む場合）
-              if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
-                return `"${strValue.replace(/"/g, '""')}"`;
-              }
-              return strValue;
-            }).join(',');
-          });
-          
-          optimizedCsv = [originalHeader, ...dataRows].join('\n');
-        }
+        const dataRows = selectedPosts.map((post: any) => {
+          return headers.map((header: string) => {
+            // ヘッダー名に基づいて値を取得（大文字小文字を区別しない、複数のキーを試す）
+            const headerLower = header.toLowerCase();
+            const value = post[header] || post[header.toLowerCase()] || post[header.toUpperCase()] || 
+                         post[headerLower] || post[headerLower.charAt(0).toUpperCase() + headerLower.slice(1)] || '';
+            const strValue = String(value);
+            
+            // CSV形式にエスケープ（カンマ、ダブルクォート、改行を含む場合）
+            if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+              return `"${strValue.replace(/"/g, '""')}"`;
+            }
+            return strValue;
+          }).join(',');
+        });
+        
+        optimizedCsv = [originalHeader, ...dataRows].join('\n');
+      } else {
+        // 選択された投稿がない場合は、サンプリングデータを使用
+        optimizedCsv = sampledCsv;
       }
     } catch (error) {
       console.warn('CSV最適化に失敗:', error);
@@ -523,7 +510,13 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         throw error;
       }
       // その他のエラーの場合は、サンプリングデータを使用
+      if (!optimizedCsv) {
+        optimizedCsv = sampleCsvForAnalysis(combinedCsv, 100);
+      }
     }
+  } else {
+    // パース関数が提供されていない場合は、サンプリングのみ
+    optimizedCsv = sampleCsvForAnalysis(combinedCsv, 100);
   }
   
   // optimizedCsvがヘッダー行のみでないかチェック
@@ -775,7 +768,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
   
   const personaInstruction = `
     【パーソナリティ設定】
-    - 一人称・自身の名前: ${settings.persona || settings.style || '私・投稿主'}（一人称と名前を「・」で区切った形式）
+    - 一人称と自身の名前: ${settings.persona || settings.style || '私・投稿主'}（一人称と名前を「・」で区切った形式）
     - 絵文字の使い方: ${settings.emoji}
     - 性格・特徴: ${settings.character}
 
@@ -1293,7 +1286,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
       <div className="flex items-center gap-2 pb-2 border-b border-slate-100 text-slate-700 font-bold text-sm">
         <Settings size={16} className="text-[#066099]" /><span>パーソナリティ設定</span>
       </div>
-      <ComboboxInput label="一人称・自身の名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私・投稿主",  "僕・投稿主","俺・投稿主", "自分・投稿主", "わたくし・投稿主", "あたし・投稿主"]} placeholder="例: 私・らくらスタイル" />
+      <ComboboxInput label="一人称と自身の名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私・投稿主",  "僕・投稿主","俺・投稿主", "自分・投稿主", "わたくし・投稿主", "あたし・投稿主"]} placeholder="例: 私・らくらスタイル" />
       <ComboboxInput label="絵文字の使い方" icon={Smile} value={settings.emoji} onChange={(val: string) => handleChange('emoji', val)} options={["適度に使用（文末に1つなど）", "多用する（賑やかに）", "一切使用しない", "特定の絵文字を好む（✨🚀）", "顔文字（( ^ω^ )）を使用"]} placeholder="例: 適度に使用" />
       <ComboboxInput label="性格・特徴" icon={UserIcon} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "30代エンジニア\n技術トレンドに敏感\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "熱血広報担当\n自社製品への愛が強い\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "トレンドマーケター\n分析的で冷静な視点\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "毒舌批評家\n本質を突くのが得意\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない", "丁寧な暮らし系\n穏やかで情緒的\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない"]} placeholder="例: 30代エンジニア" multiline={true} />
       
@@ -4597,30 +4590,57 @@ export default function SNSGeneratorApp() {
                 </h2>
                 
                 {activeMode === 'mypost' && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-                    <input 
-                      type="file" 
-                      ref={fileInputRef} 
-                      onChange={handleFileChange} 
-                      className="hidden" 
-                      accept=".csv, .txt" 
-                    />
-                    <button 
-                      onClick={() => setShowDataImportModal(true)}
-                      disabled={isCsvLoading || isBlogImporting}
-                      className="text-xs px-3 py-1.5 rounded-lg font-bold text-white bg-[#066099] hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 shadow-sm w-full sm:w-auto"
-                      title="データ取込み"
-                    >
-                      {(isCsvLoading || isBlogImporting) ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Upload size={12} />
+                  <div className="flex flex-col gap-3">
+                    {/* 上段: データ取込みボタンと過去投稿ボタン */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleFileChange} 
+                        className="hidden" 
+                        accept=".csv, .txt" 
+                      />
+                      <button 
+                        onClick={() => setShowDataImportModal(true)}
+                        disabled={isCsvLoading || isBlogImporting}
+                        className="text-xs px-3 py-1.5 rounded-lg font-bold text-white bg-[#066099] hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 shadow-sm w-full sm:w-auto"
+                        title="データ取込み"
+                      >
+                        {(isCsvLoading || isBlogImporting) ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Upload size={12} />
+                        )}
+                        データ取込み
+                      </button>
+                      {parsedPosts.length > 0 && (
+                        <>
+                          <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
+                          <button 
+                            onClick={() => {
+                              if (selectedSection === 'posts') {
+                                setSelectedSection(null);
+                                setShowPostAnalysis(false);
+                              } else {
+                                setSelectedSection('posts');
+                                setShowPostAnalysis(true);
+                              }
+                            }}
+                            className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
+                              selectedSection === 'posts'
+                                ? 'bg-slate-100 border-slate-400 text-slate-800'
+                                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <BarChart3 size={12} />
+                            過去投稿 ({parsedPosts.length})
+                          </button>
+                        </>
                       )}
-                      データ取込み
-                    </button>
-                    <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+                    </div>
+                    
+                    {/* 下段: データソース選択、パーソナリティ分析、テーマ候補更新 */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                       {/* データソース選択（分析・更新用） */}
                       <div className="flex flex-col sm:flex-row gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto">
                         <label className="flex items-center gap-2 cursor-pointer">
@@ -4698,31 +4718,6 @@ export default function SNSGeneratorApp() {
                           テーマ候補更新
                         </button>
                       </div>
-                    </div>
-                    {parsedPosts.length > 0 && (
-                      <>
-                        <div className="hidden sm:block h-4 w-px bg-slate-300 mx-1"></div>
-                        <button 
-                          onClick={() => {
-                            if (selectedSection === 'posts') {
-                              setSelectedSection(null);
-                              setShowPostAnalysis(false);
-                            } else {
-                              setSelectedSection('posts');
-                              setShowPostAnalysis(true);
-                            }
-                          }}
-                          className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
-                            selectedSection === 'posts'
-                              ? 'bg-slate-100 border-slate-400 text-slate-800'
-                              : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          <BarChart3 size={12} />
-                          過去投稿 ({parsedPosts.length})
-                        </button>
-                      </>
-                    )}
                     </div>
                   </div>
                 )}
