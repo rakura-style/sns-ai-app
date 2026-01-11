@@ -3271,6 +3271,10 @@ export default function SNSGeneratorApp() {
   const [trendThemes, setTrendThemes] = useState<string[]>([]);
   const [myPostThemes, setMyPostThemes] = useState<string[]>([]);
   
+  // テーマ候補の編集状態管理
+  const [editingThemeIndex, setEditingThemeIndex] = useState<number | null>(null);
+  const [editingThemeValue, setEditingThemeValue] = useState<string>('');
+  
   const [isThemesLoading, setIsThemesLoading] = useState(false);
   
   const [result, setResult] = useState('');
@@ -5918,26 +5922,120 @@ export default function SNSGeneratorApp() {
                         <div key={i} className="h-24 bg-slate-50 rounded-xl animate-pulse border border-slate-100"></div>
                       ))
                     ) : currentThemeCandidates.length > 0 ? (
-                      currentThemeCandidates.slice(0, 3).map((theme, i) => (
-                        <button
-                          key={i}
-                          onClick={() => {
-                            setSelectedTheme(theme);
-                            setManualInput(''); 
-                          }}
-                          className={`relative text-left p-3 rounded-xl border text-xs transition-all h-24 flex flex-col justify-between group overflow-hidden
-                            ${selectedTheme === theme 
-                              ? 'bg-gradient-to-br from-sky-50 to-white border-[#066099] ring-1 ring-[#066099] text-[#066099] shadow-sm' 
-                              : 'bg-white border-slate-200 hover:border-[#066099]/50 text-slate-600 hover:shadow-sm'
-                            }`}
-                        >
-                          <div className="absolute top-0 right-0 p-1.5 opacity-10 group-hover:opacity-20 transition-opacity">
-                            <Lightbulb size={24} />
+                      currentThemeCandidates.slice(0, 3).map((theme, i) => {
+                        const isEditing = editingThemeIndex === i;
+                        const displayTheme = isEditing ? editingThemeValue : theme;
+                        
+                        // テーマ候補の更新関数
+                        const handleThemeChange = (newTheme: string) => {
+                          if (activeMode === 'mypost') {
+                            const updatedThemes = [...myPostThemes];
+                            updatedThemes[i] = newTheme;
+                            setMyPostThemes(updatedThemes);
+                            // Firestoreに保存
+                            if (user) {
+                              (async () => {
+                                try {
+                                  await setDoc(doc(db, 'users', user.uid), {
+                                    myPostThemes: updatedThemes
+                                  }, { merge: true });
+                                } catch (error) {
+                                  console.error("テーマ候補の保存に失敗:", error);
+                                }
+                              })();
+                            }
+                          } else {
+                            const updatedThemes = [...trendThemes];
+                            updatedThemes[i] = newTheme;
+                            setTrendThemes(updatedThemes);
+                            // Firestoreに保存
+                            if (user) {
+                              (async () => {
+                                try {
+                                  await setDoc(doc(db, 'users', user.uid), {
+                                    trendThemes: updatedThemes
+                                  }, { merge: true });
+                                } catch (error) {
+                                  console.error("テーマ候補の保存に失敗:", error);
+                                }
+                              })();
+                            }
+                          }
+                        };
+                        
+                        const handleStartEdit = () => {
+                          setEditingThemeIndex(i);
+                          setEditingThemeValue(theme);
+                        };
+                        
+                        const handleSaveEdit = () => {
+                          if (editingThemeValue.trim()) {
+                            handleThemeChange(editingThemeValue.trim());
+                          }
+                          setEditingThemeIndex(null);
+                          setEditingThemeValue('');
+                        };
+                        
+                        const handleCancelEdit = () => {
+                          setEditingThemeIndex(null);
+                          setEditingThemeValue('');
+                        };
+                        
+                        return (
+                          <div
+                            key={i}
+                            className={`relative rounded-xl border text-xs transition-all h-24 flex flex-col group overflow-hidden
+                              ${selectedTheme === theme && !isEditing
+                                ? 'bg-gradient-to-br from-sky-50 to-white border-[#066099] ring-1 ring-[#066099] text-[#066099] shadow-sm' 
+                                : 'bg-white border-slate-200 hover:border-[#066099]/50 text-slate-600 hover:shadow-sm'
+                              }`}
+                            >
+                            <div className="absolute top-0 right-0 p-1.5 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                              <Lightbulb size={24} />
+                            </div>
+                            {isEditing ? (
+                              <textarea
+                                className="w-full h-full p-3 pt-6 text-xs bg-transparent border-none focus:ring-0 outline-none resize-none leading-snug z-10"
+                                value={editingThemeValue}
+                                onChange={(e) => setEditingThemeValue(e.target.value)}
+                                onBlur={handleSaveEdit}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSaveEdit();
+                                  }
+                                  if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    handleCancelEdit();
+                                  }
+                                }}
+                                autoFocus
+                                placeholder="テーマを入力..."
+                              />
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setSelectedTheme(theme);
+                                  setManualInput('');
+                                }}
+                                onDoubleClick={(e) => {
+                                  e.preventDefault();
+                                  handleStartEdit();
+                                }}
+                                className="w-full h-full text-left p-3 pt-6 flex flex-col justify-between z-10"
+                              >
+                                <span className="line-clamp-3 leading-snug font-medium">{theme}</span>
+                                {selectedTheme === theme && <div className="flex justify-end"><Check size={14} className="text-[#066099]" /></div>}
+                              </button>
+                            )}
+                            {!isEditing && (
+                              <div className="absolute bottom-1 right-1 text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                ダブルクリックで編集
+                              </div>
+                            )}
                           </div>
-                          <span className="line-clamp-3 leading-snug font-medium z-10">{theme}</span>
-                          {selectedTheme === theme && <div className="flex justify-end"><Check size={14} className="text-[#066099]" /></div>}
-                        </button>
-                      ))
+                        );
+                      })
                     ) : (
                       [...Array(3)].map((_, i) => (
                         <div key={i} className="h-24 bg-slate-50 border border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-xs text-slate-400 gap-1">
