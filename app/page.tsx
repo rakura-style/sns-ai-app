@@ -4082,13 +4082,96 @@ export default function SNSGeneratorApp() {
   };
 
 
+  // パーソナリティ設定の分析のみを行う関数
+  const handleAnalyzePersonality = async () => {
+    if (!user) { setError("ログインが必要です"); return; }
+    setIsThemesLoading(true);
+    setError('');
+    try {
+      const token = await user.getIdToken(); 
+      const userId = user.uid;
+      
+      // データの存在チェック（事前チェック）
+      const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+      const isCsvDataDefault = csvData === defaultCsv || !csvData || csvData.trim() === '';
+      const hasBlogData = blogData && blogData.trim() && blogData.split('\n').length > 1;
+      
+      if (isCsvDataDefault && !hasBlogData) {
+        throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
+      }
+      
+      const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData, analysisDataSource, deletedPostIdentifiers);
+      
+      if (analysisResult.settings) {
+        // styleをpersonaに変換し、characterの最後に注意事項を追加
+        // 文字数設定（minLengthとmaxLength）は既存の設定を保持
+        setAllSettings(prev => {
+          const migratedSettings = {
+            ...analysisResult.settings,
+            persona: analysisResult.settings.persona || analysisResult.settings.style || '私・投稿主',
+            character: (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' &&
+              (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*')))
+                ? analysisResult.settings.character
+                : (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' ? analysisResult.settings.character : '') + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない',
+            // 文字数設定は既存の設定を保持（分析結果で上書きしない）
+            minLength: prev.mypost.minLength,
+            maxLength: prev.mypost.maxLength
+          };
+          
+          // マイ投稿分析後のパーソナリティ設定をFirestoreに保存
+          // 既存の設定とマージして、mypostモードの設定を更新
+          if (user) {
+            (async () => {
+              try {
+                const userRef = doc(db, 'users', user.uid);
+                const userDoc = await getDoc(userRef);
+                const currentData = userDoc.exists() ? userDoc.data() : {};
+                const currentSettings = currentData.settings || {};
+                
+                // 既存のmypost設定とマージ（分析結果を優先、ただし文字数設定は既存の設定を保持）
+                const updatedMypostSettings = {
+                  ...(currentSettings.mypost || {}),
+                  ...migratedSettings,
+                  // 文字数設定は既存の設定を保持
+                  minLength: currentSettings.mypost?.minLength || prev.mypost.minLength,
+                  maxLength: currentSettings.mypost?.maxLength || prev.mypost.maxLength
+                };
+                
+                await setDoc(userRef, {
+                  settings: {
+                    ...currentSettings,
+                    mypost: updatedMypostSettings
+                  }
+                }, { merge: true });
+                
+                console.log("パーソナリティ設定を保存しました:", updatedMypostSettings);
+              } catch (error) {
+                console.error("パーソナリティ設定の保存に失敗:", error);
+              }
+            })();
+          }
+          
+          return {
+            ...prev,
+            mypost: { ...prev.mypost, ...migratedSettings }
+          };
+        });
+      }
+    } catch (err: any) {
+      setError(err.message || "パーソナリティ設定の分析に失敗しました");
+    } finally {
+      setIsThemesLoading(false);
+    }
+  };
+
+  // テーマ候補の更新のみを行う関数
   const handleUpdateThemes = async (mode: string) => {
     if (!user) { setError("ログインが必要です"); return; }
     setIsThemesLoading(true);
     setError('');
     setManualInput('');
     setSelectedTheme('');
-    // 分析・更新ボタンを押したら分析・更新セクションを選択し、他を非表示
+    // テーマ候補更新ボタンを押したら分析・更新セクションを選択し、他を非表示
     if (mode === 'mypost') {
       setSelectedSection('analysis');
       setShowPostAnalysis(false);
@@ -4107,68 +4190,13 @@ export default function SNSGeneratorApp() {
         }
         
         const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData, analysisDataSource, deletedPostIdentifiers);
-        setMyPostThemes(analysisResult.themes || []); 
-        if (analysisResult.settings) {
-          // styleをpersonaに変換し、characterの最後に注意事項を追加
-          // 文字数設定（minLengthとmaxLength）は既存の設定を保持
-          setAllSettings(prev => {
-            const migratedSettings = {
-              ...analysisResult.settings,
-              persona: analysisResult.settings.persona || analysisResult.settings.style || '私・投稿主',
-              character: (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' &&
-                (analysisResult.settings.character.includes('AIっぽさ') || analysisResult.settings.character.includes('#や*')))
-                  ? analysisResult.settings.character
-                  : (analysisResult.settings.character && typeof analysisResult.settings.character === 'string' ? analysisResult.settings.character : '') + '\n\nAIっぽさや決まりきった一般論は避ける\n#や*を本文に決して使わない',
-              // 文字数設定は既存の設定を保持（分析結果で上書きしない）
-              minLength: prev.mypost.minLength,
-              maxLength: prev.mypost.maxLength
-            };
-            
-            // マイ投稿分析後のパーソナリティ設定をFirestoreに保存
-            // 既存の設定とマージして、mypostモードの設定を更新
-            if (user) {
-              (async () => {
-                try {
-                  const userRef = doc(db, 'users', user.uid);
-                  const userDoc = await getDoc(userRef);
-                  const currentData = userDoc.exists() ? userDoc.data() : {};
-                  const currentSettings = currentData.settings || {};
-                  
-                  // 既存のmypost設定とマージ（分析結果を優先、ただし文字数設定は既存の設定を保持）
-                  const updatedMypostSettings = {
-                    ...(currentSettings.mypost || {}),
-                    ...migratedSettings,
-                    // 文字数設定は既存の設定を保持
-                    minLength: currentSettings.mypost?.minLength || prev.mypost.minLength,
-                    maxLength: currentSettings.mypost?.maxLength || prev.mypost.maxLength
-                  };
-                  
-                  await setDoc(userRef, {
-                    settings: {
-                      ...currentSettings,
-                      mypost: updatedMypostSettings
-                    }
-                  }, { merge: true });
-                  
-                  console.log("パーソナリティ設定を保存しました:", updatedMypostSettings);
-                } catch (error) {
-                  console.error("パーソナリティ設定の保存に失敗:", error);
-                }
-              })();
-            }
-            
-            return {
-              ...prev,
-              mypost: { ...prev.mypost, ...migratedSettings }
-            };
-          });
-        }
+        setMyPostThemes(analysisResult.themes || []);
         
-        // 分析・更新によって、過去投稿一覧から個別に削除した記事のみをCSVデータから削除
+        // テーマ候補更新によって、過去投稿一覧から個別に削除した記事のみをCSVデータから削除
         try {
           // deletedPostIdentifiersに含まれている識別子の投稿をCSVから削除
           if (deletedPostIdentifiers.size > 0) {
-            console.log(`分析・更新: 削除された投稿の識別子数 = ${deletedPostIdentifiers.size}`);
+            console.log(`テーマ候補更新: 削除された投稿の識別子数 = ${deletedPostIdentifiers.size}`);
             
             // X投稿のCSVデータから削除
             if (csvData) {
@@ -4219,7 +4247,7 @@ export default function SNSGeneratorApp() {
                 const updatedCsvData = [header, ...filteredLines].join('\n');
                 
                 if (updatedCsvData !== csvData) {
-                  console.log(`分析・更新: X投稿のCSVデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
+                  console.log(`テーマ候補更新: X投稿のCSVデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
                   setCsvData(updatedCsvData);
                   
                   // Firestoreに保存
@@ -4285,7 +4313,7 @@ export default function SNSGeneratorApp() {
               const updatedBlogData = [header, ...filteredLines].join('\n');
               
               if (updatedBlogData !== blogData) {
-                console.log(`分析・更新: ブログデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
+                console.log(`テーマ候補更新: ブログデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
                 setBlogData(updatedBlogData);
                 
                 // Firestoreに保存
@@ -4638,26 +4666,38 @@ export default function SNSGeneratorApp() {
                           <span className="text-xs text-slate-700">ブログ</span>
                         </label>
                       </div>
-                      <button
-                        onClick={() => {
-                          if (selectedSection === 'analysis') {
-                            setSelectedSection(null);
-                          } else {
-                            setSelectedSection('analysis');
-                            setShowPostAnalysis(false);
-                          }
-                          handleUpdateThemes('mypost');
-                        }}
-                        disabled={isThemesLoading}
-                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
-                          selectedSection === 'analysis'
-                            ? 'bg-[#066099] text-white'
-                            : 'bg-[#066099] hover:bg-[#055080] text-white'
-                        }`}
-                      >
-                        {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12}/>}
-                        分析・更新
-                      </button>
+                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={() => {
+                            handleAnalyzePersonality();
+                          }}
+                          disabled={isThemesLoading}
+                          className="text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto bg-[#066099] hover:bg-[#055080] text-white"
+                        >
+                          {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <UserIcon size={12}/>}
+                          パーソナリティ分析
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (selectedSection === 'analysis') {
+                              setSelectedSection(null);
+                            } else {
+                              setSelectedSection('analysis');
+                              setShowPostAnalysis(false);
+                            }
+                            handleUpdateThemes('mypost');
+                          }}
+                          disabled={isThemesLoading}
+                          className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm w-full sm:w-auto ${
+                            selectedSection === 'analysis'
+                              ? 'bg-[#066099] text-white'
+                              : 'bg-[#066099] hover:bg-[#055080] text-white'
+                          }`}
+                        >
+                          {isThemesLoading ? <Loader2 size={12} className="animate-spin"/> : <Zap size={12}/>}
+                          テーマ候補更新
+                        </button>
+                      </div>
                     </div>
                     {parsedPosts.length > 0 && (
                       <>
