@@ -4164,157 +4164,135 @@ export default function SNSGeneratorApp() {
           });
         }
         
-        // 分析・更新によって、過去投稿一覧にないデータはCSVデータから削除
+        // 分析・更新によって、過去投稿一覧から個別に削除した記事のみをCSVデータから削除
         try {
-          // parsedPostsに含まれている投稿の識別子を取得
-          const validIdentifiers = new Set<string>();
-          parsedPosts.forEach((post) => {
-            const rawData = post.rawData || {};
-            const tweetId = post.tweet_id || 
-              post.tweetId || 
-              post['Tweet ID'] || 
-              post['TweetID'] || 
-              post['tweet_id'] ||
-              rawData.tweet_id ||
-              rawData.tweetId ||
-              rawData['Tweet ID'] ||
-              rawData['TweetID'] ||
-              rawData['tweet_id'] ||
-              '';
-            const url = post.URL || post.url || rawData.URL || rawData.url || '';
-            const hasTweetId = !!tweetId;
-            const hasUrl = !!url;
-            const isBlogPost = hasUrl && !hasTweetId;
+          // deletedPostIdentifiersに含まれている識別子の投稿をCSVから削除
+          if (deletedPostIdentifiers.size > 0) {
+            console.log(`分析・更新: 削除された投稿の識別子数 = ${deletedPostIdentifiers.size}`);
             
-            // 識別子を取得
-            const identifier = isBlogPost ? url : tweetId;
-            if (identifier) {
-              // URLの正規化（末尾のスラッシュを統一）
-              const normalizedIdentifier = identifier.replace(/\/$/, '');
-              validIdentifiers.add(normalizedIdentifier);
-            } else {
-              // 識別子がない場合は、内容の最初の50文字を識別子として使用
-              const contentIdentifier = `content:${(post.content || '').substring(0, 50).toLowerCase().trim()}`;
-              validIdentifiers.add(contentIdentifier);
+            // X投稿のCSVデータから削除
+            if (csvData) {
+              const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+              if (csvData !== defaultCsv) {
+                const lines = csvData.split('\n');
+                const header = lines[0];
+                const dataLines = lines.slice(1);
+                
+                // ヘッダーからtweet_id列のインデックスを取得
+                const headerValues = parseCsvRow(header);
+                const tweetIdColumnIndex = headerValues.findIndex((h: string) => {
+                  const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
+                  return normalized === 'tweet id' || normalized === 'tweet_id' || normalized === 'tweetid';
+                });
+                
+                const filteredLines = dataLines.filter((line) => {
+                  // 削除された投稿の識別子と一致する場合は削除
+                  if (tweetIdColumnIndex >= 0) {
+                    const values = parseCsvRow(line);
+                    const lineTweetId = values[tweetIdColumnIndex] || '';
+                    const normalizedLineTweetId = lineTweetId.trim().replace(/^"|"$/g, '').replace(/\/$/, '');
+                    
+                    // 削除された識別子に一致する場合は削除
+                    for (const deletedIdentifier of deletedPostIdentifiers) {
+                      const normalizedDeleted = deletedIdentifier.replace(/\/$/, '');
+                      if (normalizedLineTweetId && normalizedLineTweetId === normalizedDeleted) {
+                        return false; // 削除対象
+                      }
+                    }
+                  }
+                  
+                  // tweet_idがない場合は、内容で判定（フォールバック）
+                  const lineContent = line.toLowerCase();
+                  for (const deletedIdentifier of deletedPostIdentifiers) {
+                    if (deletedIdentifier.startsWith('content:')) {
+                      const contentMatch = deletedIdentifier.replace('content:', '');
+                      if (lineContent.includes(contentMatch)) {
+                        return false; // 削除対象
+                      }
+                    }
+                  }
+                  
+                  // 削除対象でない場合は保持
+                  return true;
+                });
+                
+                const updatedCsvData = [header, ...filteredLines].join('\n');
+                
+                if (updatedCsvData !== csvData) {
+                  console.log(`分析・更新: X投稿のCSVデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
+                  setCsvData(updatedCsvData);
+                  
+                  // Firestoreに保存
+                  await setDoc(doc(db, 'users', user.uid), {
+                    csvData: updatedCsvData
+                  }, { merge: true });
+                  
+                  // ローカルストレージも更新
+                  try {
+                    const encoded = btoa(unescape(encodeURIComponent(updatedCsvData)));
+                    localStorage.setItem(CSV_CACHE_KEY(user.uid), encoded);
+                  } catch (error) {
+                    console.error('ローカルストレージ更新エラー:', error);
+                  }
+                }
+              }
             }
-          });
-          
-          console.log(`分析・更新: 過去投稿一覧に含まれる投稿数 = ${parsedPosts.length}, 有効な識別子数 = ${validIdentifiers.size}`);
-          
-          // X投稿のCSVデータから削除
-          if (csvData) {
-            const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
-            if (csvData !== defaultCsv) {
-              const lines = csvData.split('\n');
+            
+            // ブログ投稿のデータから削除
+            if (blogData && blogData.trim()) {
+              const lines = blogData.split('\n');
               const header = lines[0];
               const dataLines = lines.slice(1);
               
-              // ヘッダーからtweet_id列のインデックスを取得
+              // ヘッダーからURL列のインデックスを取得
               const headerValues = parseCsvRow(header);
-              const tweetIdColumnIndex = headerValues.findIndex((h: string) => {
+              const urlColumnIndex = headerValues.findIndex((h: string) => {
                 const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
-                return normalized === 'tweet id' || normalized === 'tweet_id' || normalized === 'tweetid';
+                return normalized === 'url';
               });
               
               const filteredLines = dataLines.filter((line) => {
-                if (tweetIdColumnIndex >= 0) {
+                // 削除された投稿の識別子と一致する場合は削除
+                if (urlColumnIndex >= 0) {
                   const values = parseCsvRow(line);
-                  const lineTweetId = values[tweetIdColumnIndex] || '';
-                  const normalizedLineTweetId = lineTweetId.trim().replace(/^"|"$/g, '');
+                  const lineUrl = values[urlColumnIndex] || '';
+                  const normalizedLineUrl = lineUrl.trim().replace(/^"|"$/g, '').replace(/\/$/, '');
                   
-                  // 有効な識別子に含まれている場合は保持
-                  if (normalizedLineTweetId && validIdentifiers.has(normalizedLineTweetId)) {
-                    return true;
-                  }
-                }
-                
-                // tweet_idがない場合は、内容で判定（フォールバック）
-                const lineContent = line.toLowerCase();
-                for (const identifier of validIdentifiers) {
-                  if (identifier.startsWith('content:')) {
-                    const contentMatch = identifier.replace('content:', '');
-                    if (lineContent.includes(contentMatch)) {
-                      return true;
+                  // 削除された識別子に一致する場合は削除
+                  for (const deletedIdentifier of deletedPostIdentifiers) {
+                    const normalizedDeleted = deletedIdentifier.replace(/\/$/, '');
+                    if (normalizedLineUrl && normalizedLineUrl === normalizedDeleted) {
+                      return false; // 削除対象
                     }
                   }
                 }
                 
-                // 有効な識別子に一致しない場合は削除
-                return false;
+                // URLがない場合は、内容で判定（フォールバック）
+                const lineContent = line.toLowerCase();
+                for (const deletedIdentifier of deletedPostIdentifiers) {
+                  if (deletedIdentifier.startsWith('content:')) {
+                    const contentMatch = deletedIdentifier.replace('content:', '');
+                    if (lineContent.includes(contentMatch)) {
+                      return false; // 削除対象
+                    }
+                  }
+                }
+                
+                // 削除対象でない場合は保持
+                return true;
               });
               
-              const updatedCsvData = [header, ...filteredLines].join('\n');
+              const updatedBlogData = [header, ...filteredLines].join('\n');
               
-              if (updatedCsvData !== csvData) {
-                console.log(`分析・更新: X投稿のCSVデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
-                setCsvData(updatedCsvData);
+              if (updatedBlogData !== blogData) {
+                console.log(`分析・更新: ブログデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
+                setBlogData(updatedBlogData);
                 
                 // Firestoreに保存
                 await setDoc(doc(db, 'users', user.uid), {
-                  csvData: updatedCsvData
+                  blogData: updatedBlogData
                 }, { merge: true });
-                
-                // ローカルストレージも更新
-                try {
-                  const encoded = btoa(unescape(encodeURIComponent(updatedCsvData)));
-                  localStorage.setItem(CSV_CACHE_KEY(user.uid), encoded);
-                } catch (error) {
-                  console.error('ローカルストレージ更新エラー:', error);
-                }
               }
-            }
-          }
-          
-          // ブログ投稿のデータから削除
-          if (blogData && blogData.trim()) {
-            const lines = blogData.split('\n');
-            const header = lines[0];
-            const dataLines = lines.slice(1);
-            
-            // ヘッダーからURL列のインデックスを取得
-            const headerValues = parseCsvRow(header);
-            const urlColumnIndex = headerValues.findIndex((h: string) => {
-              const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
-              return normalized === 'url';
-            });
-            
-            const filteredLines = dataLines.filter((line) => {
-              if (urlColumnIndex >= 0) {
-                const values = parseCsvRow(line);
-                const lineUrl = values[urlColumnIndex] || '';
-                const normalizedLineUrl = lineUrl.trim().replace(/^"|"$/g, '').replace(/\/$/, '');
-                
-                // 有効な識別子に含まれている場合は保持
-                if (normalizedLineUrl && validIdentifiers.has(normalizedLineUrl)) {
-                  return true;
-                }
-              }
-              
-              // URLがない場合は、内容で判定（フォールバック）
-              const lineContent = line.toLowerCase();
-              for (const identifier of validIdentifiers) {
-                if (identifier.startsWith('content:')) {
-                  const contentMatch = identifier.replace('content:', '');
-                  if (lineContent.includes(contentMatch)) {
-                    return true;
-                  }
-                }
-              }
-              
-              // 有効な識別子に一致しない場合は削除
-              return false;
-            });
-            
-            const updatedBlogData = [header, ...filteredLines].join('\n');
-            
-            if (updatedBlogData !== blogData) {
-              console.log(`分析・更新: ブログデータを更新 (${dataLines.length}行 → ${filteredLines.length}行)`);
-              setBlogData(updatedBlogData);
-              
-              // Firestoreに保存
-              await setDoc(doc(db, 'users', user.uid), {
-                blogData: updatedBlogData
-              }, { merge: true });
             }
           }
         } catch (cleanupError) {
