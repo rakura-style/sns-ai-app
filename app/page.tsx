@@ -3350,9 +3350,25 @@ export default function SNSGeneratorApp() {
           }
         }
         
-        // デバッグログ（最初の5行のみ）
+        // デバッグログ（最初の5行のみ）- 詳細版
         if (i <= 5) {
-          console.log(`行${i}: textColumnIndex =`, textColumnIndex, 'textValue長 =', textValue?.length || 0, 'textValue先頭50文字 =', textValue?.substring(0, 50), 'values[textColumnIndex] =', values[textColumnIndex]?.substring(0, 50) || '(空)', 'values.length =', values.length);
+          console.log('=== CSVパースデバッグ（行' + i + '） ===');
+          console.log('元の行データ（最初の200文字）:', row.substring(0, 200));
+          console.log('textColumnIndex:', textColumnIndex);
+          console.log('values配列の長さ:', values.length);
+          console.log('ヘッダーの数:', headers.length);
+          console.log('values配列の内容:', values.map((v, idx) => ({
+            index: idx,
+            header: headers[idx] || '(なし)',
+            value: v?.substring(0, 100) || '(空)',
+            length: v?.length || 0
+          })));
+          console.log('values[textColumnIndex]:', values[textColumnIndex]?.substring(0, 100) || '(空)', '長さ:', values[textColumnIndex]?.length || 0);
+          console.log('抽出されたtextValue:', textValue?.substring(0, 100) || '(空)', '長さ:', textValue?.length || 0);
+          console.log('postオブジェクトのキー:', Object.keys(post));
+          console.log('post[text]:', post['text']?.substring(0, 100) || '(空)');
+          console.log('post[content]:', post['content']?.substring(0, 100) || '(空)');
+          console.log('==========================================');
         }
         
         // 大文字小文字に関わらず取得できるように、両方のキーで設定
@@ -3456,9 +3472,19 @@ export default function SNSGeneratorApp() {
         // text列の値を取得（複数のキーを試す）
         const textVal = post['text'] || post['Text'] || post['content'] || post['Content'] || post[headers[textColumnIndex]];
         
-        // デバッグログ（最初の5行のみ）
+        // デバッグログ（最初の5行のみ）- 詳細版
         if (i <= 5) {
-          console.log(`行${i}: hasTextColumn =`, hasTextColumn, 'textColumnIndex =', textColumnIndex, 'textVal =', textVal?.substring(0, 50), 'post[text] =', post['text']?.substring(0, 50), 'post[content] =', post['content']?.substring(0, 50));
+          console.log('=== content抽出デバッグ（行' + i + '） ===');
+          console.log('hasTextColumn:', hasTextColumn);
+          console.log('textColumnIndex:', textColumnIndex);
+          console.log('textVal:', textVal?.substring(0, 100) || '(空)', '長さ:', textVal?.length || 0);
+          console.log('post[text]:', post['text']?.substring(0, 100) || '(空)', '長さ:', post['text']?.length || 0);
+          console.log('post[content]:', post['content']?.substring(0, 100) || '(空)', '長さ:', post['content']?.length || 0);
+          console.log('post[Text]:', post['Text']?.substring(0, 100) || '(空)');
+          console.log('post[Content]:', post['Content']?.substring(0, 100) || '(空)');
+          console.log('post[Post Content]:', post['Post Content']?.substring(0, 100) || '(空)');
+          console.log('最終的なcontent:', content?.substring(0, 100) || '(空)', '長さ:', content?.length || 0);
+          console.log('========================================');
         }
         
         if (textVal !== undefined && textVal !== null && textVal !== '') {
@@ -3680,6 +3706,19 @@ export default function SNSGeneratorApp() {
     
     setIsCsvLoading(true);
     const startTime = performance.now();
+    
+    // デバッグ: CSVデータの基本情報を出力
+    console.log('=== CSVファイル読み込み開始 ===');
+    console.log('CSVデータのサイズ:', csvText.length, '文字');
+    console.log('CSVデータの行数:', csvText.split('\n').length);
+    console.log('CSVデータの最初の500文字:');
+    console.log(csvText.substring(0, 500));
+    console.log('CSVデータの最初の5行:');
+    const firstLines = csvText.split('\n').slice(0, 5);
+    firstLines.forEach((line, idx) => {
+      console.log(`行${idx + 1}:`, line.substring(0, 200));
+    });
+    console.log('============================');
     
     // 変数を外側で定義（スコープの問題を解決）
     let parsed: any[] = [];
