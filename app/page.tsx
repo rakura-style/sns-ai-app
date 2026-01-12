@@ -3274,9 +3274,11 @@ export default function SNSGeneratorApp() {
     text = text.replace(/<[^>]+>/g, '');
     
     // HTMLエンティティをデコード（ブラウザ環境の場合）
+    // セキュリティ: innerHTMLの代わりにtextContentを使用してXSSを防止
     if (typeof document !== 'undefined') {
       const textarea = document.createElement('textarea');
-      textarea.innerHTML = text;
+      // innerHTMLの代わりにtextContentを使用（XSS対策）
+      textarea.textContent = text;
       text = textarea.value;
     } else {
       // Node.js環境の場合（サーバーサイド）

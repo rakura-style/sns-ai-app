@@ -892,9 +892,37 @@ async function collectArticleUrls(baseUrl: string, maxPosts: number = 50): Promi
 }
 */
 
+// セキュリティ: URLの検証関数
+function isValidUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    // httpとhttpsのみ許可
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+// セキュリティ: URLのホワイトリスト（必要に応じて制限）
+const ALLOWED_DOMAINS: string[] = []; // 空の場合は全てのドメインを許可
+
+function isAllowedDomain(urlString: string): boolean {
+  if (ALLOWED_DOMAINS.length === 0) return true; // ホワイトリストが空の場合は全て許可
+  
+  try {
+    const url = new URL(urlString);
+    return ALLOWED_DOMAINS.some(domain => url.hostname === domain || url.hostname.endsWith('.' + domain));
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { blogUrl, maxPosts = 50, forceRefresh = false, userId } = await request.json();
+    let { blogUrl, maxPosts = 50, forceRefresh = false, userId } = await request.json();
+    
+    // セキュリティ: maxPostsの検証（過度に大きな値を防ぐ）
+    maxPosts = Math.min(Math.max(1, parseInt(String(maxPosts), 10) || 50), 100);
     
     if (!blogUrl || !userId) {
       return NextResponse.json(
@@ -909,15 +937,27 @@ export async function POST(request: NextRequest) {
       baseUrl = baseUrl.slice(0, -1);
     }
     
-    // URLの検証
-    try {
-      new URL(baseUrl);
-    } catch (e) {
+    // セキュリティ: URLの検証を強化
+    if (!isValidUrl(baseUrl)) {
       return NextResponse.json(
         { error: '無効なURLです' },
         { status: 400 }
       );
     }
+
+    // セキュリティ: ドメインホワイトリストのチェック（設定されている場合）
+    if (!isAllowedDomain(baseUrl)) {
+      return NextResponse.json(
+        { error: '許可されていないドメインです' },
+        { status: 403 }
+      );
+    }
+
+    // セキュリティ: maxPostsの検証（過度に大きな値を防ぐ）
+    const validatedMaxPosts = Math.min(Math.max(1, parseInt(String(maxPosts), 10) || 50), 100);
+    
+    // validatedMaxPostsを使用するようにmaxPostsを更新
+    maxPosts = validatedMaxPosts;
     
     // キャッシュチェック（クライアント側でFirestoreから取得するため、ここではスキップ）
     // キャッシュはクライアント側で管理

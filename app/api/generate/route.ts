@@ -26,9 +26,24 @@ export async function POST(req: Request) {
 
 
     // ---------------------------------------------------------
-    // 2. リクエスト情報の取得
+    // 2. リクエスト情報の取得と検証
     // ---------------------------------------------------------
     const { prompt, actionType } = await req.json(); // actionType: 'post' | 'theme'
+
+    // セキュリティ: 入力値の検証
+    if (!prompt || typeof prompt !== 'string') {
+      return new NextResponse(JSON.stringify({ error: 'Prompt is required' }), { status: 400 });
+    }
+
+    // セキュリティ: プロンプトの長さ制限（過度に長いプロンプトを防ぐ）
+    if (prompt.length > 50000) {
+      return new NextResponse(JSON.stringify({ error: 'Prompt exceeds maximum length' }), { status: 400 });
+    }
+
+    // セキュリティ: actionTypeの検証
+    if (actionType !== 'post' && actionType !== 'theme') {
+      return new NextResponse(JSON.stringify({ error: 'Invalid actionType' }), { status: 400 });
+    }
 
 
     // ---------------------------------------------------------

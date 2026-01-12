@@ -16,8 +16,23 @@ export async function POST(req: Request) {
 
     const { content, accessToken } = await req.json();
 
-    if (!content || !accessToken) {
-      return NextResponse.json({ error: 'Content and accessToken are required' }, { status: 400 });
+    // セキュリティ: 入力値の検証
+    if (!content || typeof content !== 'string') {
+      return NextResponse.json({ error: 'Content is required' }, { status: 400 });
+    }
+
+    // セキュリティ: コンテンツの長さ制限（Facebookの投稿制限: 63,206文字）
+    if (content.length > 63206) {
+      return NextResponse.json({ error: 'Content exceeds maximum length' }, { status: 400 });
+    }
+
+    // セキュリティ: 空文字列のチェック
+    if (content.trim().length === 0) {
+      return NextResponse.json({ error: 'Content cannot be empty' }, { status: 400 });
+    }
+
+    if (!accessToken || typeof accessToken !== 'string') {
+      return NextResponse.json({ error: 'AccessToken is required' }, { status: 400 });
     }
 
     // Facebook Graph APIを使って投稿
@@ -38,10 +53,11 @@ export async function POST(req: Request) {
 
     if (!response.ok) {
       console.error('Facebook API Error:', data);
+      // セキュリティ: 詳細なエラー情報をクライアントに返さない
+      // ユーザー向けの汎用的なメッセージのみを返す
       return NextResponse.json({ 
-        error: data.error?.message || 'Facebookへの投稿に失敗しました',
-        errorDetails: data.error
-      }, { status: response.status });
+        error: 'Facebookへの投稿に失敗しました'
+      }, { status: 500 });
     }
 
     return NextResponse.json({ 
