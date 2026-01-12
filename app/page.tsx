@@ -3304,62 +3304,87 @@ export default function SNSGeneratorApp() {
         // パースに失敗した場合、フォールバックとして行データから直接抽出を試みる
         if (!textValue || textValue === '') {
           // 方法1: tweet_idの次から、,jaの前までを取得（XのCSVデータの形式に対応）
-          // tweet_id列の位置を特定
-          let tweetIdStartIndex = -1;
-          let tweetIdEndIndex = -1;
+          // 改行を含む可能性があるため、行全体から直接抽出
           
-          if (tweetIdColumnIndex >= 0) {
-            // tweet_id列の開始位置を特定（カンマカウントで）
-            let commaCount = 0;
-            let inQuotes = false;
-            
-            for (let j = 0; j < row.length; j++) {
-              const char = row[j];
-              const nextChar = j + 1 < row.length ? row[j + 1] : null;
-              
-              if (char === '"') {
-                if (inQuotes && nextChar === '"') {
-                  j++; // エスケープされたダブルクォートをスキップ
-                  continue;
-                }
-                inQuotes = !inQuotes;
-              } else if (char === ',' && !inQuotes) {
-                if (commaCount === tweetIdColumnIndex) {
-                  tweetIdEndIndex = j; // tweet_id列の終了位置（次のカンマの位置）
+          // tweet_id列の終了位置を特定
+          // tweet_idは通常、シングルクォートで囲まれている: '2007298478318481583'
+          let tweetIdEndIndex = -1;
+          let inSingleQuotes = false;
+          
+          // シングルクォートで囲まれたtweet_idを探す
+          for (let j = 0; j < row.length; j++) {
+            const char = row[j];
+            if (char === "'" && !inSingleQuotes) {
+              inSingleQuotes = true;
+            } else if (char === "'" && inSingleQuotes) {
+              // シングルクォートの終了
+              // 次のカンマの位置を探す（空白をスキップ）
+              for (let k = j + 1; k < row.length; k++) {
+                if (row[k] === ',') {
+                  tweetIdEndIndex = k;
+                  break;
+                } else if (row[k] !== ' ' && row[k] !== '\t') {
+                  // 空白以外の文字が見つかった場合は、カンマがない可能性がある
                   break;
                 }
-                if (commaCount === tweetIdColumnIndex - 1) {
-                  tweetIdStartIndex = j + 1; // tweet_id列の開始位置
-                }
-                commaCount++;
               }
+              break;
             }
           }
           
-          // tweet_id列が見つからない場合は、最初のカンマの後から開始
+          // シングルクォートが見つからない場合は、最初のカンマの位置を使用
           if (tweetIdEndIndex < 0) {
             tweetIdEndIndex = row.indexOf(',');
           }
           
           // ,ja を探す（改行を含む可能性があるため、正規表現を使用）
-          // ,ja の前には改行やカンマが含まれる可能性があるため、より柔軟に検索
-          const jaPattern = /,ja(?=,|$|\n|,Tweet|,Reply|,Retweet)/;
-          const jaMatch = row.match(jaPattern);
+          // テキストフィールド内の,jaは除外する必要があるため、ダブルクォート外の,jaを探す
+          let jaMatchIndex = -1;
+          let inDoubleQuotes = false;
           
-          if (tweetIdEndIndex >= 0 && jaMatch && jaMatch.index !== undefined && jaMatch.index > tweetIdEndIndex) {
+          for (let j = tweetIdEndIndex + 1; j < row.length; j++) {
+            const char = row[j];
+            const nextChar = j + 1 < row.length ? row[j + 1] : null;
+            
+            if (char === '"') {
+              if (inDoubleQuotes && nextChar === '"') {
+                j++; // エスケープされたダブルクォートをスキップ
+                continue;
+              }
+              inDoubleQuotes = !inDoubleQuotes;
+            } else if (!inDoubleQuotes && char === ',' && nextChar === 'j' && j + 2 < row.length && row[j + 2] === 'a') {
+              // ダブルクォート外で,jaが見つかった
+              // 次の文字がカンマ、Tweet、Reply、Retweet、または行末か確認
+              const afterJa = j + 3;
+              if (afterJa >= row.length || row[afterJa] === ',' || row[afterJa] === '\n' || 
+                  row.substring(afterJa, afterJa + 5) === ',Tweet' ||
+                  row.substring(afterJa, afterJa + 6) === ',Reply' ||
+                  row.substring(afterJa, afterJa + 8) === ',Retweet') {
+                jaMatchIndex = j;
+                break;
+              }
+            }
+          }
+          
+          if (tweetIdEndIndex >= 0 && jaMatchIndex > tweetIdEndIndex) {
             // tweet_id列の次の文字（カンマの後）から、,jaの前までを抽出
-            textValue = row.slice(tweetIdEndIndex + 1, jaMatch.index);
+            let rawTextValue = row.slice(tweetIdEndIndex + 1, jaMatchIndex);
             
             // 先頭と末尾のダブルクォートを除去
-            if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
-              textValue = textValue.slice(1, -1).replace(/""/g, '"');
+            if (rawTextValue.startsWith('"') && rawTextValue.endsWith('"') && rawTextValue.length >= 2) {
+              rawTextValue = rawTextValue.slice(1, -1).replace(/""/g, '"');
             }
             // 前後の空白を除去
-            textValue = textValue.trim();
+            textValue = rawTextValue.trim();
             
             // デバッグログ
             if (i <= 5) {
               console.log(`行${i}: 方法1で抽出成功（tweet_idの次から,jaまで） - textValue長 =`, textValue.length, '先頭50文字 =', textValue.substring(0, 50));
+            }
+          } else {
+            // デバッグログ
+            if (i <= 5) {
+              console.log(`行${i}: 方法1で抽出失敗 - tweetIdEndIndex =`, tweetIdEndIndex, 'jaMatchIndex =', jaMatchIndex);
             }
           }
           
