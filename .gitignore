@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Google Cloud Service Account credentials
+*-f935e1ca6689.json
+*service-account*.json
+*credentials*.json
+
 # vercel
 .vercel
 
