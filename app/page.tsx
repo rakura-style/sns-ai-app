@@ -1809,16 +1809,56 @@ export default function SNSGeneratorApp() {
     }, 0);
   };
 
-  // CSVを分割してFirestoreに保存する関数（1MB以上のデータは自動で800KBずつ分割）
+  // CSVを分割してFirestoreに保存する関数（1MB以上のデータは自動で700KBずつ分割）
   const saveCsvToFirestore = async (userId: string, csvData: string, dateStr: string): Promise<string> => {
     const ONE_MB = 1024 * 1024; // 1MB
-    const CHUNK_SIZE = 800 * 1024; // 800KB（Firestoreの1MB制限を考慮して余裕を持たせる）
+    const FIRESTORE_MAX_DOC_SIZE = 1048487; // Firestoreの1つのドキュメントの最大サイズ（約1MB）
+    const CHUNK_SIZE = 700 * 1024; // 700KB（他のフィールドのサイズを考慮して余裕を持たせる）
     const FIRESTORE_MAX_FIELD_SIZE = 1048487; // Firestoreの1つのフィールドの最大サイズ（約1MB）
     const dataSize = new Blob([csvData]).size;
     
-    // 1MB以上の場合は自動で800KBずつ分割して保存
-    if (dataSize >= ONE_MB) {
-      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → 800KBずつ自動分割して保存`);
+    // 既存のドキュメントを読み込んで、他のフィールドのサイズを確認
+    let existingDocSize = 0;
+    try {
+      const docRef = doc(db, 'users', userId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const existingData = docSnap.data();
+        // 他のフィールドのサイズを計算（blogData、blogUrls、blogUrlDatesなど）
+        const otherFields = ['blogData', 'blogUrls', 'blogUrlDates', 'sitemapUrl', 'noteUrl', 'settings', 'themes', 'myPostThemes'];
+        for (const field of otherFields) {
+          if (existingData[field]) {
+            const fieldSize = new Blob([JSON.stringify(existingData[field])]).size;
+            existingDocSize += fieldSize;
+          }
+        }
+        // 分割されたblogDataのチャンクも考慮
+        if (existingData.blogIsSplit && existingData.blogChunkCount) {
+          for (let i = 0; i < existingData.blogChunkCount; i++) {
+            const chunkKey = i === 0 ? 'blogData' : `blogData_${i}`;
+            if (existingData[chunkKey]) {
+              existingDocSize += new Blob([existingData[chunkKey]]).size;
+            }
+          }
+        }
+        console.log(`既存ドキュメントのサイズ（CSV以外）: ${(existingDocSize / 1024).toFixed(2)} KB`);
+      }
+    } catch (error) {
+      console.warn('既存ドキュメントの読み込みエラー（無視）:', error);
+    }
+    
+    // 利用可能なサイズを計算（1MB - 既存データサイズ - メタデータ用の余裕）
+    const METADATA_SIZE = 50 * 1024; // メタデータ用の余裕（50KB）
+    const availableSize = FIRESTORE_MAX_DOC_SIZE - existingDocSize - METADATA_SIZE;
+    const adjustedChunkSize = Math.min(CHUNK_SIZE, Math.max(500 * 1024, availableSize)); // 最小500KB、最大700KB
+    
+    console.log(`利用可能なサイズ: ${(availableSize / 1024).toFixed(2)} KB, 調整後のチャンクサイズ: ${(adjustedChunkSize / 1024).toFixed(2)} KB`);
+    
+    // 1MB以上の場合は自動で分割して保存
+    // または、既存データと合わせて1MBを超える場合も分割
+    if (dataSize >= ONE_MB || (existingDocSize + dataSize + METADATA_SIZE) > FIRESTORE_MAX_DOC_SIZE) {
+      const totalSize = existingDocSize + dataSize + METADATA_SIZE;
+      console.log(`CSVデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB, 合計サイズ: ${(totalSize / 1024 / 1024).toFixed(2)} MB → ${(adjustedChunkSize / 1024).toFixed(2)}KBずつ自動分割して保存`);
       
       // CSVをヘッダーとデータ行に分割
       const lines = csvData.split('\n');
@@ -1829,7 +1869,7 @@ export default function SNSGeneratorApp() {
       const header = lines[0];
       const dataLines = lines.slice(1);
       
-      // チャンクに分割（各チャンクは800KB以下）
+      // チャンクに分割（各チャンクは調整後のサイズ以下）
       const chunks: string[] = [];
       let currentChunk = header + '\n';
       let currentSize = new Blob([currentChunk]).size;
@@ -1838,8 +1878,8 @@ export default function SNSGeneratorApp() {
         const lineWithNewline = line + '\n';
         const lineSize = new Blob([lineWithNewline]).size;
         
-        // 現在のチャンクに追加すると800KBを超える場合
-        if (currentSize + lineSize > CHUNK_SIZE && currentChunk !== header + '\n') {
+        // 現在のチャンクに追加すると調整後のサイズを超える場合
+        if (currentSize + lineSize > adjustedChunkSize && currentChunk !== header + '\n') {
           // 現在のチャンクを保存
           chunks.push(currentChunk);
           currentChunk = header + '\n';
@@ -1855,7 +1895,7 @@ export default function SNSGeneratorApp() {
         chunks.push(currentChunk);
       }
       
-      console.log(`${chunks.length}個のチャンクに分割しました（各チャンクは約800KB）`);
+      console.log(`${chunks.length}個のチャンクに分割しました（各チャンクは約${(adjustedChunkSize / 1024).toFixed(2)}KB）`);
       
       // 各チャンクのサイズを確認（デバッグ用）
       let hasOversizedChunk = false;
@@ -1876,7 +1916,7 @@ export default function SNSGeneratorApp() {
         throw new Error('一部のチャンクがFirestoreのサイズ制限を超えています。データを確認してください。');
       }
       
-      // 各チャンクをFirestoreに保存
+      // 各チャンクをFirestoreに保存（既存のデータと合わせて1MBを超えないように注意）
       const saveData: any = {
         csvUploadDate: dateStr,
         csvUpdatedTime: dateStr,
@@ -1884,26 +1924,112 @@ export default function SNSGeneratorApp() {
         csvIsSplit: true
       };
       
+      // チャンクを1つずつ保存して、ドキュメントサイズを確認
       for (let i = 0; i < chunks.length; i++) {
         const chunkKey = i === 0 ? 'csvData' : `csvData_${i}`;
         saveData[chunkKey] = chunks[i];
+        
+        // 保存前のドキュメントサイズを確認
+        const estimatedDocSize = new Blob([JSON.stringify(saveData)]).size + existingDocSize;
+        if (estimatedDocSize > FIRESTORE_MAX_DOC_SIZE) {
+          console.warn(`警告: チャンク${i}を追加するとドキュメントサイズが${(estimatedDocSize / 1024 / 1024).toFixed(2)}MBになります。`);
+          // それでも保存を試みる（Firestoreがエラーを返す可能性がある）
+        }
       }
       
-      await setDoc(doc(db, 'users', userId), saveData, { merge: true });
-      
-      console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
-      
-      return dateStr;
+      // 一度に保存（merge: trueを使用）
+      try {
+        await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+        console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
+        return dateStr;
+      } catch (saveError: any) {
+        // 容量超過エラーを検出
+        if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
+          const estimatedSize = (existingDocSize + dataSize + METADATA_SIZE) / 1024 / 1024;
+          throw new Error(`データの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\n現在のデータサイズ: 約${estimatedSize.toFixed(2)}MB\n制限: 1MB\n\n対処方法:\n1. 古いデータを削除してください\n2. データを分割して取り込んでください\n3. ブログデータを削除してから再度試してください`);
+        }
+        throw saveError;
+      }
     } else {
-      // 1MB未満は通常通り保存
-      await setDoc(doc(db, 'users', userId), {
-        csvData: csvData,
-        csvUploadDate: dateStr,
-        csvUpdatedTime: dateStr,
-        csvIsSplit: false
-      }, { merge: true });
-      
-      return dateStr;
+      // 1MB未満でも、既存データと合わせて1MBを超える場合は分割
+      const totalSize = existingDocSize + dataSize + METADATA_SIZE;
+      if (totalSize > FIRESTORE_MAX_DOC_SIZE) {
+        console.log(`CSVデータは1MB未満ですが、既存データと合わせて${(totalSize / 1024 / 1024).toFixed(2)}MBになるため分割保存します`);
+        
+        // 分割処理を実行
+        const lines = csvData.split('\n');
+        if (lines.length < 2) {
+          throw new Error('CSVデータが不正です');
+        }
+        
+        const header = lines[0];
+        const dataLines = lines.slice(1);
+        const chunks: string[] = [];
+        let currentChunk = header + '\n';
+        let currentSize = new Blob([currentChunk]).size;
+        
+        for (const line of dataLines) {
+          const lineWithNewline = line + '\n';
+          const lineSize = new Blob([lineWithNewline]).size;
+          
+          if (currentSize + lineSize > adjustedChunkSize && currentChunk !== header + '\n') {
+            chunks.push(currentChunk);
+            currentChunk = header + '\n';
+            currentSize = new Blob([currentChunk]).size;
+          }
+          
+          currentChunk += lineWithNewline;
+          currentSize += lineSize;
+        }
+        
+        if (currentChunk !== header + '\n') {
+          chunks.push(currentChunk);
+        }
+        
+        const saveData: any = {
+          csvUploadDate: dateStr,
+          csvUpdatedTime: dateStr,
+          csvChunkCount: chunks.length,
+          csvIsSplit: true
+        };
+        
+        for (let i = 0; i < chunks.length; i++) {
+          const chunkKey = i === 0 ? 'csvData' : `csvData_${i}`;
+          saveData[chunkKey] = chunks[i];
+        }
+        
+        try {
+          await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+          console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
+          return dateStr;
+        } catch (saveError: any) {
+          // 容量超過エラーを検出
+          if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
+            const estimatedSize = (existingDocSize + dataSize + METADATA_SIZE) / 1024 / 1024;
+            throw new Error(`データの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\n現在のデータサイズ: 約${estimatedSize.toFixed(2)}MB\n制限: 1MB\n\n対処方法:\n1. 古いデータを削除してください\n2. データを分割して取り込んでください\n3. ブログデータを削除してから再度試してください`);
+          }
+          throw saveError;
+        }
+      } else {
+        // 1MB未満で、既存データと合わせても1MB未満の場合は通常通り保存
+        try {
+          await setDoc(doc(db, 'users', userId), {
+            csvData: csvData,
+            csvUploadDate: dateStr,
+            csvUpdatedTime: dateStr,
+            csvIsSplit: false
+          }, { merge: true });
+          
+          return dateStr;
+        } catch (saveError: any) {
+          // 容量超過エラーを検出
+          if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
+            const estimatedSize = (existingDocSize + dataSize + METADATA_SIZE) / 1024 / 1024;
+            throw new Error(`データの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\n現在のデータサイズ: 約${estimatedSize.toFixed(2)}MB\n制限: 1MB\n\n対処方法:\n1. 古いデータを削除してください\n2. データを分割して取り込んでください\n3. ブログデータを削除してから再度試してください`);
+          }
+          throw saveError;
+        }
+      }
     }
   };
 
@@ -2027,19 +2153,36 @@ export default function SNSGeneratorApp() {
         saveData[chunkKey] = chunks[i];
       }
       
-      await setDoc(doc(db, 'users', userId), saveData, { merge: true });
-      console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
-      
-      return dateStr;
+      try {
+        await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+        console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
+        return dateStr;
+      } catch (saveError: any) {
+        // 容量超過エラーを検出
+        if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
+          const estimatedSize = dataSize / 1024 / 1024;
+          throw new Error(`ブログデータの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\nブログデータサイズ: 約${estimatedSize.toFixed(2)}MB\n制限: 1MB\n\n対処方法:\n1. 古いブログデータを削除してください\n2. 取り込むURLの数を減らしてください（1回あたり50件以下を推奨）\n3. CSVデータを削除してから再度試してください`);
+        }
+        throw saveError;
+      }
     } else {
-      await setDoc(doc(db, 'users', userId), {
-        blogData: blogData,
-        blogUploadDate: dateStr,
-        blogUpdatedTime: dateStr,
-        blogIsSplit: false
-      }, { merge: true });
-      
-      return dateStr;
+      try {
+        await setDoc(doc(db, 'users', userId), {
+          blogData: blogData,
+          blogUploadDate: dateStr,
+          blogUpdatedTime: dateStr,
+          blogIsSplit: false
+        }, { merge: true });
+        
+        return dateStr;
+      } catch (saveError: any) {
+        // 容量超過エラーを検出
+        if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
+          const estimatedSize = dataSize / 1024 / 1024;
+          throw new Error(`ブログデータの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\nブログデータサイズ: 約${estimatedSize.toFixed(2)}MB\n制限: 1MB\n\n対処方法:\n1. 古いブログデータを削除してください\n2. 取り込むURLの数を減らしてください（1回あたり50件以下を推奨）\n3. CSVデータを削除してから再度試してください`);
+        }
+        throw saveError;
+      }
     }
   };
 
@@ -3003,7 +3146,15 @@ export default function SNSGeneratorApp() {
       console.error('Blog import error:', error);
       const errorDetails = error.stack || error.message || String(error);
       console.error('エラー詳細:', errorDetails);
-      alert(`ブログの取り込みに失敗しました: ${error.message}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+      
+      // 容量超過エラーの場合は詳細なメッセージを表示
+      if (error.message && error.message.includes('容量制限')) {
+        alert(error.message);
+      } else if (error.message && error.message.includes('exceeds the maximum allowed size')) {
+        alert(`ブログデータの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\n制限: 1MB\n\n対処方法:\n1. 古いブログデータを削除してください\n2. 取り込むURLの数を減らしてください（1回あたり50件以下を推奨）\n3. CSVデータを削除してから再度試してください`);
+      } else {
+        alert(`ブログの取り込みに失敗しました: ${error.message}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+      }
       setBlogImportProgress(`エラー: ${error.message}`);
     } finally {
       setIsBlogImporting(false);
@@ -3949,11 +4100,20 @@ export default function SNSGeneratorApp() {
           alert(`${parsed.length}件のデータ（${sizeInMB} MB）を取り込みました。`);
         }
       } catch (saveError: any) {
-        console.error("Firestore保存エラー（部分的な保存を試みます）:", saveError);
+        console.error("Firestore保存エラー:", saveError);
         
-        // 保存エラーが発生した場合でも、メモリ上のデータは保持
-        const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
-        alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n保存時にエラーが発生しましたが、メモリ上にはデータが保持されています。`);
+        // 容量超過エラーの場合は詳細なメッセージを表示
+        if (saveError.message && saveError.message.includes('容量制限')) {
+          alert(saveError.message);
+        } else if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
+          // Firestoreのエラーメッセージから容量超過を検出
+          const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
+          alert(`データの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\nCSVデータサイズ: 約${sizeInMB}MB\n制限: 1MB\n\n対処方法:\n1. 古いデータを削除してください\n2. データを分割して取り込んでください\n3. ブログデータを削除してから再度試してください\n\n※メモリ上にはデータが保持されていますが、次回の読み込み時には失われます。`);
+        } else {
+          // その他のエラーの場合
+          const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
+          alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n保存時にエラーが発生しました: ${saveError.message || '不明なエラー'}\n\n※メモリ上にはデータが保持されていますが、次回の読み込み時には失われます。`);
+        }
       }
     } catch (err: any) {
       console.error("CSV処理エラー:", err);
@@ -5393,6 +5553,12 @@ export default function SNSGeneratorApp() {
                           const trimmedContent = content.replace(/^[\s\n\r\t]+/, '');
                           // "@"で始まる場合を除外
                           if (trimmedContent.startsWith('@')) {
+                            return false;
+                          }
+                          
+                          // ハッシュタグから始まる投稿も除外（リツイートと返信を削除する場合）
+                          // 先頭の空白や改行を除いた後に"#"で始まる
+                          if (trimmedContent.startsWith('#')) {
                             return false;
                           }
                         }
