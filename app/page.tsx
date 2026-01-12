@@ -1637,6 +1637,11 @@ export default function SNSGeneratorApp() {
   const [showSitemapUrlModal, setShowSitemapUrlModal] = useState(false); // サイトマップURL選択モーダル
   const [blogImportMode, setBlogImportMode] = useState<'append' | 'replace'>('append'); // 追加/上書きモード
   
+  // note URLと単独記事URL用の状態
+  const [noteUrl, setNoteUrl] = useState(''); // noteプロフィールURL
+  const [isNoteLoading, setIsNoteLoading] = useState(false); // note URL取得中
+  const [singleArticleUrl, setSingleArticleUrl] = useState(''); // 単独記事URL
+  
   // ファイル選択後のモード選択ダイアログ
   const [showCsvModeSelectModal, setShowCsvModeSelectModal] = useState(false);
   const [pendingCsvFileData, setPendingCsvFileData] = useState<string>('');
@@ -2119,6 +2124,40 @@ export default function SNSGeneratorApp() {
       const existingUrlsSet = new Set(blogUrls);
       const filteredUrls = data.urls.filter((item: { url: string; date: string; title?: string }) => !existingUrlsSet.has(item.url));
       
+      // タイトルがないURLに対してタイトルを取得
+      const urlsWithoutTitle = filteredUrls.filter((item: { url: string; date: string; title?: string }) => !item.title || item.title === '');
+      if (urlsWithoutTitle.length > 0) {
+        setBlogImportProgress(`タイトルを取得中... (${urlsWithoutTitle.length}件)`);
+        try {
+          const titleResponse = await fetch('/api/blog/titles', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              urls: urlsWithoutTitle.map((item: { url: string; date: string; title?: string }) => item.url),
+            }),
+          });
+          
+          if (titleResponse.ok) {
+            const titleData = await titleResponse.json();
+            if (titleData.titles) {
+              const titleMap = new Map(titleData.titles.map((t: { url: string; title: string }) => [t.url, t.title]));
+              // タイトルを更新
+              filteredUrls.forEach((item: { url: string; date: string; title?: string }) => {
+                if (!item.title && titleMap.has(item.url)) {
+                  const fetchedTitle = titleMap.get(item.url);
+                  item.title = (fetchedTitle && typeof fetchedTitle === 'string') ? fetchedTitle : '';
+                }
+              });
+            }
+          }
+        } catch (error) {
+          console.error('タイトル取得エラー:', error);
+          // タイトル取得に失敗しても続行
+        }
+      }
+      
       setSitemapUrls(filteredUrls);
       setSelectedUrls(new Set()); // 選択をリセット
       setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました（既存の${data.urls.length - filteredUrls.length}件は除外）`);
@@ -2140,6 +2179,241 @@ export default function SNSGeneratorApp() {
     } finally {
       setIsSitemapLoading(false);
     }
+  };
+
+  // noteプロフィールページから記事URL一覧を取得
+  const handleFetchNoteUrls = async () => {
+    if (!noteUrl || !user) return;
+    
+    setIsNoteLoading(true);
+    setBlogImportProgress('noteプロフィールから記事URL一覧を取得中...');
+    
+    try {
+      const response = await fetch('/api/blog/note', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          noteUrl: noteUrl.trim(),
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'note記事の取得に失敗しました');
+      }
+      
+      if (!data.urls || data.urls.length === 0) {
+        throw new Error('note記事が見つかりませんでした');
+      }
+      
+      // 既に取り込まれているURLを除外
+      const existingUrlsSet = new Set(blogUrls);
+      const filteredUrls = data.urls.filter((item: { url: string; date: string; title?: string }) => !existingUrlsSet.has(item.url));
+      
+      // タイトルがないURLに対してタイトルを取得
+      const urlsWithoutTitle = filteredUrls.filter((item: { url: string; date: string; title?: string }) => !item.title || item.title === '');
+      if (urlsWithoutTitle.length > 0) {
+        setBlogImportProgress(`タイトルを取得中... (${urlsWithoutTitle.length}件)`);
+        try {
+          const titleResponse = await fetch('/api/blog/titles', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              urls: urlsWithoutTitle.map((item: { url: string; date: string; title?: string }) => item.url),
+            }),
+          });
+          
+          if (titleResponse.ok) {
+            const titleData = await titleResponse.json();
+            if (titleData.titles) {
+              const titleMap = new Map(titleData.titles.map((t: { url: string; title: string }) => [t.url, t.title]));
+              // タイトルを更新
+              filteredUrls.forEach((item: { url: string; date: string; title?: string }) => {
+                if (!item.title && titleMap.has(item.url)) {
+                  const fetchedTitle = titleMap.get(item.url);
+                  item.title = (fetchedTitle && typeof fetchedTitle === 'string') ? fetchedTitle : '';
+                }
+              });
+            }
+          }
+        } catch (error) {
+          console.error('タイトル取得エラー:', error);
+          // タイトル取得に失敗しても続行
+        }
+      }
+      
+      setSitemapUrls(filteredUrls);
+      setSelectedUrls(new Set()); // 選択をリセット
+      setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました（既存の${data.urls.length - filteredUrls.length}件は除外）`);
+      setShowSitemapUrlModal(true); // モーダルを開く
+      
+      // note URLをFirestoreに保存
+      try {
+        await setDoc(doc(db, 'users', user.uid), {
+          noteUrl: noteUrl.trim()
+        }, { merge: true });
+      } catch (saveError) {
+        console.error('note URLの保存エラー:', saveError);
+        // 保存エラーは無視（表示には影響しない）
+      }
+    } catch (error: any) {
+      console.error('Note fetch error:', error);
+      alert(`note記事の取得に失敗しました: ${error.message}`);
+      setBlogImportProgress('');
+    } finally {
+      setIsNoteLoading(false);
+    }
+  };
+
+  // URLの種類を自動判別する関数
+  const detectUrlType = (url: string): 'note-profile' | 'note-article' | 'blog-sitemap' | 'single-article' => {
+    const normalizedUrl = url.trim();
+    
+    // note.comのURLかチェック
+    if (normalizedUrl.includes('note.com')) {
+      // note記事のURLパターン: /username/n/xxxxx
+      if (/note\.com\/[^\/]+\/n\/[a-zA-Z0-9]+/.test(normalizedUrl)) {
+        return 'note-article'; // 単独のnote記事
+      } else {
+        return 'note-profile'; // noteプロフィール
+      }
+    }
+    
+    // その他のURLは、まずサイトマップを試す
+    return 'blog-sitemap';
+  };
+
+  // 統一されたURL処理関数（自動判別）
+  const handleAutoDetectAndImport = async (inputUrl: string) => {
+    if (!inputUrl.trim() || !user) return;
+    
+    const urlType = detectUrlType(inputUrl);
+    let normalizedUrl = inputUrl.trim();
+    if (normalizedUrl.endsWith('/')) {
+      normalizedUrl = normalizedUrl.slice(0, -1);
+    }
+    
+    // URLの検証
+    try {
+      new URL(normalizedUrl);
+    } catch (e) {
+      alert('無効なURLです');
+      return;
+    }
+    
+    // URLタイプに応じて適切なローディング状態を設定
+    if (urlType === 'note-profile') {
+      setIsNoteLoading(true);
+    } else if (urlType === 'blog-sitemap') {
+      setIsSitemapLoading(true);
+    } else {
+      setIsBlogImporting(true);
+    }
+    
+    setBlogImportProgress('URLを解析中...');
+    
+    try {
+      if (urlType === 'note-profile') {
+        // noteプロフィールの場合
+        setNoteUrl(normalizedUrl);
+        await handleFetchNoteUrls();
+        // handleFetchNoteUrls内でsetIsNoteLoading(false)が呼ばれる
+      } else if (urlType === 'note-article') {
+        // 単独のnote記事の場合
+        // 既に取り込まれているかチェック
+        if (blogUrls.includes(normalizedUrl)) {
+          if (!confirm('このURLは既に取り込まれています。更新しますか？')) {
+            setIsBlogImporting(false);
+            setBlogImportProgress('');
+            return;
+          }
+        }
+        setBlogImportProgress('記事を取得中...');
+        await handleImportSelectedUrls([normalizedUrl], 'append');
+        setSingleArticleUrl('');
+        setBlogImportProgress('取り込み完了');
+        setTimeout(() => setBlogImportProgress(''), 2000);
+        setIsBlogImporting(false);
+      } else if (urlType === 'blog-sitemap') {
+        // ブログサイトの場合、サイトマップを試す
+        const urlObj = new URL(normalizedUrl);
+        const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+        
+        // 複数のサイトマップURLパターンを試す
+        const sitemapCandidates = [
+          `${baseUrl}/post-sitemap.xml`,
+          `${baseUrl}/sitemap.xml`,
+          `${baseUrl}/sitemap_index.xml`,
+          `${baseUrl}/wp-sitemap.xml`,
+        ];
+        
+        let foundSitemap = false;
+        for (const sitemapUrlCandidate of sitemapCandidates) {
+          try {
+            setBlogImportProgress(`サイトマップを確認中: ${sitemapUrlCandidate}...`);
+            const response = await fetch(sitemapUrlCandidate, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              },
+              signal: AbortSignal.timeout(10000),
+            });
+            
+            if (response.ok) {
+              const xml = await response.text();
+              // サイトマップかどうかを確認（XML形式で、<urlset>または<sitemapindex>を含む）
+              if (xml.includes('<urlset') || xml.includes('<sitemapindex')) {
+                foundSitemap = true;
+                setSitemapUrl(sitemapUrlCandidate);
+                // handleFetchSitemap内でsetIsSitemapLoading(false)が呼ばれる
+                await handleFetchSitemap();
+                break;
+              }
+            }
+          } catch (error) {
+            // このサイトマップURLは存在しない、次のを試す
+            continue;
+          }
+        }
+        
+        if (!foundSitemap) {
+          // サイトマップが見つからない場合、単独記事として処理
+          setIsSitemapLoading(false);
+          setIsBlogImporting(true);
+          setBlogImportProgress('サイトマップが見つかりませんでした。単独記事として取り込みます...');
+          // 既に取り込まれているかチェック
+          if (blogUrls.includes(normalizedUrl)) {
+            if (!confirm('このURLは既に取り込まれています。更新しますか？')) {
+              setIsBlogImporting(false);
+              setBlogImportProgress('');
+              return;
+            }
+          }
+          await handleImportSelectedUrls([normalizedUrl], 'append');
+          setSingleArticleUrl('');
+          setBlogImportProgress('取り込み完了');
+          setTimeout(() => setBlogImportProgress(''), 2000);
+          setIsBlogImporting(false);
+        }
+      }
+    } catch (error: any) {
+      alert(`処理に失敗しました: ${error.message}`);
+      setBlogImportProgress('');
+      // エラー時は全てのローディング状態をリセット
+      setIsBlogImporting(false);
+      setIsSitemapLoading(false);
+      setIsNoteLoading(false);
+    }
+  };
+
+  // 単独記事URLを取り込む（後方互換性のため残す）
+  const handleImportSingleArticle = async () => {
+    if (!singleArticleUrl.trim() || !user) return;
+    await handleAutoDetectAndImport(singleArticleUrl);
   };
 
   // 選択されたURLを取り込む
@@ -3615,6 +3889,11 @@ export default function SNSGeneratorApp() {
             setSitemapUrl(data.sitemapUrl);
           }
           
+          // note URLを読み込み
+          if (data.noteUrl) {
+            setNoteUrl(data.noteUrl);
+          }
+          
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
           else setIsSubscribed(false);
@@ -3936,6 +4215,89 @@ export default function SNSGeneratorApp() {
   };
 
   // 特定のブログURLを削除
+  // 複数のURLを一括削除
+  const handleBulkDeleteBlogUrls = async (urlsToDelete: string[]) => {
+    if (!user || urlsToDelete.length === 0) return;
+    
+    if (!confirm(`${urlsToDelete.length}件のURLを削除しますか？\n\nこの操作は取り消せません。`)) {
+      return;
+    }
+    
+    try {
+      // ブログURL一覧から削除
+      const urlSetToDelete = new Set(urlsToDelete);
+      const updatedBlogUrls = blogUrls.filter(url => !urlSetToDelete.has(url));
+      const updatedBlogUrlDates = { ...blogUrlDates };
+      urlsToDelete.forEach(url => {
+        delete updatedBlogUrlDates[url];
+      });
+      
+      setBlogUrls(updatedBlogUrls);
+      setBlogUrlDates(updatedBlogUrlDates);
+      
+      // Firestoreから削除
+      await setDoc(doc(db, 'users', user.uid), {
+        blogUrls: updatedBlogUrls,
+        blogUrlDates: updatedBlogUrlDates
+      }, { merge: true });
+      
+      // ブログキャッシュも削除
+      for (const urlToDelete of urlsToDelete) {
+        try {
+          const cacheRef = doc(db, 'users', user.uid, 'blogCache', encodeURIComponent(urlToDelete));
+          await deleteDoc(cacheRef);
+        } catch (error) {
+          console.error(`ブログキャッシュ削除エラー (${urlToDelete}):`, error);
+        }
+      }
+      
+      // 削除したURLのデータが含まれている場合、parsedPostsからも削除
+      const updatedParsedPosts = parsedPosts.filter(post => {
+        const postUrl = post.URL || post.url;
+        return !urlSetToDelete.has(postUrl);
+      });
+      setParsedPosts(updatedParsedPosts);
+      
+      // ブログデータからも削除
+      if (blogData) {
+        const blogLines = blogData.split('\n');
+        const header = blogLines[0];
+        const dataLines = blogLines.slice(1);
+        
+        const headerValues = parseCsvRow(header);
+        const urlColumnIndex = headerValues.findIndex((h: string) => {
+          const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
+          return normalized === 'url';
+        });
+        
+        if (urlColumnIndex >= 0) {
+          const filteredDataLines = dataLines.filter(line => {
+            if (!line.trim()) return false;
+            const values = parseCsvRow(line);
+            const lineUrl = values[urlColumnIndex]?.replace(/^"|"$/g, '') || '';
+            return !urlSetToDelete.has(lineUrl);
+          });
+          
+          const updatedBlogData = [header, ...filteredDataLines].join('\n');
+          setBlogData(updatedBlogData);
+          
+          // Firestoreに保存
+          await setDoc(doc(db, 'users', user.uid), {
+            blogData: updatedBlogData
+          }, { merge: true });
+          
+          // ローカルストレージにも保存
+          localStorage.setItem(`blogData_${user.uid}`, updatedBlogData);
+        }
+      }
+      
+      alert(`${urlsToDelete.length}件のURLを削除しました`);
+    } catch (error) {
+      console.error('一括削除エラー:', error);
+      alert('URLの削除に失敗しました');
+    }
+  };
+
   const handleDeleteBlogUrl = async (urlToDelete: string) => {
     if (!user) return;
     
@@ -5076,41 +5438,90 @@ export default function SNSGeneratorApp() {
                   </div>
                   
                   <div className="space-y-3">
-                    {/* サイトマップURL入力 */}
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 relative">
-                        <input
-                          type="text"
-                          placeholder="サイトマップURLを入力（例: https://example.com/post-sitemap.xml）"
-                          value={sitemapUrl}
-                          onChange={(e) => setSitemapUrl(e.target.value)}
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                          disabled={isSitemapLoading || isBlogImporting}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !isSitemapLoading && sitemapUrl.trim()) {
-                              handleFetchSitemap();
-                            }
-                          }}
-                        />
+                    {/* 統一されたURL入力欄（自動判別） */}
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">
+                        URL入力（自動判別）
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 relative">
+                          <input
+                            type="text"
+                            placeholder="例: https://example.com または https://note.com/username または https://example.com/article/123"
+                            value={singleArticleUrl}
+                            onChange={(e) => setSingleArticleUrl(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                            disabled={isBlogImporting || isSitemapLoading || isNoteLoading}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !isBlogImporting && !isSitemapLoading && !isNoteLoading && singleArticleUrl.trim()) {
+                                handleAutoDetectAndImport(singleArticleUrl);
+                              }
+                            }}
+                          />
+                        </div>
+                        <button
+                          onClick={() => handleAutoDetectAndImport(singleArticleUrl)}
+                          disabled={isBlogImporting || isSitemapLoading || isNoteLoading || !singleArticleUrl.trim()}
+                          className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          {(isBlogImporting || isSitemapLoading || isNoteLoading) ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              処理中...
+                            </>
+                          ) : (
+                            <>
+                              <Upload size={16} />
+                              自動判別して取得
+                            </>
+                          )}
+                        </button>
                       </div>
-                      <button
-                        onClick={handleFetchSitemap}
-                        disabled={isSitemapLoading || !sitemapUrl.trim()}
-                        className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        {isSitemapLoading ? (
-                          <>
-                            <Loader2 size={16} className="animate-spin" />
-                            取得中...
-                          </>
-                        ) : (
-                          <>
-                            <Upload size={16} />
-                            URL一覧取得
-                          </>
-                        )}
-                      </button>
+                      <p className="text-xs text-slate-500 mt-1">
+                        WEBサイトURL、noteプロフィールURL、単独記事URLを自動判別します
+                      </p>
                     </div>
+                    
+                    {/* 詳細設定（オプション） */}
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-slate-600 hover:text-slate-800 mb-2">
+                        詳細設定（サイトマップURLを直接指定する場合）
+                      </summary>
+                      <div className="flex items-center gap-2 mt-2">
+                        <div className="flex-1 relative">
+                          <input
+                            type="text"
+                            placeholder="サイトマップURLを直接入力（例: https://example.com/post-sitemap.xml）"
+                            value={sitemapUrl}
+                            onChange={(e) => setSitemapUrl(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                            disabled={isSitemapLoading || isBlogImporting}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !isSitemapLoading && sitemapUrl.trim()) {
+                                handleFetchSitemap();
+                              }
+                            }}
+                          />
+                        </div>
+                        <button
+                          onClick={handleFetchSitemap}
+                          disabled={isSitemapLoading || !sitemapUrl.trim()}
+                          className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          {isSitemapLoading ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              取得中...
+                            </>
+                          ) : (
+                            <>
+                              <Upload size={16} />
+                              URL一覧取得
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </details>
                     
                     {blogImportProgress && (
                       <p className="text-sm text-slate-600">{blogImportProgress}</p>
@@ -5119,7 +5530,18 @@ export default function SNSGeneratorApp() {
                     {/* 取り込んだURLの一覧 */}
                     {blogUrls && blogUrls.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-200">
-                        <p className="text-xs font-bold text-slate-700 mb-2">取り込んだブログ記事:</p>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-bold text-slate-700">取り込んだブログ記事:</p>
+                          <button
+                            onClick={() => handleBulkDeleteBlogUrls(blogUrls)}
+                            disabled={isBlogImporting}
+                            className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                            title="すべてのURLを削除"
+                          >
+                            <Trash2 size={12} />
+                            一括削除
+                          </button>
+                        </div>
                         <div className="space-y-1 max-h-96 overflow-y-auto">
                           {blogUrls.map((url: string) => {
                             // ブログデータから該当するURLの投稿を探す
@@ -5833,21 +6255,15 @@ export default function SNSGeneratorApp() {
                               className="mt-1 w-5 h-5 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
                             />
                             <div className="flex-1 min-w-0">
-                              {item.title ? (
-                                <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
-                                  {item.title}
-                                </p>
-                              ) : (
-                                <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
-                                  {item.url}
-                                </p>
-                              )}
+                              <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
+                                {item.title || item.url}
+                              </p>
                               {item.date && (
                                 <p className="text-xs text-slate-400 mt-1">
                                   更新日: {item.date}
                                 </p>
                               )}
-                              {!item.title && (
+                              {item.title && (
                                 <p className="text-xs text-slate-500 mt-1 truncate" title={item.url}>
                                   {item.url}
                                 </p>
