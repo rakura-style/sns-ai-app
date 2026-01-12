@@ -1331,7 +1331,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
         </div>
       </div>
 
-      {mode === 'mypost' && <p className="text-[10px] text-slate-400 leading-tight">※CSVデータに基づいてパーソナリティ設定が自動更新されます（文字数設定は変更されません）。</p>}
+      {mode === 'mypost' && <p className="text-[10px] text-slate-400 leading-tight">※パーソナリティ設定ボタンで、CSVデータに基づいて内容が反映されます。</p>}
     </div>
   );
 };
@@ -2344,13 +2344,33 @@ export default function SNSGeneratorApp() {
         const urlObj = new URL(normalizedUrl);
         const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
         
-        // 複数のサイトマップURLパターンを試す
-        const sitemapCandidates = [
+        // 入力URL自体に/post-sitemap.xmlを追加したパターンも試す
+        let inputUrlWithSitemap = '';
+        try {
+          // 入力URLに直接/post-sitemap.xmlを追加
+          const inputUrlObj = new URL(normalizedUrl);
+          // パスの最後に/post-sitemap.xmlを追加
+          const inputPath = inputUrlObj.pathname;
+          if (inputPath.endsWith('/')) {
+            inputUrlWithSitemap = `${inputUrlObj.protocol}//${inputUrlObj.host}${inputPath}post-sitemap.xml`;
+          } else {
+            inputUrlWithSitemap = `${inputUrlObj.protocol}//${inputUrlObj.host}${inputPath}/post-sitemap.xml`;
+          }
+        } catch (e) {
+          // URL解析エラーは無視
+        }
+        
+        // 複数のサイトマップURLパターンを試す（入力URLベースを最初に試す）
+        const sitemapCandidates = [];
+        if (inputUrlWithSitemap) {
+          sitemapCandidates.push(inputUrlWithSitemap);
+        }
+        sitemapCandidates.push(
           `${baseUrl}/post-sitemap.xml`,
           `${baseUrl}/sitemap.xml`,
           `${baseUrl}/sitemap_index.xml`,
           `${baseUrl}/wp-sitemap.xml`,
-        ];
+        );
         
         let foundSitemap = false;
         for (const sitemapUrlCandidate of sitemapCandidates) {
@@ -5094,7 +5114,7 @@ export default function SNSGeneratorApp() {
                      className="text-xs bg-white border border-[#066099] text-[#066099] px-3 py-1.5 rounded-lg hover:bg-sky-50 transition-colors disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm"
                    >
                      <RefreshCcw size={12} className={isThemesLoading ? "animate-spin" : ""}/>
-                     トレンド更新
+                     トレンドテーマ更新
                    </button>
                 )}
               </div>
@@ -5530,18 +5550,7 @@ export default function SNSGeneratorApp() {
                     {/* 取り込んだURLの一覧 */}
                     {blogUrls && blogUrls.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-bold text-slate-700">取り込んだブログ記事:</p>
-                          <button
-                            onClick={() => handleBulkDeleteBlogUrls(blogUrls)}
-                            disabled={isBlogImporting}
-                            className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                            title="すべてのURLを削除"
-                          >
-                            <Trash2 size={12} />
-                            一括削除
-                          </button>
-                        </div>
+                        <p className="text-xs font-bold text-slate-700 mb-2">取り込んだブログ記事:</p>
                         <div className="space-y-1 max-h-96 overflow-y-auto">
                           {blogUrls.map((url: string) => {
                             // ブログデータから該当するURLの投稿を探す
@@ -5783,6 +5792,17 @@ export default function SNSGeneratorApp() {
                                 <Upload size={12} />
                                 追加
                               </button>
+                              {blogUrls && blogUrls.length > 0 && (
+                                <button
+                                  onClick={() => handleBulkDeleteBlogUrls(blogUrls)}
+                                  disabled={isBlogImporting}
+                                  className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                  title="すべてのURLを削除"
+                                >
+                                  <Trash2 size={12} />
+                                  一括削除
+                                </button>
+                              )}
                             </div>
                           </div>
                           <div className="border border-slate-200 rounded-lg p-4 max-h-96 overflow-y-auto bg-slate-50">
