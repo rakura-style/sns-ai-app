@@ -362,6 +362,12 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
             return false;
           }
           
+          // ハッシュタグから始まる投稿も除外（リツイートと返信を削除する場合）
+          // 先頭の空白や改行を除いた後に"#"で始まる
+          if (trimmedContent.startsWith('#')) {
+            return false;
+          }
+          
           return true;
         });
         
@@ -3242,8 +3248,27 @@ export default function SNSGeneratorApp() {
       }
     });
     
-    // text列のインデックスを取得
-    const textColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'text');
+    // tweet_id列のインデックスを取得
+    const tweetIdColumnIndex = headers.findIndex((h: string) => {
+      const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
+      return normalized === 'tweet id' || normalized === 'tweet_id' || normalized === 'tweetid' || normalized === 'id';
+    });
+    
+    // text列のインデックスを取得（tweet_idの次の列がtext列）
+    let textColumnIndex = -1;
+    if (tweetIdColumnIndex >= 0 && tweetIdColumnIndex < headers.length - 1) {
+      // tweet_idの次の列がtext列
+      textColumnIndex = tweetIdColumnIndex + 1;
+      console.log('tweet_id列のインデックス:', tweetIdColumnIndex, '→ text列のインデックス:', textColumnIndex);
+    } else {
+      // フォールバック: ヘッダーから'text'列を探す
+      textColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'text');
+      if (textColumnIndex >= 0) {
+        console.log('tweet_id列が見つからないため、ヘッダーからtext列を検索:', textColumnIndex);
+      } else {
+        console.warn('⚠️ tweet_id列もtext列も見つかりません！');
+      }
+    }
     
     // text列が存在する場合、最初の数値列のインデックスを事前に計算（パフォーマンス最適化）
     let firstNumericIndex = headers.length;
@@ -3278,13 +3303,52 @@ export default function SNSGeneratorApp() {
         
         // パースに失敗した場合、フォールバックとして行データから直接抽出を試みる
         if (!textValue || textValue === '') {
-          // 方法1: 最初のカンマの後から、,jaの前までを取得（XのCSVデータの形式に対応）
-          const firstCommaIndex = row.indexOf(',');
-          const jaCommaIndex = row.indexOf(',ja');
+          // 方法1: tweet_idの次から、,jaの前までを取得（XのCSVデータの形式に対応）
+          // tweet_id列の位置を特定
+          let tweetIdStartIndex = -1;
+          let tweetIdEndIndex = -1;
           
-          if (firstCommaIndex >= 0 && jaCommaIndex > firstCommaIndex) {
-            // 最初のカンマの次の文字から、,jaの前までを抽出
-            textValue = row.slice(firstCommaIndex + 1, jaCommaIndex);
+          if (tweetIdColumnIndex >= 0) {
+            // tweet_id列の開始位置を特定（カンマカウントで）
+            let commaCount = 0;
+            let inQuotes = false;
+            
+            for (let j = 0; j < row.length; j++) {
+              const char = row[j];
+              const nextChar = j + 1 < row.length ? row[j + 1] : null;
+              
+              if (char === '"') {
+                if (inQuotes && nextChar === '"') {
+                  j++; // エスケープされたダブルクォートをスキップ
+                  continue;
+                }
+                inQuotes = !inQuotes;
+              } else if (char === ',' && !inQuotes) {
+                if (commaCount === tweetIdColumnIndex) {
+                  tweetIdEndIndex = j; // tweet_id列の終了位置（次のカンマの位置）
+                  break;
+                }
+                if (commaCount === tweetIdColumnIndex - 1) {
+                  tweetIdStartIndex = j + 1; // tweet_id列の開始位置
+                }
+                commaCount++;
+              }
+            }
+          }
+          
+          // tweet_id列が見つからない場合は、最初のカンマの後から開始
+          if (tweetIdEndIndex < 0) {
+            tweetIdEndIndex = row.indexOf(',');
+          }
+          
+          // ,ja を探す（改行を含む可能性があるため、正規表現を使用）
+          // ,ja の前には改行やカンマが含まれる可能性があるため、より柔軟に検索
+          const jaPattern = /,ja(?=,|$|\n|,Tweet|,Reply|,Retweet)/;
+          const jaMatch = row.match(jaPattern);
+          
+          if (tweetIdEndIndex >= 0 && jaMatch && jaMatch.index !== undefined && jaMatch.index > tweetIdEndIndex) {
+            // tweet_id列の次の文字（カンマの後）から、,jaの前までを抽出
+            textValue = row.slice(tweetIdEndIndex + 1, jaMatch.index);
             
             // 先頭と末尾のダブルクォートを除去
             if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
@@ -3292,6 +3356,11 @@ export default function SNSGeneratorApp() {
             }
             // 前後の空白を除去
             textValue = textValue.trim();
+            
+            // デバッグログ
+            if (i <= 5) {
+              console.log(`行${i}: 方法1で抽出成功（tweet_idの次から,jaまで） - textValue長 =`, textValue.length, '先頭50文字 =', textValue.substring(0, 50));
+            }
           }
           
           // 方法2: 引用符で囲まれたtext列を抽出（より堅牢な方法）
@@ -3487,7 +3556,7 @@ export default function SNSGeneratorApp() {
           console.log('========================================');
         }
         
-        if (textVal !== undefined && textVal !== null && textVal !== '') {
+        if (textVal !== undefined && textVal !== null && textVal !== '' && textVal.trim() !== '') {
           // XのCSVデータのtext列はそのまま使用（WordPress処理は不要）
           content = String(textVal).trim();
         } else {
@@ -3501,6 +3570,15 @@ export default function SNSGeneratorApp() {
             content = rawValue.trim();
             if (i <= 5) {
               console.log(`行${i}: values配列から取得したcontent =`, content.substring(0, 50));
+            }
+          } else {
+            // values配列からも取得できない場合、postオブジェクトに既に設定されている値を確認
+            // これは、text列抽出処理で既に設定されている可能性がある
+            if (post['text'] && post['text'].trim() !== '') {
+              content = post['text'].trim();
+              if (i <= 5) {
+                console.log(`行${i}: post[text]から取得したcontent =`, content.substring(0, 50));
+              }
             }
           }
         }
