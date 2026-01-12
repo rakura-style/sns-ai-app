@@ -6686,9 +6686,21 @@ export default function SNSGeneratorApp() {
                             <div className="flex items-center gap-2">
                               {blogUrls && blogUrls.length > 0 && (
                                 <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                                  取込み済: {blogUrls.length}件
+                                  取込み済URL: {blogUrls.length}件
                                 </span>
                               )}
+                              {blogData && blogData.trim() && (() => {
+                                try {
+                                  const blogPosts = parseCsvToPosts(blogData);
+                                  return (
+                                    <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                      ブログデータ: {blogPosts.length}件
+                                    </span>
+                                  );
+                                } catch {
+                                  return null;
+                                }
+                              })()}
                               {blogData && blogData.trim() && (
                                 <button
                                   onClick={async () => {
@@ -7018,12 +7030,13 @@ export default function SNSGeneratorApp() {
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                         <BookOpen size={20} className="text-[#066099]" />
-                        サイトマップURL入力
+                        URL取り込み
                       </h3>
                       <button
                         onClick={() => {
                           setShowUrlInputModal(false);
                           setSitemapUrl('');
+                          setSingleArticleUrl('');
                         }}
                         className="text-slate-400 hover:text-slate-600 transition-colors"
                       >
@@ -7032,21 +7045,92 @@ export default function SNSGeneratorApp() {
                     </div>
                     
                     <div className="space-y-3">
+                      {/* URL取り込みタイプの選択（ラジオボタン） */}
                       <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">
-                          サイトマップURL
+                          取り込みタイプを選択
+                        </label>
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                            <input
+                              type="radio"
+                              name="urlImportTypeModal"
+                              value="sitemap"
+                              checked={urlImportType === 'sitemap'}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
+                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                            />
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">サイトマップのURL</p>
+                              <p className="text-xs text-slate-500">サイトマップから記事一覧を取得します</p>
+                            </div>
+                          </label>
+                          
+                          <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                            <input
+                              type="radio"
+                              name="urlImportTypeModal"
+                              value="note"
+                              checked={urlImportType === 'note'}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
+                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                            />
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">noteのURL（カスタムドメイン含む）</p>
+                              <p className="text-xs text-slate-500">note.comまたはカスタムドメインのnoteから全記事を取得します</p>
+                            </div>
+                          </label>
+                          
+                          <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                            <input
+                              type="radio"
+                              name="urlImportTypeModal"
+                              value="article"
+                              checked={urlImportType === 'article'}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
+                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                            />
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">記事の単独URL</p>
+                              <p className="text-xs text-slate-500">指定したURLの記事のみを取り込みます</p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                      
+                      {/* URL入力欄 */}
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                          URL入力
                         </label>
                         <input
                           type="text"
-                          placeholder="例: https://example.com/post-sitemap.xml"
-                          value={sitemapUrl}
-                          onChange={(e) => setSitemapUrl(e.target.value)}
+                          placeholder={
+                            urlImportType === 'sitemap' 
+                              ? "例: https://example.com/post-sitemap.xml または https://example.com"
+                              : urlImportType === 'note'
+                              ? "例: https://note.com/username または https://example.com（カスタムドメイン）"
+                              : "例: https://example.com/article/123"
+                          }
+                          value={urlImportType === 'sitemap' ? sitemapUrl : singleArticleUrl}
+                          onChange={(e) => {
+                            if (urlImportType === 'sitemap') {
+                              setSitemapUrl(e.target.value);
+                            } else {
+                              setSingleArticleUrl(e.target.value);
+                            }
+                          }}
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                          disabled={isSitemapLoading}
+                          disabled={isSitemapLoading || isBlogImporting || isNoteLoading}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !isSitemapLoading && sitemapUrl.trim()) {
-                              handleFetchSitemap();
-                              setShowUrlInputModal(false);
+                            if (e.key === 'Enter' && !isSitemapLoading && !isBlogImporting && !isNoteLoading) {
+                              if (urlImportType === 'sitemap' && sitemapUrl.trim()) {
+                                handleFetchSitemap();
+                                setShowUrlInputModal(false);
+                              } else if ((urlImportType === 'note' || urlImportType === 'article') && singleArticleUrl.trim()) {
+                                handleUrlImportByType();
+                                setShowUrlInputModal(false);
+                              }
                             }
                           }}
                         />
@@ -7055,14 +7139,26 @@ export default function SNSGeneratorApp() {
                       <div className="flex items-center gap-2 pt-2">
                         <button
                           onClick={async () => {
-                            if (sitemapUrl.trim()) {
-                              await handleFetchSitemap();
-                              setShowUrlInputModal(false);
-                            } else {
-                              alert('サイトマップURLを入力してください');
+                            if (urlImportType === 'sitemap') {
+                              if (sitemapUrl.trim()) {
+                                await handleFetchSitemap();
+                                setShowUrlInputModal(false);
+                              } else {
+                                alert('サイトマップURLを入力してください');
+                              }
+                            } else if (urlImportType === 'note' || urlImportType === 'article') {
+                              if (singleArticleUrl.trim()) {
+                                await handleUrlImportByType();
+                                setShowUrlInputModal(false);
+                              } else {
+                                alert('URLを入力してください');
+                              }
                             }
                           }}
-                          disabled={isSitemapLoading || !sitemapUrl.trim()}
+                          disabled={
+                            (urlImportType === 'sitemap' && (isSitemapLoading || !sitemapUrl.trim())) ||
+                            ((urlImportType === 'note' || urlImportType === 'article') && (isBlogImporting || isNoteLoading || !singleArticleUrl.trim()))
+                          }
                           className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                           {isSitemapLoading ? (
