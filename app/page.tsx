@@ -3011,6 +3011,49 @@ export default function SNSGeneratorApp() {
         finalBlogData = csv;
       }
       
+      // ブログとnoteのデータを50件に制限
+      const MAX_BLOG_POSTS = 50;
+      const allBlogPosts = parseCsvToPosts(finalBlogData);
+      console.log(`ブログ取り込み: 制限前の投稿数 = ${allBlogPosts.length}`);
+      
+      if (allBlogPosts.length > MAX_BLOG_POSTS) {
+        console.log(`ブログ投稿が${allBlogPosts.length}件あります。上位${MAX_BLOG_POSTS}件のみを保持します。`);
+        
+        // 日付順でソート（新しい順）
+        const sortedPosts = [...allBlogPosts].sort((a: any, b: any) => {
+          const aDate = a.Date || a.date || a['Posted At'] || '';
+          const bDate = b.Date || b.date || b['Posted At'] || '';
+          if (aDate && bDate) {
+            return new Date(bDate).getTime() - new Date(aDate).getTime();
+          }
+          return 0;
+        });
+        
+        // 上位50件のみを保持
+        const limitedPosts = sortedPosts.slice(0, MAX_BLOG_POSTS);
+        
+        // CSVに再変換
+        finalBlogData = [
+          'Date,Title,Content,Category,Tags,URL',
+          ...limitedPosts.map(post => {
+            const date = post.Date || post.date || '';
+            const title = `"${(post.Title || post.title || '').replace(/"/g, '""')}"`;
+            const content = `"${(post.Content || post.content || '').replace(/"/g, '""')}"`;
+            const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
+            const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
+            const url = `"${post.URL || post.url || ''}"`;
+            return `${date},${title},${content},${category},${tags},${url}`;
+          }),
+        ].join('\n');
+        
+        console.log(`ブログ取り込み: 制限後の投稿数 = ${limitedPosts.length}`);
+        
+        // 警告を表示
+        if (allBlogPosts.length > MAX_BLOG_POSTS) {
+          alert(`ブログとnoteの投稿が${allBlogPosts.length}件ありました。\n\n上位${MAX_BLOG_POSTS}件（新しい順）のみを保持し、それより古い${allBlogPosts.length - MAX_BLOG_POSTS}件は自動で削除されました。`);
+        }
+      }
+      
       // データサイズをチェック（Firestoreのドキュメントサイズ制限: 1MB）
       const dataSize = new Blob([finalBlogData]).size;
       if (dataSize > ONE_MB) {
@@ -4012,6 +4055,116 @@ export default function SNSGeneratorApp() {
       
       console.log(`CSVパース完了: ${parsed.length}件 (${((performance.now() - startTime) / 1000).toFixed(2)}秒)`);
       
+      // XのCSVデータの制限処理（300件まで）
+      const MAX_X_POSTS = 300;
+      let xPosts: any[] = [];
+      let otherPosts: any[] = [];
+      let originalXPostCount = 0;
+      
+      // X投稿（tweet_idがある投稿）とその他の投稿を分離
+      parsed.forEach((post: any) => {
+        const rawData = post.rawData || {};
+        const hasTweetId = !!(
+          post.tweet_id || 
+          post.tweetId || 
+          post['Tweet ID'] || 
+          post['TweetID'] || 
+          post['tweet_id'] ||
+          rawData.tweet_id ||
+          rawData.tweetId ||
+          rawData['Tweet ID'] ||
+          rawData['TweetID'] ||
+          rawData['tweet_id']
+        );
+        
+        if (hasTweetId) {
+          xPosts.push(post);
+        } else {
+          otherPosts.push(post);
+        }
+      });
+      
+      // X投稿をエンゲージメント順（第1順位）→ 日付順（第2順位、新しい順）でソート
+      xPosts.sort((a: any, b: any) => {
+        // エンゲージメントで比較（降順）
+        const aEng = a.engagement || a.favorite_count || a.likes || a['Likes'] || 0;
+        const bEng = b.engagement || b.favorite_count || b.likes || b['Likes'] || 0;
+        const engagementDiff = Number(bEng) - Number(aEng);
+        
+        if (engagementDiff !== 0) {
+          return engagementDiff;
+        }
+        
+        // エンゲージメントが同じ場合は日付で比較（新しい順）
+        const aDate = a.date || a.Date || a['Posted At'] || '';
+        const bDate = b.date || b.Date || b['Posted At'] || '';
+        if (aDate && bDate) {
+          return new Date(bDate).getTime() - new Date(aDate).getTime();
+        }
+        return 0;
+      });
+      
+      // 上位500件のみを保持
+      originalXPostCount = xPosts.length;
+      if (xPosts.length > MAX_X_POSTS) {
+        console.log(`X投稿が${xPosts.length}件あります。上位${MAX_X_POSTS}件のみを保持します。`);
+        xPosts = xPosts.slice(0, MAX_X_POSTS);
+        isTruncated = true;
+      }
+      
+      // X投稿とその他の投稿を結合
+      parsed = [...xPosts, ...otherPosts];
+      
+      if (originalXPostCount > MAX_X_POSTS) {
+        console.log(`X投稿を${originalXPostCount}件から${xPosts.length}件に制限しました。`);
+      }
+      
+      // 制限後のデータでCSVを再構築
+      if (xPosts.length > 0 || otherPosts.length > 0) {
+        const header = parsedCsvData.split('\n')[0];
+        const csvRows: string[] = [header];
+        
+        // パースされたデータからCSV行を再構築
+        parsed.forEach((post: any) => {
+          const rawData = post.rawData || {};
+          const row: string[] = [];
+          
+          // ヘッダーに基づいて値を取得
+          const headers = header.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+          headers.forEach((headerName: string) => {
+            const lowerHeader = headerName.toLowerCase();
+            let value = '';
+            
+            if (lowerHeader.includes('date')) {
+              value = post.date || post.Date || post['Posted At'] || '';
+            } else if (lowerHeader.includes('text') || lowerHeader.includes('tweet') || lowerHeader.includes('post content')) {
+              value = post.text || post.content || post['Post Content'] || post['Text'] || '';
+            } else if (lowerHeader.includes('like')) {
+              value = String(post.likes || post['Likes'] || post.favorite_count || 0);
+            } else if (lowerHeader.includes('view')) {
+              value = String(post.views || post['Views'] || post.impressions || 0);
+            } else if (lowerHeader.includes('engagement')) {
+              value = String(post.engagement || 0);
+            } else if (lowerHeader.includes('tweet id') || lowerHeader.includes('tweet_id')) {
+              value = post.tweet_id || post.tweetId || post['Tweet ID'] || rawData.tweet_id || '';
+            } else {
+              // その他のフィールドはrawDataから取得
+              value = post[headerName] || rawData[headerName] || '';
+            }
+            
+            // CSVエスケープ処理
+            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+              value = `"${value.replace(/"/g, '""')}"`;
+            }
+            row.push(value);
+          });
+          
+          csvRows.push(row.join(','));
+        });
+        
+        parsedCsvData = csvRows.join('\n');
+      }
+      
       // 保存するCSVデータを先に計算（状態に依存しない）
       if (mode === 'append') {
         // 追加モード：既存データに追加
@@ -4094,10 +4247,34 @@ export default function SNSGeneratorApp() {
         console.log(`CSVデータを保存しました (${parsed.length}件, ${sizeInMB} MB, 合計: ${totalTime}秒)`);
         
         // 成功メッセージを表示
+        const xPostCount = parsed.filter((post: any) => {
+          const rawData = post.rawData || {};
+          return !!(
+            post.tweet_id || 
+            post.tweetId || 
+            post['Tweet ID'] || 
+            post['TweetID'] || 
+            post['tweet_id'] ||
+            rawData.tweet_id ||
+            rawData.tweetId ||
+            rawData['Tweet ID'] ||
+            rawData['TweetID'] ||
+            rawData['tweet_id']
+          );
+        }).length;
+        
         if (isTruncated) {
-          alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n元のデータが大きすぎたため、一部のデータは取り込まれていません。`);
+          if (originalXPostCount > MAX_X_POSTS) {
+            alert(`XのCSVデータを取り込みました。\n\n取り込まれたデータ: ${parsed.length}件（X投稿: ${xPostCount}件、その他: ${parsed.length - xPostCount}件）\n\nX投稿はエンゲージメント順→新しい順でソートし、上位${MAX_X_POSTS}件のみを保持しました。\nそれより下の${originalXPostCount - MAX_X_POSTS}件は自動で削除されました。`);
+          } else {
+            alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n元のデータが大きすぎたため、一部のデータは取り込まれていません。`);
+          }
         } else {
-          alert(`${parsed.length}件のデータ（${sizeInMB} MB）を取り込みました。`);
+          if (originalXPostCount > MAX_X_POSTS) {
+            alert(`XのCSVデータを取り込みました。\n\n取り込まれたデータ: ${parsed.length}件（X投稿: ${xPostCount}件、その他: ${parsed.length - xPostCount}件）\n\nX投稿はエンゲージメント順→新しい順でソートし、上位${MAX_X_POSTS}件のみを保持しました。\nそれより下の${originalXPostCount - MAX_X_POSTS}件は自動で削除されました。`);
+          } else {
+            alert(`${parsed.length}件のデータ（${sizeInMB} MB）を取り込みました。`);
+          }
         }
       } catch (saveError: any) {
         console.error("Firestore保存エラー:", saveError);
@@ -4349,6 +4526,106 @@ export default function SNSGeneratorApp() {
     console.log(`parsedPosts更新: 合計${filteredPosts.length}件 (元の投稿数: ${posts.length}, 削除された投稿数: ${posts.length - filteredPosts.length}, dataSource: ${dataSource}, csvData: ${csvData ? 'あり' : 'なし'}, blogData: ${blogData ? 'あり' : 'なし'})`);
     setParsedPosts(filteredPosts);
   }, [csvData, blogData, dataSource, deletedPostIdentifiers]);
+
+  // XのCSVデータを再読取りして制限を適用
+  const handleReloadCsvData = async () => {
+    if (!user) return;
+    
+    const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+    
+    if (!csvData || csvData === defaultCsv) {
+      alert('再読取りするデータがありません。');
+      return;
+    }
+    
+    if (!confirm('XのCSVデータを再読取りして、上位300件のみを保持しますか？\n\nそれより下のデータは自動で削除されます。')) {
+      return;
+    }
+    
+    setIsCsvLoading(true);
+    try {
+      // 既存のCSVデータを再処理（制限を適用）
+      await applyCsvData(csvData, 'replace');
+      alert('XのCSVデータを再読取りしました。\n\nエンゲージメント順→新しい順でソートし、上位300件のみを保持しました。');
+    } catch (error: any) {
+      console.error('CSV再読取りエラー:', error);
+      alert(`再読取りに失敗しました: ${error.message || '不明なエラー'}`);
+    } finally {
+      setIsCsvLoading(false);
+    }
+  };
+
+  // ブログデータを再読取りして制限を適用
+  const handleReloadBlogData = async () => {
+    if (!user) return;
+    
+    if (!blogData || blogData.trim() === '') {
+      alert('再読取りするデータがありません。');
+      return;
+    }
+    
+    if (!confirm('ブログとnoteのデータを再読取りして、上位50件（新しい順）のみを保持しますか？\n\nそれより古いデータは自動で削除されます。')) {
+      return;
+    }
+    
+    setIsBlogImporting(true);
+    try {
+      // 既存のブログデータをパース
+      const allBlogPosts = parseCsvToPosts(blogData);
+      const MAX_BLOG_POSTS = 50;
+      
+      if (allBlogPosts.length <= MAX_BLOG_POSTS) {
+        alert(`ブログデータは既に${allBlogPosts.length}件で、制限内です。`);
+        setIsBlogImporting(false);
+        return;
+      }
+      
+      // 日付順でソート（新しい順）
+      const sortedPosts = [...allBlogPosts].sort((a: any, b: any) => {
+        const aDate = a.Date || a.date || a['Posted At'] || '';
+        const bDate = b.Date || b.date || b['Posted At'] || '';
+        if (aDate && bDate) {
+          return new Date(bDate).getTime() - new Date(aDate).getTime();
+        }
+        return 0;
+      });
+      
+      // 上位50件のみを保持
+      const limitedPosts = sortedPosts.slice(0, MAX_BLOG_POSTS);
+      
+      // CSVに再変換
+      const limitedBlogData = [
+        'Date,Title,Content,Category,Tags,URL',
+        ...limitedPosts.map(post => {
+          const date = post.Date || post.date || '';
+          const title = `"${(post.Title || post.title || '').replace(/"/g, '""')}"`;
+          const content = `"${(post.Content || post.content || '').replace(/"/g, '""')}"`;
+          const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
+          const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
+          const url = `"${post.URL || post.url || ''}"`;
+          return `${date},${title},${content},${category},${tags},${url}`;
+        }),
+      ].join('\n');
+      
+      // Firestoreに保存
+      const now = new Date();
+      const dateStr = now.toLocaleString('ja-JP', { 
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+      });
+      
+      await saveBlogDataToFirestore(user.uid, limitedBlogData, dateStr);
+      
+      setBlogData(limitedBlogData);
+      setBlogUploadDate(dateStr);
+      
+      alert(`ブログとnoteのデータを再読取りしました。\n\n${allBlogPosts.length}件から${limitedPosts.length}件（新しい順）に制限しました。\n\nそれより古い${allBlogPosts.length - MAX_BLOG_POSTS}件は自動で削除されました。`);
+    } catch (error: any) {
+      console.error('ブログ再読取りエラー:', error);
+      alert(`再読取りに失敗しました: ${error.message || '不明なエラー'}`);
+    } finally {
+      setIsBlogImporting(false);
+    }
+  };
 
   // XのCSVデータをクリア
   const handleClearCsvData = async () => {
@@ -6025,6 +6302,18 @@ export default function SNSGeneratorApp() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button
+                                    onClick={async () => {
+                                      setShowDataImportModal(false);
+                                      await handleReloadCsvData();
+                                    }}
+                                    disabled={isCsvLoading}
+                                    className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                    title="CSVデータを再読取り（上位300件に制限）"
+                                  >
+                                    <RefreshCcw size={12} />
+                                    再読取り
+                                  </button>
+                                  <button
                                     onClick={() => {
                                       setShowDataImportModal(false);
                                       // ファイル選択を待つ
@@ -6055,7 +6344,7 @@ export default function SNSGeneratorApp() {
                                     className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                     title="CSVデータを更新"
                                   >
-                                    <RefreshCcw size={12} />
+                                    <Upload size={12} />
                                     更新
                                   </button>
                                   <button
@@ -6087,6 +6376,20 @@ export default function SNSGeneratorApp() {
                                 <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
                                   取込み済: {blogUrls.length}件
                                 </span>
+                              )}
+                              {blogData && blogData.trim() && (
+                                <button
+                                  onClick={async () => {
+                                    setShowDataImportModal(false);
+                                    await handleReloadBlogData();
+                                  }}
+                                  disabled={isBlogImporting}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                  title="ブログデータを再読取り（上位50件に制限）"
+                                >
+                                  <RefreshCcw size={12} />
+                                  再読取り
+                                </button>
                               )}
                               <button
                                 onClick={() => {
