@@ -6910,7 +6910,7 @@ export default function SNSGeneratorApp() {
                       <div className="mb-4 space-y-4">
                         {/* X投稿データ（CSV） */}
                         <div>
-                          <div className="flex items-center mb-2">
+                          <div className="flex items-center justify-between mb-2">
                             <h4 className="text-sm font-bold text-slate-700">
                               {(() => {
                                 try {
@@ -6944,6 +6944,85 @@ export default function SNSGeneratorApp() {
                                 }
                               })()}
                             </h4>
+                            <div className="flex items-center gap-2">
+                              {/* 追加ボタン（X） */}
+                              <button
+                                onClick={() => {
+                                  const fileInput = fileInputRef.current;
+                                  if (fileInput) {
+                                    const tempHandler = async (e: Event) => {
+                                      const target = e.target as HTMLInputElement;
+                                      const file = target.files?.[0];
+                                      if (!file) return;
+                                      
+                                      const reader = new FileReader();
+                                      reader.onload = async (event) => {
+                                        const text = event.target?.result as string;
+                                        if (text) {
+                                          setPendingCsvFileData(text);
+                                          setShowCsvModeSelectModal(true);
+                                        }
+                                        target.value = '';
+                                        fileInput.removeEventListener('change', tempHandler);
+                                      };
+                                      reader.readAsText(file);
+                                    };
+                                    fileInput.addEventListener('change', tempHandler);
+                                    fileInput.click();
+                                  }
+                                }}
+                                disabled={isCsvLoading}
+                                className="px-3 py-1.5 text-xs font-bold text-white bg-[#F99F66] rounded hover:bg-[#F98A40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                title="CSVデータを追加"
+                              >
+                                <Upload size={12} />
+                                追加
+                              </button>
+                              {/* 更新ボタン（X） */}
+                              <button
+                                onClick={() => {
+                                  const fileInput = fileInputRef.current;
+                                  if (fileInput) {
+                                    const tempHandler = async (e: Event) => {
+                                      const target = e.target as HTMLInputElement;
+                                      const file = target.files?.[0];
+                                      if (!file) return;
+                                      
+                                      const reader = new FileReader();
+                                      reader.onload = async (event) => {
+                                        const text = event.target?.result as string;
+                                        if (text) {
+                                          await applyCsvData(text, 'replace');
+                                        }
+                                        target.value = '';
+                                        fileInput.removeEventListener('change', tempHandler);
+                                      };
+                                      reader.readAsText(file);
+                                    };
+                                    fileInput.addEventListener('change', tempHandler);
+                                    fileInput.click();
+                                  }
+                                }}
+                                disabled={isCsvLoading}
+                                className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                title="CSVデータを更新"
+                              >
+                                <RefreshCcw size={12} />
+                                更新
+                              </button>
+                              {/* 削除ボタン（X） */}
+                              <button
+                                onClick={async () => {
+                                  await handleClearCsvData();
+                                }}
+                                disabled={isCsvLoading}
+                                className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                title="CSVデータを削除"
+                              >
+                                <Trash2 size={12} />
+                                削除
+                              </button>
+                            </div>
                           </div>
                           <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                             {csvData && csvData !== 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200' ? (
@@ -6973,85 +7052,6 @@ export default function SNSGeneratorApp() {
                                       })()}
                                     </div>
                                   )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {/* 追加ボタン（X） */}
-                                  <button
-                                    onClick={() => {
-                                      const fileInput = fileInputRef.current;
-                                      if (fileInput) {
-                                        const tempHandler = async (e: Event) => {
-                                          const target = e.target as HTMLInputElement;
-                                          const file = target.files?.[0];
-                                          if (!file) return;
-                                          
-                                          const reader = new FileReader();
-                                          reader.onload = async (event) => {
-                                            const text = event.target?.result as string;
-                                            if (text) {
-                                              setPendingCsvFileData(text);
-                                              setShowCsvModeSelectModal(true);
-                                            }
-                                            target.value = '';
-                                            fileInput.removeEventListener('change', tempHandler);
-                                          };
-                                          reader.readAsText(file);
-                                        };
-                                        fileInput.addEventListener('change', tempHandler);
-                                        fileInput.click();
-                                      }
-                                    }}
-                                    disabled={isCsvLoading}
-                                    className="px-3 py-1.5 text-xs font-bold text-white bg-[#F99F66] rounded hover:bg-[#F98A40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                    title="CSVデータを追加"
-                                  >
-                                    <Upload size={12} />
-                                    追加
-                                  </button>
-                                  {/* 更新ボタン（X） */}
-                                  <button
-                                    onClick={() => {
-                                      const fileInput = fileInputRef.current;
-                                      if (fileInput) {
-                                        const tempHandler = async (e: Event) => {
-                                          const target = e.target as HTMLInputElement;
-                                          const file = target.files?.[0];
-                                          if (!file) return;
-                                          
-                                          const reader = new FileReader();
-                                          reader.onload = async (event) => {
-                                            const text = event.target?.result as string;
-                                            if (text) {
-                                              await applyCsvData(text, 'replace');
-                                            }
-                                            target.value = '';
-                                            fileInput.removeEventListener('change', tempHandler);
-                                          };
-                                          reader.readAsText(file);
-                                        };
-                                        fileInput.addEventListener('change', tempHandler);
-                                        fileInput.click();
-                                      }
-                                    }}
-                                    disabled={isCsvLoading}
-                                    className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                    title="CSVデータを更新"
-                                  >
-                                    <RefreshCcw size={12} />
-                                    更新
-                                  </button>
-                                  {/* 削除ボタン（X） */}
-                                  <button
-                                    onClick={async () => {
-                                      await handleClearCsvData();
-                                    }}
-                                    disabled={isCsvLoading}
-                                    className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                    title="CSVデータを削除"
-                                  >
-                                    <Trash2 size={12} />
-                                    削除
-                                  </button>
                                 </div>
                               </div>
                             ) : (
@@ -7117,22 +7117,22 @@ export default function SNSGeneratorApp() {
                                     }
                                   }}
                                   disabled={isBlogImporting}
-                                  className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0 leading-tight"
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                   title="すべてのURLを更新"
                                 >
-                                  <span>一括</span>
-                                  <span>更新</span>
+                                  <RefreshCcw size={12} />
+                                  更新
                                 </button>
                               )}
                               {blogUrls && blogUrls.length > 0 && (
                                 <button
                                   onClick={() => handleBulkDeleteBlogUrls(blogUrls)}
                                   disabled={isBlogImporting}
-                                  className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0 leading-tight"
+                                  className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                   title="すべてのURLを削除"
                                 >
-                                  <span>一括</span>
-                                  <span>削除</span>
+                                  <Trash2 size={12} />
+                                  削除
                                 </button>
                               )}
                             </div>
@@ -7192,7 +7192,7 @@ export default function SNSGeneratorApp() {
                                   }
                                   
                                   return (
-                                    <div key={url || index} className="flex items-start justify-between gap-3 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50">
+                                    <div key={url || index} className="group flex items-start justify-between gap-3 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50">
                                       <div className="flex-1 min-w-0">
                                         <a
                                           href={displayUrl}
@@ -7215,7 +7215,7 @@ export default function SNSGeneratorApp() {
                                           )}
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button
                                           onClick={() => {
                                             handleUpdateUrl(url || displayUrl);
