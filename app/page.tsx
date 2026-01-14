@@ -4925,11 +4925,7 @@ export default function SNSGeneratorApp() {
           }
           // 🔥 Facebook App IDをロード
           if (data.facebookAppId) setFacebookAppId(data.facebookAppId);
-          // 🔥 X API認証情報をロード（平文）
-          if (data.xApiKey) setXApiKey(data.xApiKey);
-          if (data.xApiKeySecret) setXApiKeySecret(data.xApiKeySecret);
-          if (data.xAccessToken) setXAccessToken(data.xAccessToken);
-          if (data.xAccessTokenSecret) setXAccessTokenSecret(data.xAccessTokenSecret);
+          // 🔥 X API認証情報はクライアントからFirestore直読みしない（サーバーAPI経由で取得）
           // パーソナリティ設定をロード（既存のstyleをpersonaに変換）
           if (data.settings) {
             const migratedSettings: any = {};
@@ -4973,6 +4969,42 @@ export default function SNSGeneratorApp() {
       }
     };
     loadUserData();
+  }, [user]);
+
+  // X API認証情報をサーバーAPI経由で読み込む（Firestoreの直読みを避ける）
+  useEffect(() => {
+    if (!user) return;
+
+    const loadXCredentials = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/x/credentials', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          // 未登録 or 旧データ（平文）等の場合は空にする
+          setXApiKey('');
+          setXApiKeySecret('');
+          setXAccessToken('');
+          setXAccessTokenSecret('');
+          return;
+        }
+
+        const data = await response.json();
+        setXApiKey(data?.apiKey || '');
+        setXApiKeySecret(data?.apiKeySecret || '');
+        setXAccessToken(data?.accessToken || '');
+        setXAccessTokenSecret(data?.accessTokenSecret || '');
+      } catch (error) {
+        console.error('X認証情報の読み込みに失敗:', error);
+      }
+    };
+
+    loadXCredentials();
   }, [user]);
 
   // 選択されたデータソースから分析用データを生成
@@ -5522,18 +5554,36 @@ export default function SNSGeneratorApp() {
   const saveXApiCredentials = async () => {
     if (!user) return;
     try {
-      const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, { 
-        xApiKey, 
-        xApiKeySecret,
-        xAccessToken,
-        xAccessTokenSecret
-      }, { merge: true });
+      const token = await user.getIdToken();
+      const response = await fetch('/api/x/credentials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          apiKey: xApiKey,
+          apiKeySecret: xApiKeySecret,
+          accessToken: xAccessToken,
+          accessTokenSecret: xAccessTokenSecret,
+        }),
+      });
+
+      if (!response.ok) {
+        let msg = `HTTP ${response.status}`;
+        try {
+          const data = await response.json();
+          if (data?.error) msg = data.error;
+        } catch {
+          // ignore
+        }
+        throw new Error(msg);
+      }
       alert('X API認証情報を保存しました');
       setShowXSettings(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("X API認証情報の保存に失敗:", error);
-      alert('保存に失敗しました');
+      alert(`保存に失敗しました: ${error?.message || '不明なエラー'}`);
     }
   };
 
