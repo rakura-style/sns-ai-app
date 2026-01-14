@@ -767,12 +767,18 @@ const generateTrendThemes = async (token: string, userId: string) => {
   }
 };
 
+// 禁止文字（*, #）を強制的に除去する関数
+const sanitizeForbiddenChars = (text: string): string => {
+  if (!text) return text;
+  return text.replace(/[#*]/g, '');
+};
+
 // 文章を書き換えプロンプトで改善する関数
 const rewritePostWithChecks = async (originalPost: string, settings: any, token: string, userId: string, hasTitle: boolean = false) => {
   const minLength = typeof settings.minLength === 'number' ? settings.minLength : (parseInt(String(settings.minLength || 50), 10) || 50);
   const maxLength = typeof settings.maxLength === 'number' ? settings.maxLength : (parseInt(String(settings.maxLength || 150), 10) || 150);
   
-  let currentPost = originalPost;
+  let currentPost = sanitizeForbiddenChars(originalPost);
   
   // ① AI臭チェック
   const aiCheckPrompt = `
@@ -785,12 +791,13 @@ ${currentPost}
 1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
 2. AIっぽさや決まりきった一般論は避けてください。
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
-4. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
     currentPost = await callSecureApi(aiCheckPrompt, token, 'post', userId);
+    currentPost = sanitizeForbiddenChars(currentPost);
   } catch (error) {
     console.error('AI臭チェックエラー:', error);
     // エラーが発生しても続行
@@ -807,12 +814,13 @@ ${currentPost}
 1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
 2. AIっぽさや決まりきった一般論は避けてください。
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
-4. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
     currentPost = await callSecureApi(humanCheckPrompt, token, 'post', userId);
+    currentPost = sanitizeForbiddenChars(currentPost);
   } catch (error) {
     console.error('人間チェックエラー:', error);
     // エラーが発生しても続行
@@ -829,12 +837,13 @@ ${currentPost}
 1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
 2. AIっぽさや決まりきった一般論は避けてください。
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
-4. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
     currentPost = await callSecureApi(emotionCheckPrompt, token, 'post', userId);
+    currentPost = sanitizeForbiddenChars(currentPost);
   } catch (error) {
     console.error('感情にじみチェックエラー:', error);
     // エラーが発生しても続行
@@ -851,12 +860,13 @@ ${currentPost}
 1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
 2. AIっぽさや決まりきった一般論は避けてください。
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
-4. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
     currentPost = await callSecureApi(explanationCheckPrompt, token, 'post', userId);
+    currentPost = sanitizeForbiddenChars(currentPost);
   } catch (error) {
     console.error('説明しすぎチェックエラー:', error);
     // エラーが発生しても続行
@@ -873,18 +883,19 @@ ${currentPost}
 1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
 2. AIっぽさや決まりきった一般論は避けてください。
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
-4. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
     currentPost = await callSecureApi(finalCheckPrompt, token, 'post', userId);
+    currentPost = sanitizeForbiddenChars(currentPost);
   } catch (error) {
     console.error('最終仕上げエラー:', error);
     // エラーが発生しても続行
   }
   
-  return currentPost;
+  return sanitizeForbiddenChars(currentPost);
 };
 
 const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string, hasTitle: boolean = false) => {
@@ -892,19 +903,27 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
   const minLength = typeof settings.minLength === 'number' ? settings.minLength : (parseInt(String(settings.minLength || 50), 10) || 50);
   const maxLength = typeof settings.maxLength === 'number' ? settings.maxLength : (parseInt(String(settings.maxLength || 150), 10) || 150);
   
+  // personaを分解して一人称と名前を取得
+  const rawPersona = settings.persona || settings.style || '私・投稿主';
+  const [firstPersonRaw, nameRaw] = String(rawPersona).split('・');
+  const firstPerson = firstPersonRaw || '私';
+  const displayName = nameRaw || '投稿主';
+
   const personaInstruction = `
     【パーソナリティ設定】
-    - 一人称と自身の名前: ${settings.persona || settings.style || '私・投稿主'}（一人称と名前を「・」で区切った形式）
+    - 一人称: ${firstPerson}
+    - 自身の名前: ${displayName}（本文中で「○○」のようなプレースホルダは使わず、必ずこの名前をそのまま使用してください）
     - 絵文字の使い方: ${settings.emoji}
     - 性格・特徴: ${settings.character}
 
     【重要: 出力ルール（必ず守ること）】
     1. 文字数: **絶対に${minLength}文字以上、${maxLength}文字以内**にしてください。これは厳密な要件です。文字数を数えて必ず範囲内に収めてください。
-    2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは絶対に厳守してください。
+    2. AIっぽさや決まりきった一般論は避けてください。
+    3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは絶対に厳守してください。
        - Markdownの見出し記号（#）や強調（**）、箇条書き（-）は不要です。これは絶対に厳守してください。
        - 箇条書き等の装飾にもこれらを使わないでください。これは絶対に厳守してください。
-    3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。文中の使用は禁止です。
-    4. 文字数確認: 生成後、必ず文字数を確認し、範囲外の場合は調整してください。
+    4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
+    5. 文字数確認: 生成後、必ず文字数を確認し、範囲外の場合は調整してください。
 
     この設定になりきってAIっぽくならない文章の投稿を作成してください。
 `;
@@ -923,13 +942,14 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
     prompt = `
       ${personaInstruction}
       以下の[テーマ]について、共感を呼ぶ魅力的なSNS投稿を作成してください。
-      ハッシュタグも適切に含めてください（文末のみ）。${titleInstruction}
+      ${titleInstruction}
       [テーマ]: ${topic}
     `;
   }
 
   try {
-    return await callSecureApi(prompt, token, 'post', userId);
+    const result = await callSecureApi(prompt, token, 'post', userId);
+    return sanitizeForbiddenChars(result);
   } catch (error) {
     console.error(error);
     throw error;
