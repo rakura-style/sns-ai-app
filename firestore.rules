@@ -13,6 +13,14 @@ service cloud.firestore {
       }
     }
 
+    // artifactsコレクション（利用回数管理用）
+    match /artifacts/{appId}/users/{userId}/daily_usage/{date} {
+      // ユーザーは自分の利用回数データのみ読み取り可能
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // 書き込みはサーバー側（Admin SDK）のみ許可
+      allow write: if false;
+    }
+
     // デフォルト: すべてのアクセスを拒否
     match /{document=**} {
       allow read, write: if false;

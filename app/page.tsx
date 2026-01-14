@@ -81,6 +81,7 @@ const calculateXCharacterCount = (text: string): number => {
 
 const callSecureApi = async (prompt: string, token: string, actionType: 'post' | 'theme', userId: string) => {
   // 🔥 1. 利用回数制限のチェック (1日100回)
+  // 注意: クライアント側でのチェックは参考程度。サーバー側での制限が優先されます。
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
   const usageRef = doc(db, 'artifacts', appId, 'users', userId, 'daily_usage', today);
   
@@ -90,10 +91,17 @@ const callSecureApi = async (prompt: string, token: string, actionType: 'post' |
     if (usageSnap.exists()) {
       currentCount = usageSnap.data().count || 0;
     }
-  } catch (error) {
-    console.error("Usage check failed:", error);
+  } catch (error: any) {
+    // 権限エラーの場合は、サーバー側でチェックされるため続行
+    if (error.code === 'permission-denied' || error.message?.includes('permission')) {
+      console.warn("Usage check permission denied (server-side check will be performed):", error);
+    } else {
+      console.error("Usage check failed:", error);
+    }
+    // エラーが発生しても続行（サーバー側で制限チェックされる）
   }
 
+  // クライアント側でのチェック（参考程度）
   if (currentCount >= 100) {
     throw new Error("本日の利用上限に達しました。\n明日以降ご利用ください。");
   }
