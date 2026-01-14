@@ -7066,6 +7066,9 @@ export default function SNSGeneratorApp() {
                               {blogUrls && blogUrls.length > 0 && (
                                 <button
                                   onClick={async () => {
+                                    if (!confirm(`ブログURLを一括更新しますか？\n\n対象URL数: ${blogUrls.length}件\n（既に取り込み済みのURLも再取得されます）`)) {
+                                      return;
+                                    }
                                     setShowDataImportModal(false);
                                     setIsBlogImporting(true);
                                     setBlogImportProgress(`全${blogUrls.length}件のURLを更新中...`);
