@@ -2750,10 +2750,8 @@ export default function SNSGeneratorApp() {
     if (!singleArticleUrl.trim() || !user) return;
     
     const inputUrl = singleArticleUrl.trim();
+    // 末尾のスラッシュは削除しない（サーバー側で判断させる）
     let normalizedUrl = inputUrl;
-    if (normalizedUrl.endsWith('/')) {
-      normalizedUrl = normalizedUrl.slice(0, -1);
-    }
     
     // URLの検証
     try {
@@ -2879,19 +2877,50 @@ export default function SNSGeneratorApp() {
     setBlogImportProgress('カスタムドメインのnoteから記事を取得中...');
     
     try {
-      // まず、そのURLがnoteかどうかを判定（HTMLメタタグや構造化データを確認）
-      const response = await fetch(customDomainUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        signal: AbortSignal.timeout(30000),
-      });
+      // URLバリアントを試す（末尾スラッシュの有無）
+      const urlVariants = [
+        customDomainUrl,
+        customDomainUrl.endsWith('/') ? customDomainUrl.slice(0, -1) : customDomainUrl + '/',
+      ];
+      const uniqueVariants = Array.from(new Set(urlVariants));
       
-      if (!response.ok) {
-        throw new Error(`ページの取得に失敗しました: ${response.status}`);
+      let response: Response | null = null;
+      let html = '';
+      let finalUrl = customDomainUrl;
+      
+      for (const urlToTry of uniqueVariants) {
+        try {
+          response = await fetch(urlToTry, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            },
+            redirect: 'follow', // リダイレクトを明示的に追従
+            signal: AbortSignal.timeout(30000),
+          });
+          
+          if (response.ok) {
+            finalUrl = response.url || urlToTry; // リダイレクト後の最終URL
+            html = await response.text();
+            break; // 成功したらループを抜ける
+          } else if (response.status === 404 && urlToTry !== uniqueVariants[uniqueVariants.length - 1]) {
+            // 404の場合は次のバリアントを試す
+            continue;
+          } else {
+            throw new Error(`ページの取得に失敗しました: ${response.status}`);
+          }
+        } catch (error: any) {
+          if (urlToTry === uniqueVariants[uniqueVariants.length - 1]) {
+            // すべてのバリアントを試した場合はエラーをスロー
+            throw error;
+          }
+          // 次のバリアントを試す
+          continue;
+        }
       }
       
-      const html = await response.text();
+      if (!response || !response.ok) {
+        throw new Error(`ページの取得に失敗しました: ${response?.status || '不明なエラー'}`);
+      }
       
       // noteかどうかを判定（og:site_name、構造化データ、note固有のクラス名など）
       const isNote = html.includes('og:site_name') && html.match(/content=["']note["']/i) ||
@@ -5288,11 +5317,33 @@ export default function SNSGeneratorApp() {
         const updatedBlogData = [header, ...filteredLines].join('\n');
         setBlogData(updatedBlogData);
         
-        // Firestoreに保存
-        await setDoc(doc(db, 'users', user.uid), {
-          blogData: updatedBlogData,
-          deletedPostIdentifiers: Array.from(updatedDeletedIdentifiers)
-        }, { merge: true });
+        // blogUrlsからも削除
+        if (url) {
+          const normalizedUrl = url.trim().replace(/\/$/, '');
+          const updatedBlogUrls = blogUrls.filter(u => {
+            const normalizedU = u.trim().replace(/\/$/, '');
+            return normalizedU !== normalizedUrl;
+          });
+          const updatedBlogUrlDates = { ...blogUrlDates };
+          delete updatedBlogUrlDates[url];
+          
+          setBlogUrls(updatedBlogUrls);
+          setBlogUrlDates(updatedBlogUrlDates);
+          
+          // Firestoreに保存
+          await setDoc(doc(db, 'users', user.uid), {
+            blogData: updatedBlogData,
+            blogUrls: updatedBlogUrls,
+            blogUrlDates: updatedBlogUrlDates,
+            deletedPostIdentifiers: Array.from(updatedDeletedIdentifiers)
+          }, { merge: true });
+        } else {
+          // Firestoreに保存
+          await setDoc(doc(db, 'users', user.uid), {
+            blogData: updatedBlogData,
+            deletedPostIdentifiers: Array.from(updatedDeletedIdentifiers)
+          }, { merge: true });
+        }
       } else {
         // 識別子のみを保存（CSVデータがない場合）
         await setDoc(doc(db, 'users', user.uid), {
@@ -6880,18 +6931,6 @@ export default function SNSGeneratorApp() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button
-                                    onClick={async () => {
-                                      setShowDataImportModal(false);
-                                      await handleReloadCsvData();
-                                    }}
-                                    disabled={isCsvLoading}
-                                    className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                    title="CSVデータを再読取り（上位300件に制限）"
-                                  >
-                                    <RefreshCcw size={12} />
-                                    再読取り
-                                  </button>
-                                  <button
                                     onClick={() => {
                                       setShowDataImportModal(false);
                                       // ファイル選択を待つ
@@ -6922,7 +6961,7 @@ export default function SNSGeneratorApp() {
                                     className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                     title="CSVデータを更新"
                                   >
-                                    <Upload size={12} />
+                                    <RefreshCcw size={12} />
                                     更新
                                   </button>
                                   <button
@@ -6950,11 +6989,6 @@ export default function SNSGeneratorApp() {
                           <div className="flex items-center justify-between mb-2">
                             <h4 className="text-sm font-bold text-slate-700">ブログURL一覧</h4>
                             <div className="flex items-center gap-2">
-                              {blogUrls && blogUrls.length > 0 && (
-                                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                                  取込み済URL: {blogUrls.length}件
-                                </span>
-                              )}
                               {blogData && blogData.trim() && (() => {
                                 try {
                                   const blogPosts = parseCsvToPosts(blogData);
@@ -6967,20 +7001,6 @@ export default function SNSGeneratorApp() {
                                   return null;
                                 }
                               })()}
-                              {blogData && blogData.trim() && (
-                                <button
-                                  onClick={async () => {
-                                    setShowDataImportModal(false);
-                                    await handleReloadBlogData();
-                                  }}
-                                  disabled={isBlogImporting}
-                                  className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                  title="ブログデータを再読取り（上位50件に制限）"
-                                >
-                                  <RefreshCcw size={12} />
-                                  再読取り
-                                </button>
-                              )}
                               <button
                                 onClick={() => {
                                   setShowDataImportModal(false);
@@ -6995,13 +7015,46 @@ export default function SNSGeneratorApp() {
                               </button>
                               {blogUrls && blogUrls.length > 0 && (
                                 <button
+                                  onClick={async () => {
+                                    setShowDataImportModal(false);
+                                    setIsBlogImporting(true);
+                                    setBlogImportProgress(`全${blogUrls.length}件のURLを更新中...`);
+                                    try {
+                                      // すべてのURLを順次更新
+                                      for (let i = 0; i < blogUrls.length; i++) {
+                                        setBlogImportProgress(`${i + 1}/${blogUrls.length}件のURLを更新中...`);
+                                        await handleUpdateUrl(blogUrls[i]);
+                                        // レート制限対策で少し待機
+                                        if (i < blogUrls.length - 1) {
+                                          await new Promise(resolve => setTimeout(resolve, 500));
+                                        }
+                                      }
+                                      setBlogImportProgress('更新完了');
+                                      setTimeout(() => setBlogImportProgress(''), 2000);
+                                    } catch (error: any) {
+                                      alert(`一括更新に失敗しました: ${error.message}`);
+                                      setBlogImportProgress('');
+                                    } finally {
+                                      setIsBlogImporting(false);
+                                    }
+                                  }}
+                                  disabled={isBlogImporting}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-green-600 rounded hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0 leading-tight"
+                                  title="すべてのURLを更新"
+                                >
+                                  <span>一括</span>
+                                  <span>更新</span>
+                                </button>
+                              )}
+                              {blogUrls && blogUrls.length > 0 && (
+                                <button
                                   onClick={() => handleBulkDeleteBlogUrls(blogUrls)}
                                   disabled={isBlogImporting}
-                                  className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                  className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0 leading-tight"
                                   title="すべてのURLを削除"
                                 >
-                                  <Trash2 size={12} />
-                                  一括削除
+                                  <span>一括</span>
+                                  <span>削除</span>
                                 </button>
                               )}
                             </div>
@@ -7016,12 +7069,33 @@ export default function SNSGeneratorApp() {
                                   
                                   const uploadDate = blogUrlDates[url] || blogUrlDates[displayUrl];
                                   
-                                  // ブログ公開日を取得（parsedPostsから該当するURLの投稿を探す）
+                                  // ブログ公開日とタイトルを取得（parsedPostsから該当するURLの投稿を探す）
                                   const blogPost = parsedPosts.find((post: any) => {
                                     const postUrl = post.URL || post.url;
                                     return postUrl === url || postUrl === displayUrl;
                                   });
                                   const blogPublishDate = blogPost?.Date || blogPost?.date || '';
+                                  const blogTitle = blogPost?.Title || blogPost?.title || '';
+                                  
+                                  // タイトルが取得できない場合は、blogDataから直接取得を試みる
+                                  let displayTitle = blogTitle;
+                                  if (!displayTitle && blogData) {
+                                    try {
+                                      const blogPosts = parseCsvToPosts(blogData);
+                                      const foundPost = blogPosts.find((post: any) => {
+                                        const postUrl = post.URL || post.url;
+                                        return postUrl === url || postUrl === displayUrl;
+                                      });
+                                      if (foundPost) {
+                                        displayTitle = foundPost.Title || foundPost.title || '';
+                                      }
+                                    } catch {
+                                      // パースエラーは無視
+                                    }
+                                  }
+                                  
+                                  // タイトルが取得できない場合はURLを表示
+                                  const displayText = displayTitle || displayUrl;
                                   
                                   let expiryDateStr = '';
                                   if (uploadDate) {
@@ -7049,7 +7123,7 @@ export default function SNSGeneratorApp() {
                                           className="text-xs text-[#066099] font-medium break-words hover:underline cursor-pointer"
                                           title={displayUrl}
                                         >
-                                          {displayUrl}
+                                          {displayText}
                                         </a>
                                         <div className="text-[10px] text-slate-500 mt-1">
                                           {blogPublishDate && (

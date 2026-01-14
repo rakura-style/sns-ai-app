@@ -978,7 +978,7 @@ export async function POST(request: NextRequest) {
       tags: string;
     }> = [];
     
-    // 記事取得関数（リトライロジック付き）
+    // 記事取得関数（リトライロジック付き、404エラー時に末尾スラッシュの有無を試す）
     const fetchArticle = async (url: string, retries = 2): Promise<{
       title: string;
       content: string;
@@ -987,100 +987,126 @@ export async function POST(request: NextRequest) {
       category: string;
       tags: string;
     } | null> => {
-      for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-          const response = await fetch(url, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            },
-            signal: AbortSignal.timeout(10000), // 10秒タイムアウト
-          });
-          
-          if (response.ok) {
-            // 文字化け対策: レスポンスをArrayBufferとして取得し、適切なエンコーディングでデコード
-            const arrayBuffer = await response.arrayBuffer();
-            let html = '';
+      // 404エラー時のリトライ用に、末尾スラッシュの有無を試す
+      const urlVariants = [
+        url,                    // 元のURL
+        url + '/',              // 末尾にスラッシュを追加
+        url.replace(/\/$/, ''), // 末尾のスラッシュを削除（元のURLが既にスラッシュ付きの場合）
+      ];
+      const uniqueVariants = Array.from(new Set(urlVariants)); // 重複を除去
+      
+      for (const urlToTry of uniqueVariants) {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          try {
+            const response = await fetch(urlToTry, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              },
+              redirect: 'follow', // リダイレクトを明示的に追従
+              signal: AbortSignal.timeout(10000), // 10秒タイムアウト
+            });
             
-            // Content-Typeヘッダーからcharsetを取得
-            const contentType = response.headers.get('content-type') || '';
-            const charsetMatch = contentType.match(/charset=([^;]+)/i);
-            const charset = charsetMatch ? charsetMatch[1].trim().toLowerCase() : 'utf-8';
-            
-            // HTMLのmetaタグからcharsetを取得（より正確）
-            const decoder = new TextDecoder(charset === 'utf-8' ? 'utf-8' : charset);
-            let tempHtml = decoder.decode(arrayBuffer);
-            
-            // HTMLのmetaタグからcharsetを確認
-            const metaCharsetMatch = tempHtml.match(/<meta[^>]*charset=["']?([^"'\s>]+)["']?/i);
-            if (metaCharsetMatch) {
-              const htmlCharset = metaCharsetMatch[1].toLowerCase();
-              if (htmlCharset !== charset) {
-                // HTMLで指定されたcharsetが異なる場合は再デコード
-                try {
-                  const htmlDecoder = new TextDecoder(htmlCharset);
-                  html = htmlDecoder.decode(arrayBuffer);
-                } catch (e) {
-                  // デコードに失敗した場合は元のデコード結果を使用
+            if (response.ok) {
+              // リダイレクト後の最終URLを取得
+              const finalUrl = response.url || urlToTry;
+              
+              // 文字化け対策: レスポンスをArrayBufferとして取得し、適切なエンコーディングでデコード
+              const arrayBuffer = await response.arrayBuffer();
+              let html = '';
+              
+              // Content-Typeヘッダーからcharsetを取得
+              const contentType = response.headers.get('content-type') || '';
+              const charsetMatch = contentType.match(/charset=([^;]+)/i);
+              const charset = charsetMatch ? charsetMatch[1].trim().toLowerCase() : 'utf-8';
+              
+              // HTMLのmetaタグからcharsetを取得（より正確）
+              const decoder = new TextDecoder(charset === 'utf-8' ? 'utf-8' : charset);
+              let tempHtml = decoder.decode(arrayBuffer);
+              
+              // HTMLのmetaタグからcharsetを確認
+              const metaCharsetMatch = tempHtml.match(/<meta[^>]*charset=["']?([^"'\s>]+)["']?/i);
+              if (metaCharsetMatch) {
+                const htmlCharset = metaCharsetMatch[1].toLowerCase();
+                if (htmlCharset !== charset) {
+                  // HTMLで指定されたcharsetが異なる場合は再デコード
+                  try {
+                    const htmlDecoder = new TextDecoder(htmlCharset);
+                    html = htmlDecoder.decode(arrayBuffer);
+                  } catch (e) {
+                    // デコードに失敗した場合は元のデコード結果を使用
+                    html = tempHtml;
+                  }
+                } else {
                   html = tempHtml;
                 }
               } else {
                 html = tempHtml;
               }
-            } else {
-              html = tempHtml;
+              
+              // HTMLサイズチェック（10MB以上はスキップ）
+              if (html.length > 10 * 1024 * 1024) {
+                console.warn(`記事が大きすぎます（${finalUrl}）: ${(html.length / 1024 / 1024).toFixed(2)}MB`);
+                return null;
+              }
+              
+              const title = extractTitle(html);
+              const content = extractContent(html); // テキスト形式で抽出（全文）
+              const date = extractDate(html, finalUrl); // URLも渡して日付抽出
+              const category = extractCategory(html); // カテゴリを抽出
+              const tags = extractTags(html); // タグを抽出
+              
+              // コンテンツが空の場合はスキップ（デバッグ情報を追加）
+              if (!content || !content.trim()) {
+                console.warn(`記事の内容が空です（${finalUrl}）`);
+                console.warn(`HTMLサイズ: ${html.length}文字, タイトル: ${title || 'なし'}`);
+                return null;
+              }
+              
+              // コンテンツが短すぎる場合も警告（50文字未満）
+              if (content.trim().length < 50) {
+                console.warn(`記事の内容が短すぎます（${finalUrl}）: ${content.trim().length}文字`);
+              }
+              
+              // 本文は長くても全て読み取る（切り詰め処理を削除）
+              const trimmedContent = content.trim();
+              
+              return {
+                title: title || 'タイトルなし',
+                content: trimmedContent,
+                date,
+                url: finalUrl, // リダイレクト後の最終URLを使用
+                category,
+                tags,
+              };
+            } else if (response.status === 404) {
+              // 404の場合は次のURLバリアントを試す
+              if (urlToTry === uniqueVariants[uniqueVariants.length - 1]) {
+                // すべてのバリアントを試した場合は終了
+                console.warn(`記事が見つかりません（${url}）: 404（すべてのURLバリアントを試しました）`);
+                return null;
+              }
+              // 次のバリアントを試すためにループを継続
+              break;
+            } else if (attempt < retries) {
+              // リトライ可能なエラーの場合、少し待ってからリトライ
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+              continue;
             }
-            
-            // HTMLサイズチェック（10MB以上はスキップ）
-            if (html.length > 10 * 1024 * 1024) {
-              console.warn(`記事が大きすぎます（${url}）: ${(html.length / 1024 / 1024).toFixed(2)}MB`);
-              return null;
+          } catch (error: any) {
+            if (attempt < retries && error.name !== 'AbortError') {
+              // タイムアウト以外のエラーはリトライ
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+              continue;
             }
-            
-            const title = extractTitle(html);
-            const content = extractContent(html); // テキスト形式で抽出（全文）
-            const date = extractDate(html, url); // URLも渡して日付抽出
-            const category = extractCategory(html); // カテゴリを抽出
-            const tags = extractTags(html); // タグを抽出
-            
-            // コンテンツが空の場合はスキップ（デバッグ情報を追加）
-            if (!content || !content.trim()) {
-              console.warn(`記事の内容が空です（${url}）`);
-              console.warn(`HTMLサイズ: ${html.length}文字, タイトル: ${title || 'なし'}`);
-              return null;
+            // 最後のバリアントでエラーが発生した場合のみログ出力
+            if (urlToTry === uniqueVariants[uniqueVariants.length - 1] && attempt === retries) {
+              console.error(`Failed to fetch article ${url} (attempt ${attempt + 1}/${retries + 1}):`, error.message || error);
             }
-            
-            // コンテンツが短すぎる場合も警告（50文字未満）
-            if (content.trim().length < 50) {
-              console.warn(`記事の内容が短すぎます（${url}）: ${content.trim().length}文字`);
+            // 最後のバリアントでない場合は次のバリアントを試す
+            if (urlToTry !== uniqueVariants[uniqueVariants.length - 1]) {
+              break;
             }
-            
-            // 本文は長くても全て読み取る（切り詰め処理を削除）
-            const trimmedContent = content.trim();
-            
-            return {
-              title: title || 'タイトルなし',
-              content: trimmedContent,
-              date,
-              url,
-              category,
-              tags,
-            };
-          } else if (response.status === 404) {
-            // 404の場合はリトライしない
-            console.warn(`記事が見つかりません（${url}）: 404`);
-            return null;
-          } else if (attempt < retries) {
-            // リトライ可能なエラーの場合、少し待ってからリトライ
-            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
-            continue;
           }
-        } catch (error: any) {
-          if (attempt < retries && error.name !== 'AbortError') {
-            // タイムアウト以外のエラーはリトライ
-            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
-            continue;
-          }
-          console.error(`Failed to fetch article ${url} (attempt ${attempt + 1}/${retries + 1}):`, error.message || error);
         }
       }
       return null;
