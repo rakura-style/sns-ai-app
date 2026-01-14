@@ -3090,10 +3090,11 @@ export default function SNSGeneratorApp() {
     // 重複を除去
     const uniqueUrls = Array.from(new Set(processedUrls));
     
-    // 1回あたり最大100件に制限（Firestoreのドキュメントサイズ制限のため）
-    if (uniqueUrls.length > 100) {
-      alert(`1回あたり最大100件まで取り込めます。収集された${uniqueUrls.length}件のうち、最初の100件のみを取り込みます。`);
-      urls = uniqueUrls.slice(0, 100);
+    // 1回あたり最大50件に制限（Firestoreのドキュメントサイズ制限のため）
+    const MAX_IMPORT_PER_RUN = 50;
+    if (uniqueUrls.length > MAX_IMPORT_PER_RUN) {
+      alert(`1回あたり最大${MAX_IMPORT_PER_RUN}件まで取り込めます。収集された${uniqueUrls.length}件のうち、最初の${MAX_IMPORT_PER_RUN}件のみを取り込みます。`);
+      urls = uniqueUrls.slice(0, MAX_IMPORT_PER_RUN);
     } else {
       urls = uniqueUrls;
     }
@@ -3660,6 +3661,90 @@ export default function SNSGeneratorApp() {
           if (!updatedBlogUrls.includes(originalUrl)) {
             updatedBlogUrls.push(originalUrl);
             updatedBlogUrlDates[originalUrl] = dateStr;
+          }
+        }
+      }
+      
+      // ブログURL一覧を50件に制限（古いものから削除）
+      const MAX_BLOG_URLS = 50;
+      if (updatedBlogUrls.length > MAX_BLOG_URLS) {
+        // 取込み日時でソート（古い順）
+        const sortedUrls = [...updatedBlogUrls].sort((a, b) => {
+          const dateA = updatedBlogUrlDates[a] || '';
+          const dateB = updatedBlogUrlDates[b] || '';
+          if (dateA && dateB) {
+            return new Date(dateA.replace(/\//g, '-')).getTime() - new Date(dateB.replace(/\//g, '-')).getTime();
+          }
+          if (dateA) return -1;
+          if (dateB) return 1;
+          return 0;
+        });
+        
+        // 古いものから削除
+        const urlsToRemove = sortedUrls.slice(0, updatedBlogUrls.length - MAX_BLOG_URLS);
+        const finalBlogUrls = updatedBlogUrls.filter(url => !urlsToRemove.includes(url));
+        const finalBlogUrlDates: { [key: string]: string } = {};
+        finalBlogUrls.forEach(url => {
+          if (updatedBlogUrlDates[url]) {
+            finalBlogUrlDates[url] = updatedBlogUrlDates[url];
+          }
+        });
+        
+        updatedBlogUrls.length = 0;
+        updatedBlogUrls.push(...finalBlogUrls);
+        Object.keys(updatedBlogUrlDates).forEach(key => {
+          if (!finalBlogUrls.includes(key)) {
+            delete updatedBlogUrlDates[key];
+          }
+        });
+        Object.assign(updatedBlogUrlDates, finalBlogUrlDates);
+        
+        // 削除されたURLのデータも削除
+        const removedUrlsSet = new Set(urlsToRemove);
+        const updatedPosts = parsedPosts.filter(post => {
+          const postUrl = post.URL || post.url;
+          return !postUrl || !removedUrlsSet.has(postUrl);
+        });
+        setParsedPosts(updatedPosts);
+        
+        // ブログデータからも削除
+        if (blogData && blogData.trim()) {
+          try {
+            const blogPosts = parseCsvToPosts(blogData);
+            const filteredPosts = blogPosts.filter(post => {
+              const postUrl = post.URL || post.url;
+              return !postUrl || !removedUrlsSet.has(postUrl);
+            });
+            
+            if (filteredPosts.length > 0) {
+              const filteredBlogData = [
+                'Date,Title,Content,Category,Tags,URL',
+                ...filteredPosts.map(post => {
+                  const date = post.Date || post.date || '';
+                  const title = `"${(post.Title || post.title || '').replace(/"/g, '""')}"`;
+                  const content = `"${(post.Content || post.content || '').replace(/"/g, '""')}"`;
+                  const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
+                  const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
+                  const url = `"${post.URL || post.url || ''}"`;
+                  return `${date},${title},${content},${category},${tags},${url}`;
+                }),
+              ].join('\n');
+              
+              setBlogData(filteredBlogData);
+              await saveBlogDataToFirestore(user.uid, filteredBlogData, dateStr);
+            } else {
+              setBlogData('');
+              setBlogUploadDate(null);
+              await setDoc(doc(db, 'users', user.uid), {
+                blogData: null,
+                blogUploadDate: null,
+                blogUpdatedTime: null,
+                blogIsSplit: false,
+                blogChunkCount: null
+              }, { merge: true });
+            }
+          } catch (error) {
+            console.error('ブログデータのフィルタリングエラー:', error);
           }
         }
       }
@@ -4904,11 +4989,45 @@ export default function SNSGeneratorApp() {
           
           if (data.blogUploadDate) setBlogUploadDate(data.blogUploadDate);
           
-          // 取り込んだURLの一覧を読み込み
+          // 取り込んだURLの一覧を読み込み（50件に制限）
           if (data.blogUrls && Array.isArray(data.blogUrls)) {
-            setBlogUrls(data.blogUrls);
-          }
-          if (data.blogUrlDates && typeof data.blogUrlDates === 'object') {
+            const MAX_BLOG_URLS = 50;
+            let urlsToSet = data.blogUrls;
+            let datesToSet = data.blogUrlDates && typeof data.blogUrlDates === 'object' ? data.blogUrlDates : {};
+            
+            // 50件を超える場合は、取込み日時でソートして古いものから削除
+            if (urlsToSet.length > MAX_BLOG_URLS) {
+              const sortedUrls = [...urlsToSet].sort((a, b) => {
+                const dateA = datesToSet[a] || '';
+                const dateB = datesToSet[b] || '';
+                if (dateA && dateB) {
+                  return new Date(dateA.replace(/\//g, '-')).getTime() - new Date(dateB.replace(/\//g, '-')).getTime();
+                }
+                if (dateA) return -1;
+                if (dateB) return 1;
+                return 0;
+              });
+              
+              const urlsToKeep = sortedUrls.slice(-MAX_BLOG_URLS);
+              urlsToSet = urlsToKeep;
+              const filteredDates: { [key: string]: string } = {};
+              urlsToKeep.forEach(url => {
+                if (datesToSet[url]) {
+                  filteredDates[url] = datesToSet[url];
+                }
+              });
+              datesToSet = filteredDates;
+              
+              // Firestoreも更新
+              await setDoc(doc(db, 'users', user.uid), {
+                blogUrls: urlsToSet,
+                blogUrlDates: datesToSet
+              }, { merge: true });
+            }
+            
+            setBlogUrls(urlsToSet);
+            setBlogUrlDates(datesToSet);
+          } else if (data.blogUrlDates && typeof data.blogUrlDates === 'object') {
             setBlogUrlDates(data.blogUrlDates);
           }
           
@@ -5512,11 +5631,8 @@ export default function SNSGeneratorApp() {
       
       // 削除したURLのデータが含まれている場合、parsedPostsからも削除
       const updatedPosts = parsedPosts.filter(post => {
-        // rawDataにURLが含まれているかチェック
-        if (post.rawData && post.rawData.URL) {
-          return post.rawData.URL !== urlToDelete;
-        }
-        return true;
+        const postUrl = post.URL || post.url || (post.rawData && post.rawData.URL);
+        return postUrl !== urlToDelete;
       });
       setParsedPosts(updatedPosts);
       
@@ -5533,8 +5649,53 @@ export default function SNSGeneratorApp() {
           blogChunkCount: null
         }, { merge: true });
       } else {
-        // 残りのURLのデータを再取得する必要がある場合は、ここで処理
-        // 現在は、parsedPostsから該当URLのデータを削除するだけ
+        // 既存のブログデータから該当URLの記事を削除して保存
+        if (blogData && blogData.trim()) {
+          try {
+            const posts = parseCsvToPosts(blogData);
+            const remainingPosts = posts.filter((post: any) => {
+              const postUrl = post.URL || post.url;
+              return postUrl !== urlToDelete;
+            });
+            
+            if (remainingPosts.length > 0) {
+              const rebuiltBlogData = [
+                'Date,Title,Content,Category,Tags,URL',
+                ...remainingPosts.map((post: any) => {
+                  const date = post.Date || post.date || '';
+                  const title = `"${(post.Title || post.title || '').replace(/"/g, '""')}"`;
+                  const content = `"${(post.Content || post.content || '').replace(/"/g, '""')}"`;
+                  const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
+                  const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
+                  const url = `"${post.URL || post.url || ''}"`;
+                  return `${date},${title},${content},${category},${tags},${url}`;
+                }),
+              ].join('\n');
+              
+              const now = new Date();
+              const dateStr = now.toLocaleString('ja-JP', { 
+                year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
+              });
+              
+              await saveBlogDataToFirestore(user.uid, rebuiltBlogData, dateStr);
+              setBlogData(rebuiltBlogData);
+              setBlogUploadDate(dateStr);
+            } else {
+              // 万が一すべての投稿がなくなった場合はクリア
+              setBlogData('');
+              setBlogUploadDate(null);
+              await setDoc(doc(db, 'users', user.uid), {
+                blogData: null,
+                blogUploadDate: null,
+                blogUpdatedTime: null,
+                blogIsSplit: false,
+                blogChunkCount: null
+              }, { merge: true });
+            }
+          } catch (e) {
+            console.error('ブログデータ再構築エラー:', e);
+          }
+        }
       }
     } catch (error) {
       console.error('URLの削除に失敗:', error);
