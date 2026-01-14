@@ -7092,28 +7092,14 @@ export default function SNSGeneratorApp() {
                               {blogUrls && blogUrls.length > 0 && (
                                 <button
                                   onClick={async () => {
-                                    if (!confirm(`ブログURLを一括更新しますか？\n\n対象URL数: ${blogUrls.length}件\n（既に取り込み済みのURLも再取得されます）`)) {
+                                    if (!confirm(`ブログURLを更新しますか？\n\n対象URL数: ${blogUrls.length}件\n（既に取り込み済みのURLも再取得されます）`)) {
                                       return;
                                     }
-                                    setIsBlogImporting(true);
-                                    setBlogImportProgress(`全${blogUrls.length}件のURLを更新中...`);
+                                    // 一括更新は1回の取り込み処理として実行し、内部で50件制限のアラートも1回だけ出す
                                     try {
-                                      // すべてのURLを順次更新
-                                      for (let i = 0; i < blogUrls.length; i++) {
-                                        setBlogImportProgress(`${i + 1}/${blogUrls.length}件のURLを更新中...`);
-                                        await handleUpdateUrl(blogUrls[i]);
-                                        // レート制限対策で少し待機
-                                        if (i < blogUrls.length - 1) {
-                                          await new Promise(resolve => setTimeout(resolve, 500));
-                                        }
-                                      }
-                                      setBlogImportProgress('更新完了');
-                                      setTimeout(() => setBlogImportProgress(''), 2000);
+                                      await handleImportSelectedUrls(blogUrls, 'append');
                                     } catch (error: any) {
-                                      alert(`一括更新に失敗しました: ${error.message}`);
-                                      setBlogImportProgress('');
-                                    } finally {
-                                      setIsBlogImporting(false);
+                                      alert(`更新に失敗しました: ${error.message || '不明なエラー'}`);
                                     }
                                   }}
                                   disabled={isBlogImporting}
