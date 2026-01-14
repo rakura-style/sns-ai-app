@@ -767,6 +767,121 @@ const generateTrendThemes = async (token: string, userId: string) => {
   }
 };
 
+// 文章を書き換えプロンプトで改善する関数
+const rewritePostWithChecks = async (originalPost: string, settings: any, token: string, userId: string, hasTitle: boolean = false) => {
+  const minLength = typeof settings.minLength === 'number' ? settings.minLength : (parseInt(String(settings.minLength || 50), 10) || 50);
+  const maxLength = typeof settings.maxLength === 'number' ? settings.maxLength : (parseInt(String(settings.maxLength || 150), 10) || 150);
+  
+  let currentPost = originalPost;
+  
+  // ① AI臭チェック
+  const aiCheckPrompt = `
+以下の文章を読んで、「AIっぽい」と感じる可能性がある箇所を具体的に探し、・なぜAIっぽく感じるか・人が書いた感を出すならどう直すかという観点で修正してください。
+
+【元の文章】
+${currentPost}
+
+【重要: 出力ルール】
+1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
+2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。
+3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. 修正理由を説明せず、修正後の文章のみを出力してください。
+`;
+  
+  try {
+    currentPost = await callSecureApi(aiCheckPrompt, token, 'post', userId);
+  } catch (error) {
+    console.error('AI臭チェックエラー:', error);
+    // エラーが発生しても続行
+  }
+  
+  // ② 人間チェック（違和感検出）
+  const humanCheckPrompt = `
+以下の文章を、忙しい社会人や文章を流し読みする人が読んだとき、引っかかりそうな一文、読み飛ばされそうな一文、不自然に感じる言い回しを探し、修正してください。
+
+【元の文章】
+${currentPost}
+
+【重要: 出力ルール】
+1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
+2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。
+3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. 修正理由を説明せず、修正後の文章のみを出力してください。
+`;
+  
+  try {
+    currentPost = await callSecureApi(humanCheckPrompt, token, 'post', userId);
+  } catch (error) {
+    console.error('人間チェックエラー:', error);
+    // エラーが発生しても続行
+  }
+  
+  // ③ 感情にじみチェック（盛りすぎ防止）
+  const emotionCheckPrompt = `
+以下の文章で、感情を説明しすぎている部分、わざとらしく感じる可能性がある表現があれば探し出し、人の感情が「にじむ」表現に直してください。
+
+【元の文章】
+${currentPost}
+
+【重要: 出力ルール】
+1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
+2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。
+3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. 修正理由を説明せず、修正後の文章のみを出力してください。
+`;
+  
+  try {
+    currentPost = await callSecureApi(emotionCheckPrompt, token, 'post', userId);
+  } catch (error) {
+    console.error('感情にじみチェックエラー:', error);
+    // エラーが発生しても続行
+  }
+  
+  // ④ 説明しすぎチェック（AIあるある潰し）
+  const explanationCheckPrompt = `
+以下の文章で、説明しすぎている部分がないか探し出してください。削っても意味が通る箇所、あえて書かない方が自然な箇所があれば削除してください。
+
+【元の文章】
+${currentPost}
+
+【重要: 出力ルール】
+1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
+2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。
+3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. 修正理由を説明せず、修正後の文章のみを出力してください。
+`;
+  
+  try {
+    currentPost = await callSecureApi(explanationCheckPrompt, token, 'post', userId);
+  } catch (error) {
+    console.error('説明しすぎチェックエラー:', error);
+    // エラーが発生しても続行
+  }
+  
+  // ⑤ 最終仕上げ（人が書いた感MAX）
+  const finalCheckPrompt = `
+上記の指摘をすべて反映したうえで、「人が少し考えながら書いた文章」になるよう最終調整してください。完璧に整えすぎないでください。
+
+【元の文章】
+${currentPost}
+
+【重要: 出力ルール】
+1. 文字数: ${minLength}文字以上、${maxLength}文字以内にしてください。
+2. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。
+3. ハッシュタグ: 投稿の最後にハッシュタグを記載する場合のみ '#' を使用してください。
+4. 修正理由を説明せず、修正後の文章のみを出力してください。
+`;
+  
+  try {
+    currentPost = await callSecureApi(finalCheckPrompt, token, 'post', userId);
+  } catch (error) {
+    console.error('最終仕上げエラー:', error);
+    // エラーが発生しても続行
+  }
+  
+  return currentPost;
+};
+
 const generatePost = async (mode: string, topic: string, inputData: any, settings: any, token: string, userId: string, hasTitle: boolean = false) => {
   // 文字数設定を数値に変換（文字列の場合に対応）
   const minLength = typeof settings.minLength === 'number' ? settings.minLength : (parseInt(String(settings.minLength || 50), 10) || 50);
@@ -787,7 +902,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
     4. 文字数確認: 生成後、必ず文字数を確認し、範囲外の場合は調整してください。
 
     この設定になりきってAIっぽくならない文章の投稿を作成してください。
-  `;
+`;
 
   let prompt = "";
   if (mode === 'rewrite') {
@@ -1342,11 +1457,12 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
   );
 };
 
-const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX, xAccessToken, showPostAnalysis }: any) => {
+const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPostingToX, xAccessToken, showPostAnalysis, rewrittenContent, isRewriting }: any) => {
   const [copied, setCopied] = useState(false);
   const [isUpgradeLoading, setIsUpgradeLoading] = useState(false); 
   const [showPostModal, setShowPostModal] = useState(false);
   const [selectedDestinations, setSelectedDestinations] = useState<PostDestination[]>([]);
+  const [showRewritten, setShowRewritten] = useState(true); // 書き換え後の文章を表示するか
 
 
   const handleCopy = () => {
@@ -1492,12 +1608,61 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
         ) : !content ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 gap-3 border-2 border-dashed border-slate-100 rounded-lg m-6"><Sparkles size={40} className="text-slate-200" /><p className="text-sm font-medium">テーマを選んで「生成」ボタンを押してください</p></div>
         ) : (
-          <textarea
-            className="w-full h-full min-h-[400px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-base animate-in fade-in duration-500 bg-transparent border-none focus:ring-0 resize-y outline-none"
-            value={content}
-            onChange={(e) => onChange && onChange(e.target.value)}
-            placeholder="生成された内容がここに表示されます。直接編集も可能です。"
-          />
+          <div className="flex flex-col h-full gap-4 overflow-y-auto">
+            {/* 元の生成結果 */}
+            <div className="flex-shrink-0">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-500">生成結果（元）</span>
+              </div>
+              <textarea
+                className="w-full min-h-[200px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-sm animate-in fade-in duration-500 bg-slate-50 border border-slate-200 rounded-lg p-3 focus:ring-2 focus:ring-[#066099] resize-y outline-none"
+                value={content}
+                onChange={(e) => onChange && onChange(e.target.value)}
+                placeholder="生成された内容がここに表示されます。直接編集も可能です。"
+              />
+            </div>
+            
+            {/* 書き換え中の表示 */}
+            {isRewriting && (
+              <div className="flex items-center justify-center py-4 text-slate-400 gap-2 flex-shrink-0">
+                <Loader2 size={16} className="animate-spin text-[#066099]" />
+                <p className="text-xs font-medium">文章を改善中（5段階のチェックを実行中）...</p>
+              </div>
+            )}
+            
+            {/* 書き換え後の文章 */}
+            {rewrittenContent && !isRewriting && (
+              <div className="flex-shrink-0 border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-green-600 flex items-center gap-1">
+                    <Sparkles size={12} className="text-green-600" />
+                    改善後の文章
+                  </span>
+                  <button
+                    onClick={() => setShowRewritten(!showRewritten)}
+                    className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                  >
+                    {showRewritten ? '非表示' : '表示'}
+                  </button>
+                </div>
+                {showRewritten && (
+                  <textarea
+                    className="w-full min-h-[200px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-sm animate-in fade-in duration-500 bg-green-50 border border-green-200 rounded-lg p-3 focus:ring-2 focus:ring-green-500 resize-y outline-none"
+                    value={rewrittenContent}
+                    onChange={(e) => {
+                      // 書き換え後の文章も編集可能にする
+                      if (onChange) {
+                        // 親コンポーネントに通知（書き換え後の文章用のコールバックがあれば使用）
+                        // 今回は直接編集はできないが、表示は可能
+                      }
+                    }}
+                    placeholder="改善後の文章がここに表示されます。"
+                    readOnly={false}
+                  />
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -2849,10 +3014,59 @@ export default function SNSGeneratorApp() {
       return;
     }
     
+    // 一覧ページURL（/entryなど）の場合は、先に記事URLを収集
+    const processedUrls: string[] = [];
+    for (const url of urls) {
+      // 一覧ページURLかどうかを判定（サイトマップURLでなく、記事URLでもない場合）
+      const isListPage = !url.endsWith('.xml') && 
+                        !url.includes('sitemap') && 
+                        (url.includes('/entry') || url.includes('/blog') || url.includes('/posts') || url.includes('/articles'));
+      
+      if (isListPage) {
+        // 一覧ページの場合は、サイトマップAPIを使って記事URLを収集
+        try {
+          setBlogImportProgress(`一覧ページから記事URLを収集中: ${url}...`);
+          const response = await fetch('/api/blog/sitemap', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              sitemapUrl: url,
+            }),
+          });
+          
+          const data = await response.json();
+          if (response.ok && data.urls && data.urls.length > 0) {
+            // 収集した記事URLを追加
+            const articleUrls = data.urls.map((item: { url: string; date: string; title?: string }) => item.url);
+            processedUrls.push(...articleUrls);
+            setBlogImportProgress(`${url}から${articleUrls.length}件の記事URLを収集しました`);
+          } else {
+            // 記事URLが収集できなかった場合、元のURLをそのまま使用（単独記事として扱う）
+            processedUrls.push(url);
+            console.warn(`一覧ページから記事URLを収集できませんでした: ${url}`);
+          }
+        } catch (error: any) {
+          console.error(`一覧ページからの記事URL収集エラー (${url}):`, error);
+          // エラーの場合、元のURLをそのまま使用
+          processedUrls.push(url);
+        }
+      } else {
+        // 一覧ページでない場合は、そのまま使用
+        processedUrls.push(url);
+      }
+    }
+    
+    // 重複を除去
+    const uniqueUrls = Array.from(new Set(processedUrls));
+    
     // 1回あたり最大100件に制限（Firestoreのドキュメントサイズ制限のため）
-    if (urls.length > 100) {
-      alert(`1回あたり最大100件まで取り込めます。選択された${urls.length}件のうち、最初の100件のみを取り込みます。`);
-      urls = urls.slice(0, 100);
+    if (uniqueUrls.length > 100) {
+      alert(`1回あたり最大100件まで取り込めます。収集された${uniqueUrls.length}件のうち、最初の100件のみを取り込みます。`);
+      urls = uniqueUrls.slice(0, 100);
+    } else {
+      urls = uniqueUrls;
     }
     
     setIsBlogImporting(true);
@@ -3154,10 +3368,32 @@ export default function SNSGeneratorApp() {
       }
       
       // 成功した投稿のみをカウント
-      const successPosts = allPosts.filter((p: any) => !p.error);
+      const successPosts = allPosts.filter((p: any) => !p.error && p.content && p.content.trim().length > 0);
       if (successPosts.length === 0) {
-        const errorDetails = allPosts.map((p: any) => `${p.url}: ${p.error || '不明なエラー'}`).join('\n');
-        throw new Error(`記事の取得に失敗しました。\n\nエラー詳細:\n${errorDetails}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+        const errorDetails = allPosts.map((p: any) => {
+          if (p.error) {
+            return `${p.url}: ${p.error}`;
+          } else if (!p.content || !p.content.trim()) {
+            return `${p.url}: 記事の内容が空です`;
+          } else {
+            return `${p.url}: 不明なエラー`;
+          }
+        }).join('\n');
+        
+        // エラーの詳細を確認
+        const errorCount = allPosts.filter((p: any) => p.error).length;
+        const emptyContentCount = allPosts.filter((p: any) => !p.error && (!p.content || !p.content.trim())).length;
+        
+        let errorMessage = `記事の取得に失敗しました。\n\n`;
+        if (errorCount > 0) {
+          errorMessage += `エラーが発生したURL: ${errorCount}件\n`;
+        }
+        if (emptyContentCount > 0) {
+          errorMessage += `内容が空のURL: ${emptyContentCount}件\n`;
+        }
+        errorMessage += `\nエラー詳細:\n${errorDetails}\n\n詳細はブラウザのコンソール（F12）を確認してください。`;
+        
+        throw new Error(errorMessage);
       }
       
       // エラーがあった投稿がある場合は警告を表示
@@ -4151,7 +4387,9 @@ export default function SNSGeneratorApp() {
   const [isThemesLoading, setIsThemesLoading] = useState(false);
   
   const [result, setResult] = useState('');
+  const [rewrittenResult, setRewrittenResult] = useState(''); // 書き換え後の文章
   const [isPostLoading, setIsPostLoading] = useState(false);
+  const [isRewriting, setIsRewriting] = useState(false); // 書き換え処理中
   const [error, setError] = useState('');
   const [showFacebookSettings, setShowFacebookSettings] = useState(false);
   const [facebookAppId, setFacebookAppId] = useState('');
@@ -5588,6 +5826,34 @@ export default function SNSGeneratorApp() {
       }
       
       setResult(formattedPost);
+      setRewrittenResult(''); // リセット
+      
+      // 書き換えプロンプトで改善
+      setIsRewriting(true);
+      try {
+        const rewrittenPost = await rewritePostWithChecks(formattedPost, currentSettings, token, userId, hasTitle);
+        
+        // タイトルと本文の間に改行を2つ入れる処理（書き換え後も同様）
+        let formattedRewrittenPost = rewrittenPost;
+        if (hasTitle && rewrittenPost) {
+          const lines = rewrittenPost.split('\n');
+          if (lines.length >= 2) {
+            const title = lines[0].trim();
+            const body = lines.slice(1).join('\n').trim();
+            if (title && body) {
+              formattedRewrittenPost = `${title}\n\n${body}`;
+            }
+          }
+        }
+        
+        setRewrittenResult(formattedRewrittenPost);
+      } catch (err: any) {
+        console.error('書き換えエラー:', err);
+        // 書き換えに失敗しても元の文章は表示する
+        setRewrittenResult('');
+      } finally {
+        setIsRewriting(false);
+      }
     } catch (err: any) {
       setError(err.message || "投稿の生成に失敗しました。");
     } finally {
@@ -7561,6 +7827,8 @@ export default function SNSGeneratorApp() {
                  user={user}
                  onPostToX={handlePostToX}
                  isPostingToX={isPostingToX}
+                 rewrittenContent={rewrittenResult}
+                 isRewriting={isRewriting}
                  xAccessToken={xAccessToken}
                  showPostAnalysis={activeMode === 'mypost' && showPostAnalysis}
                />
