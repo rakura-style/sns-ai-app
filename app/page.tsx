@@ -1810,9 +1810,8 @@ export default function SNSGeneratorApp() {
   const [singleArticleUrl, setSingleArticleUrl] = useState(''); // 単独記事URL
   const [urlImportType, setUrlImportType] = useState<'sitemap' | 'note' | 'article'>('sitemap'); // URL取り込みタイプ
   
-  // ファイル選択後のモード選択ダイアログ
+  // ファイル選択前のモード選択ダイアログ
   const [showCsvModeSelectModal, setShowCsvModeSelectModal] = useState(false);
-  const [pendingCsvFileData, setPendingCsvFileData] = useState<string>('');
   
   // URL入力ダイアログ
   const [showUrlInputModal, setShowUrlInputModal] = useState(false);
@@ -7099,28 +7098,8 @@ export default function SNSGeneratorApp() {
                               {/* 追加ボタン（X） */}
                               <button
                                 onClick={() => {
-                                  const fileInput = fileInputRef.current;
-                                  if (fileInput) {
-                                    const tempHandler = async (e: Event) => {
-                                      const target = e.target as HTMLInputElement;
-                                      const file = target.files?.[0];
-                                      if (!file) return;
-                                      
-                                      const reader = new FileReader();
-                                      reader.onload = async (event) => {
-                                        const text = event.target?.result as string;
-                                        if (text) {
-                                          setPendingCsvFileData(text);
-                                          setShowCsvModeSelectModal(true);
-                                        }
-                                        target.value = '';
-                                        fileInput.removeEventListener('change', tempHandler);
-                                      };
-                                      reader.readAsText(file);
-                                    };
-                                    fileInput.addEventListener('change', tempHandler);
-                                    fileInput.click();
-                                  }
+                                  // まずモード選択モーダルを表示
+                                  setShowCsvModeSelectModal(true);
                                 }}
                                 disabled={isCsvLoading}
                                 className="px-3 py-1.5 text-xs font-bold text-white bg-[#F99F66] rounded hover:bg-[#F98A40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
@@ -7502,7 +7481,6 @@ export default function SNSGeneratorApp() {
                       <button
                         onClick={() => {
                           setShowCsvModeSelectModal(false);
-                          setPendingCsvFileData('');
                         }}
                         className="text-slate-400 hover:text-slate-600 transition-colors"
                       >
@@ -7551,24 +7529,41 @@ export default function SNSGeneratorApp() {
                       
                       <div className="flex items-center gap-2 pt-2">
                         <button
-                          onClick={async () => {
-                            try {
-                              if (pendingCsvFileData) {
-                                const success = await applyCsvData(pendingCsvFileData, csvImportMode);
-                                if (success) {
-                                  // 成功時のみモーダルを閉じる
-                                  setShowCsvModeSelectModal(false);
-                                  setPendingCsvFileData('');
+                          onClick={() => {
+                            // モードを保存してファイル選択ダイアログを開く
+                            const selectedMode = csvImportMode;
+                            setShowCsvModeSelectModal(false);
+                            
+                            const fileInput = fileInputRef.current;
+                            if (fileInput) {
+                              const tempHandler = async (e: Event) => {
+                                const target = e.target as HTMLInputElement;
+                                const file = target.files?.[0];
+                                if (!file) {
+                                  return;
                                 }
-                                // エラー時はモーダルを開いたまま
-                              } else {
-                                // データがない場合はモーダルを閉じる
-                                setShowCsvModeSelectModal(false);
-                                setPendingCsvFileData('');
-                              }
-                            } catch (error) {
-                              // エラー時はモーダルを開いたまま
-                              console.error('CSV取り込みエラー:', error);
+                                
+                                const reader = new FileReader();
+                                reader.onload = async (event) => {
+                                  const text = event.target?.result as string;
+                                  if (text) {
+                                    // 確認ダイアログを表示
+                                    const modeText = selectedMode === 'replace' ? '書き換え' : '追加';
+                                    if (confirm(`CSVデータを${modeText}しますか？`)) {
+                                      const success = await applyCsvData(text, selectedMode);
+                                      if (!success) {
+                                        // エラー時はモード選択モーダルを再度表示
+                                        setShowCsvModeSelectModal(true);
+                                      }
+                                    }
+                                  }
+                                  target.value = '';
+                                  fileInput.removeEventListener('change', tempHandler);
+                                };
+                                reader.readAsText(file);
+                              };
+                              fileInput.addEventListener('change', tempHandler);
+                              fileInput.click();
                             }
                           }}
                           className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors"
@@ -7578,7 +7573,6 @@ export default function SNSGeneratorApp() {
                         <button
                           onClick={() => {
                             setShowCsvModeSelectModal(false);
-                            setPendingCsvFileData('');
                           }}
                           className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
                         >
@@ -7837,16 +7831,16 @@ export default function SNSGeneratorApp() {
                               if (selectedUrls.size === sitemapUrls.length) {
                                 setSelectedUrls(new Set());
                               } else {
-                                const maxSelect = Math.min(100, sitemapUrls.length);
-                                if (sitemapUrls.length > 100) {
-                                  alert(`1回あたり最大100件まで選択できます。最初の100件を選択します。`);
+                                const maxSelect = Math.min(50, sitemapUrls.length);
+                                if (sitemapUrls.length > 50) {
+                                  alert(`1回あたり最大50件まで選択できます。最初の50件を選択します。`);
                                 }
                                 setSelectedUrls(new Set(sitemapUrls.slice(0, maxSelect).map(u => u.url)));
                               }
                             }}
                             className="px-3 py-1.5 text-sm font-bold text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
                           >
-                            {selectedUrls.size === sitemapUrls.length || selectedUrls.size === 100 ? 'すべて解除' : 'すべて選択（最大100件）'}
+                            {selectedUrls.size === sitemapUrls.length || selectedUrls.size === 50 ? 'すべて解除' : 'すべて選択（最大50件）'}
                           </button>
                         </div>
                       </div>
@@ -7863,8 +7857,8 @@ export default function SNSGeneratorApp() {
                               onChange={(e) => {
                                 const newSelected = new Set(selectedUrls);
                                 if (e.target.checked) {
-                                  if (newSelected.size >= 100) {
-                                    alert('1回あたり最大100件まで選択できます');
+                                  if (newSelected.size >= 50) {
+                                    alert('1回あたり最大50件まで選択できます');
                                     return;
                                   }
                                   newSelected.add(item.url);
@@ -7899,9 +7893,9 @@ export default function SNSGeneratorApp() {
                           <p className="text-sm text-slate-600">
                             {selectedUrls.size}件のURLが選択されています
                           </p>
-                          {selectedUrls.size > 100 && (
+                          {selectedUrls.size > 50 && (
                             <p className="text-xs text-red-600 font-medium">
-                              ⚠️ 1回あたり最大100件まで取り込めます。最初の100件のみ取り込みます。
+                              ⚠️ 1回あたり最大50件まで取り込めます。最初の50件のみ取り込みます。
                             </p>
                           )}
                         </div>
@@ -7921,8 +7915,8 @@ export default function SNSGeneratorApp() {
                                 alert('取り込むURLを選択してください');
                                 return;
                               }
-                              if (selectedUrls.size > 100) {
-                                if (!confirm(`1回あたり最大100件まで取り込めます。選択された${selectedUrls.size}件のうち、最初の100件のみを取り込みます。続けますか？`)) {
+                              if (selectedUrls.size > 50) {
+                                if (!confirm(`1回あたり最大50件まで取り込めます。選択された${selectedUrls.size}件のうち、最初の50件のみを取り込みます。続けますか？`)) {
                                   return;
                                 }
                               }
