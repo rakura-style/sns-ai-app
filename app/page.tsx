@@ -802,7 +802,8 @@ ${currentPost}
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
 4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 「」（かぎ括弧）の使用: 「」の多用はAIっぽさに繋がるため、使用は必要最小限に抑えてください。本当に必要な場合のみ使用してください。
-6. 修正理由を説明せず、修正後の文章のみを出力してください。
+6. 話題の一貫性: 伝えたいことに対して話題が散らばらないように注意し、最終的な伝えたいことにつながるように、文をまとめてください。
+7. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
@@ -826,7 +827,8 @@ ${currentPost}
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
 4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 「」（かぎ括弧）の使用: 「」の多用はAIっぽさに繋がるため、使用は必要最小限に抑えてください。本当に必要な場合のみ使用してください。
-6. 修正理由を説明せず、修正後の文章のみを出力してください。
+6. 話題の一貫性: 伝えたいことに対して話題が散らばらないように注意し、最終的な伝えたいことにつながるように、文をまとめてください。
+7. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
@@ -850,7 +852,8 @@ ${currentPost}
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
 4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 「」（かぎ括弧）の使用: 「」の多用はAIっぽさに繋がるため、使用は必要最小限に抑えてください。本当に必要な場合のみ使用してください。
-6. 修正理由を説明せず、修正後の文章のみを出力してください。
+6. 話題の一貫性: 伝えたいことに対して話題が散らばらないように注意し、最終的な伝えたいことにつながるように、文をまとめてください。
+7. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
@@ -874,7 +877,8 @@ ${currentPost}
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
 4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 「」（かぎ括弧）の使用: 「」の多用はAIっぽさに繋がるため、使用は必要最小限に抑えてください。本当に必要な場合のみ使用してください。
-6. 修正理由を説明せず、修正後の文章のみを出力してください。
+6. 話題の一貫性: 伝えたいことに対して話題が散らばらないように注意し、最終的な伝えたいことにつながるように、文をまとめてください。
+7. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
@@ -898,7 +902,8 @@ ${currentPost}
 3. 禁止文字: 文中で '*'（アスタリスク）や '#'（シャープ/ハッシュ）は絶対に使用しないでください。これは厳守してください。
 4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
 5. 「」（かぎ括弧）の使用: 「」の多用はAIっぽさに繋がるため、使用は必要最小限に抑えてください。本当に必要な場合のみ使用してください。
-6. 修正理由を説明せず、修正後の文章のみを出力してください。
+6. 話題の一貫性: 伝えたいことに対して話題が散らばらないように注意し、最終的な伝えたいことにつながるように、文をまとめてください。
+7. 修正理由を説明せず、修正後の文章のみを出力してください。
 `;
   
   try {
@@ -939,6 +944,10 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
     4. ハッシュタグも含め、本文中および文末で '#' を使う表現はすべて禁止です。
     5. 「」（かぎ括弧）の使用: 「」の多用はAIっぽさに繋がるため、使用は必要最小限に抑えてください。本当に必要な場合のみ使用してください。
     6. 文字数確認: 生成後、必ず文字数を確認し、範囲外の場合は調整してください。
+    7. 話題の一貫性: 伝えたいことに対して話題が散らばらないように注意し、最終的な伝えたいことにつながるように、文をまとめてください。
+    8. 文章の構成:
+       - 説明文の場合: PREP法（Point: 結論、Reason: 理由、Example: 具体例、Point: 結論の繰り返し）やステップバイステップでの説明を心がけてください。
+       - 随筆のような文章の場合: 起承転結や情緒的な表現が自然と表現されるように留意してください。
 
     この設定になりきってAIっぽくならない文章の投稿を作成してください。
 `;
@@ -1364,7 +1373,7 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
   const minLengthValue = settings.minLength === undefined || settings.minLength === null ? '' : String(settings.minLength);
   const maxLengthValue = settings.maxLength === undefined || settings.maxLength === null ? '' : String(settings.maxLength);
   
-  const handleChange = async (key: string, value: string | number) => {
+  const handleChange = async (key: string, value: string | number | boolean) => {
     const updatedSettings = { ...settings, [key]: value };
     // 状態を更新（updateCurrentSettings関数を呼び出す）
     setSettings(updatedSettings);
@@ -1450,6 +1459,25 @@ const PersistentSettings = ({ settings, setSettings, mode, user }: any) => {
       <ComboboxInput label="一人称と自身の名前" icon={MessageCircle} value={settings.persona || settings.style || ''} onChange={(val: string) => handleChange('persona', val)} options={["私・投稿主",  "僕・投稿主","俺・投稿主", "自分・投稿主", "わたくし・投稿主", "あたし・投稿主"]} placeholder="例: 私・らくらスタイル" />
       <ComboboxInput label="絵文字の使い方" icon={Smile} value={settings.emoji} onChange={(val: string) => handleChange('emoji', val)} options={["適度に使用（文末に1つなど）", "多用する（賑やかに）", "一切使用しない", "特定の絵文字を好む（✨🚀）", "顔文字（( ^ω^ )）を使用"]} placeholder="例: 適度に使用" />
       <ComboboxInput label="性格・特徴" icon={UserIcon} value={settings.character} onChange={(val: string) => handleChange('character', val)} options={["SNS初心者\n頑張って更新している", "30代エンジニア\n技術トレンドに敏感", "熱血広報担当\n自社製品への愛が強い", "トレンドマーケター\n分析的で冷静な視点", "毒舌批評家\n本質を突くのが得意", "丁寧な暮らし系\n穏やかで情緒的"]} placeholder="例: 30代エンジニア" multiline={true} />
+      
+      {/* ハッシュタグ設定 */}
+      <div className="pt-2 border-t border-slate-100">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.includeHashtags || false}
+            onChange={(e) => handleChange('includeHashtags', e.target.checked)}
+            className="w-4 h-4 text-[#066099] border-slate-300 rounded focus:ring-[#066099] focus:ring-2"
+          />
+          <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+            <Sparkles size={12} className="text-[#066099]" />
+            文末にハッシュタグを追加する
+          </span>
+        </label>
+        {settings.includeHashtags && (
+          <p className="text-[10px] text-slate-400 mt-1 ml-6">SEO上のキーワードを3～4個ハッシュタグ付きで追加します</p>
+        )}
+      </div>
       
       {/* 文字数設定エリア */}
       <div className="pt-2 border-t border-slate-100">
@@ -1658,9 +1686,9 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
             )}
             
             {/* 書き換え後の文章（または元の生成結果） */}
-            <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 flex flex-col p-6">
               <textarea
-                className="w-full flex-1 min-h-[500px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-sm animate-in fade-in duration-500 bg-transparent p-0 focus:ring-0 resize-y outline-none"
+                className="w-full flex-1 min-h-[500px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-sm animate-in fade-in duration-500 bg-transparent focus:ring-0 resize-y outline-none"
                 value={rewrittenContent || content}
                 onChange={(e) => onChange && onChange(e.target.value)}
                 placeholder="生成された内容がここに表示されます。直接編集も可能です。"
@@ -6111,7 +6139,34 @@ export default function SNSGeneratorApp() {
           }
         }
         
-        setRewrittenResult(formattedRewrittenPost);
+        // ハッシュタグが必要な場合、SEOキーワードを3～4個追加
+        let finalPost = formattedRewrittenPost;
+        if ((currentSettings as any).includeHashtags && formattedRewrittenPost) {
+          try {
+            const hashtagPrompt = `
+以下の文章を読んで、SEO上のキーワードを3～4個抽出してください。
+抽出したキーワードをハッシュタグ形式（#キーワード）で文末に追加してください。
+
+【文章】
+${formattedRewrittenPost}
+
+【重要: 出力ルール】
+1. 文章の内容を変更せず、そのまま出力してください。
+2. 文末に改行を1つ入れてから、ハッシュタグを追加してください。
+3. ハッシュタグは3～4個、スペースで区切って追加してください。
+4. ハッシュタグは文章の内容に関連するSEO上の重要なキーワードを選んでください。
+5. 修正理由を説明せず、文章とハッシュタグを含めた完全な出力のみを返してください。
+`;
+            const postWithHashtags = await callSecureApi(hashtagPrompt, token, 'post', userId);
+            finalPost = sanitizeForbiddenChars(postWithHashtags);
+          } catch (error) {
+            console.error('ハッシュタグ追加エラー:', error);
+            // エラーが発生しても元の文章をそのまま使用
+            finalPost = formattedRewrittenPost;
+          }
+        }
+        
+        setRewrittenResult(finalPost);
       } catch (err: any) {
         console.error('書き換えエラー:', err);
         // 書き換えに失敗しても元の文章は表示する
