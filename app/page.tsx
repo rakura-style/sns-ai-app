@@ -1613,7 +1613,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
         <button onClick={handleCopy} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${copied ? 'bg-green-50 text-green-600' : 'text-slate-500 hover:text-[#066099] hover:bg-sky-50'}`}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'コピー完了' : 'コピー'}</button>
         </div>
       </div>
-      <div className="flex-1 p-6 relative">
+      <div className="flex-1 relative min-h-0 flex flex-col">
         {error ? (
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div className="text-red-500 bg-red-50 p-6 rounded-xl text-sm flex flex-col gap-3 items-center max-w-sm text-center shadow-sm border border-red-100">
@@ -1648,7 +1648,7 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
         ) : !content ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 gap-3 border-2 border-dashed border-slate-100 rounded-lg m-6"><Sparkles size={40} className="text-slate-200" /><p className="text-sm font-medium">テーマを選んで「生成」ボタンを押してください</p></div>
         ) : (
-          <div className="flex flex-col h-full">
+          <div className="flex flex-col h-full min-h-0">
             {/* 書き換え中の表示 */}
             {isRewriting && (
               <div className="flex items-center justify-center py-4 text-slate-400 gap-2 flex-shrink-0">
@@ -1658,9 +1658,9 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
             )}
             
             {/* 書き換え後の文章（または元の生成結果） */}
-            <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 flex flex-col">
               <textarea
-                className="w-full flex-1 whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-sm animate-in fade-in duration-500 bg-transparent p-0 focus:ring-0 resize-none outline-none"
+                className="w-full flex-1 min-h-[500px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-sm animate-in fade-in duration-500 bg-transparent p-0 focus:ring-0 resize-y outline-none"
                 value={rewrittenContent || content}
                 onChange={(e) => onChange && onChange(e.target.value)}
                 placeholder="生成された内容がここに表示されます。直接編集も可能です。"
