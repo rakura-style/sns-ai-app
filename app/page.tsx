@@ -6677,7 +6677,7 @@ ${formattedRewrittenPost}
                             name="urlImportType"
                             value="sitemap"
                             checked={urlImportType === 'sitemap'}
-                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
+                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'entry' | 'article')}
                             className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                           />
                           <div>
@@ -7461,12 +7461,12 @@ ${formattedRewrittenPost}
                               name="urlImportTypeModal"
                               value="sitemap"
                               checked={urlImportType === 'sitemap'}
-                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'entry' | 'article')}
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
-                              <p className="text-xs text-slate-500">WordPressの場合、URLに/post-sitemap.xmlを付けてください</p>
+                              <p className="text-xs text-slate-500">入力されたURLに/post-sitemap.xmlを追加して検索します</p>
                             </div>
                           </label>
                           
@@ -7474,14 +7474,14 @@ ${formattedRewrittenPost}
                             <input
                               type="radio"
                               name="urlImportTypeModal"
-                              value="article"
-                              checked={urlImportType === 'article'}
-                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
+                              value="entry"
+                              checked={urlImportType === 'entry'}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'entry' | 'article')}
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">エントリー一覧のURL（はてなブログ）</p>
-                              <p className="text-xs text-slate-500">はてなブログの場合、URLに/entry/を付けてください。一覧から選択できます</p>
+                              <p className="text-xs text-slate-500">入力されたURLに/entry/を追加して検索します</p>
                             </div>
                           </label>
                           
@@ -7491,12 +7491,12 @@ ${formattedRewrittenPost}
                               name="urlImportTypeModal"
                               value="article"
                               checked={urlImportType === 'article'}
-                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'entry' | 'article')}
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">記事の単独URL</p>
-                              <p className="text-xs text-slate-500">WordPressとはてなブログの両方に対応。指定したURLの記事のみを取り込みます</p>
+                              <p className="text-xs text-slate-500">入力されたページのみから取り込みます（WordPressとはてなブログの両方に対応）</p>
                             </div>
                           </label>
                         </div>
