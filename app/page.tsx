@@ -2488,8 +2488,9 @@ export default function SNSGeneratorApp() {
   };
 
   // サイトマップからURL一覧を取得
-  const handleFetchSitemap = async (): Promise<void> => {
-    if (!sitemapUrl || !user) return;
+  const handleFetchSitemap = async (overrideUrl?: string): Promise<void> => {
+    const urlToUse = overrideUrl || sitemapUrl;
+    if (!urlToUse || !user) return;
     
     setIsSitemapLoading(true);
     setBlogImportProgress('サイトマップからURL一覧を取得中...');
@@ -2501,7 +2502,7 @@ export default function SNSGeneratorApp() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sitemapUrl: sitemapUrl.trim(),
+          sitemapUrl: urlToUse.trim(),
         }),
       });
       
@@ -2561,7 +2562,7 @@ export default function SNSGeneratorApp() {
       // サイトマップURLをFirestoreに保存
       try {
         await setDoc(doc(db, 'users', user.uid), {
-          sitemapUrl: sitemapUrl.trim()
+          sitemapUrl: urlToUse.trim()
         }, { merge: true });
       } catch (saveError) {
         console.error('サイトマップURLの保存エラー:', saveError);
@@ -2725,21 +2726,20 @@ export default function SNSGeneratorApp() {
       
       try {
         // 入力URLに/post-sitemap.xmlを追加
-        const urlObj = new URL(normalizedUrl);
         const baseUrl = normalizedUrl.endsWith('/') ? normalizedUrl.slice(0, -1) : normalizedUrl;
         const sitemapUrlToUse = `${baseUrl}/post-sitemap.xml`;
         
         setSitemapUrl(sitemapUrlToUse);
-        await handleFetchSitemap();
+        // URLを直接渡して呼び出す（状態更新を待たない）
+        await handleFetchSitemap(sitemapUrlToUse);
       } catch (error: any) {
         alert(`サイトマップの取得に失敗しました: ${error.message}`);
         setBlogImportProgress('');
         setIsSitemapLoading(false);
       }
     } else if (urlImportType === 'entry') {
-      // エントリー一覧の場合：入力されたURLに/entry/を追加
+      // エントリー一覧の場合：入力されたURLに/entry/または/archiveを追加
       const baseUrl = normalizedUrl.endsWith('/') ? normalizedUrl.slice(0, -1) : normalizedUrl;
-      const entryListUrl = `${baseUrl}/entry/`;
       
       // エントリー一覧ページから記事リストを取得
       setIsBlogImporting(true);
@@ -2747,27 +2747,47 @@ export default function SNSGeneratorApp() {
       
       try {
         const token = await user.getIdToken();
-        const response = await fetch('/api/blog/entry-list', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ entryListUrl: entryListUrl }),
-        });
         
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'エントリー一覧の取得に失敗しました');
+        // まず/entry/を試す、ダメなら/archiveを試す
+        const urlsToTry = [
+          `${baseUrl}/entry/`,
+          `${baseUrl}/archive`,
+        ];
+        
+        let successData = null;
+        let lastError = null;
+        
+        for (const entryListUrl of urlsToTry) {
+          try {
+            setBlogImportProgress(`${entryListUrl} を確認中...`);
+            const response = await fetch('/api/blog/entry-list', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({ entryListUrl: entryListUrl }),
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && data.urls && data.urls.length > 0) {
+                successData = data;
+                break;
+              }
+            }
+          } catch (e: any) {
+            lastError = e;
+            continue;
+          }
         }
         
-        const data = await response.json();
-        if (!data.success || !data.urls || data.urls.length === 0) {
-          throw new Error('記事URLが見つかりませんでした');
+        if (!successData) {
+          throw new Error(lastError?.message || '記事URLが見つかりませんでした。はてなブログのURLを確認してください。');
         }
         
         // 記事URLのリストを取得して、選択モーダルを表示
-        const urlList = data.urls.map((url: string) => ({
+        const urlList = successData.urls.map((url: string) => ({
           url: url,
           date: '', // 日付は後で取得
           title: undefined,
@@ -6787,7 +6807,7 @@ ${formattedRewrittenPost}
                           />
                         </div>
                         <button
-                          onClick={handleFetchSitemap}
+                          onClick={() => handleFetchSitemap()}
                           disabled={isSitemapLoading || !sitemapUrl.trim()}
                           className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
