@@ -193,7 +193,25 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
 
 // 記事のタイトルを抽出
 function extractTitle(html: string): string {
-  // 1. ページ内の最初の<h1>タグを探し、そのテキストを抽出（クラス名は無視）
+  // 1. はてなブログ対応: .entry-title-linkクラス（<a>タグ内のテキスト）
+  const entryTitleLinkMatch = html.match(/<a[^>]*class=["'][^"']*entry-title-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
+  if (entryTitleLinkMatch) {
+    const title = extractTextFromHTML(entryTitleLinkMatch[1]);
+    if (title.trim()) {
+      return title.trim();
+    }
+  }
+  
+  // 2. はてなブログ対応: h1.entry-titleクラス
+  const h1EntryTitleMatch = html.match(/<h1[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i);
+  if (h1EntryTitleMatch) {
+    const title = extractTextFromHTML(h1EntryTitleMatch[1]);
+    if (title.trim()) {
+      return title.trim();
+    }
+  }
+  
+  // 3. ページ内の最初の<h1>タグを探し、そのテキストを抽出（クラス名は無視）
   const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   if (h1Match) {
     const title = extractTextFromHTML(h1Match[1]);
@@ -202,7 +220,7 @@ function extractTitle(html: string): string {
     }
   }
   
-  // 2. 万が一<h1>が存在しない場合のみ、<title>タグの冒頭部分を使用
+  // 4. 万が一<h1>が存在しない場合のみ、<title>タグの冒頭部分を使用
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
   if (titleMatch) {
     let title = extractTextFromHTML(titleMatch[1]);
@@ -287,8 +305,13 @@ function extractContent(html: string): string {
   text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
   text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
   
-  // 2. ターゲット: <div class="post_content">から</div>まですべて取得
-  let contentHtml = extractNestedTag(text, 'div', 'post_content');
+  // 2. はてなブログ対応: .entry-contentクラスを優先的に試す
+  let contentHtml = extractNestedTag(text, 'div', 'entry-content');
+  
+  // 3. はてなブログ対応が失敗した場合、WordPress対応: <div class="post_content">から</div>まですべて取得
+  if (!contentHtml) {
+    contentHtml = extractNestedTag(text, 'div', 'post_content');
+  }
   
   if (!contentHtml) {
     return '';
@@ -400,7 +423,41 @@ function extractContent(html: string): string {
 
 // 記事の投稿日を抽出
 function extractDate(html: string, url?: string): string {
-  // 1. <time>タグを探し、datetime属性（YYYY-MM-DD）を取得
+  // 1. はてなブログ対応: .updatedクラス内の日付を取得
+  const updatedMatch = html.match(/<[^>]*class=["'][^"']*updated[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  if (updatedMatch) {
+    const updatedContent = updatedMatch[1];
+    // datetime属性を探す
+    const datetimeMatch = updatedContent.match(/datetime=["']([^"']+)["']/i);
+    if (datetimeMatch) {
+      try {
+        const dateStr = datetimeMatch[1];
+        const date = new Date(dateStr);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split('T')[0];
+        }
+      } catch (e) {
+        // 日付パースエラーは無視
+      }
+    }
+    // datetime属性がない場合、テキストから日付を抽出
+    const dateText = extractTextFromHTML(updatedContent);
+    const datePatterns = [
+      /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/,  // YYYY.MM.DD, YYYY/MM/DD, YYYY-MM-DD
+      /(\d{4})年(\d{1,2})月(\d{1,2})日/,            // YYYY年MM月DD日
+    ];
+    for (const pattern of datePatterns) {
+      const match = dateText.match(pattern);
+      if (match) {
+        const year = match[1];
+        const month = match[2].padStart(2, '0');
+        const day = match[3].padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+  }
+  
+  // 2. <time>タグを探し、datetime属性（YYYY-MM-DD）を取得
   const timeMatches = html.matchAll(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/gi);
   for (const match of timeMatches) {
     try {

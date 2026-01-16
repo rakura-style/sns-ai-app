@@ -1891,11 +1891,9 @@ export default function SNSGeneratorApp() {
   const [showSitemapUrlModal, setShowSitemapUrlModal] = useState(false); // サイトマップURL選択モーダル
   const [blogImportMode, setBlogImportMode] = useState<'append' | 'replace'>('append'); // 追加/上書きモード
   
-  // note URLと単独記事URL用の状態
-  const [noteUrl, setNoteUrl] = useState(''); // noteプロフィールURL
-  const [isNoteLoading, setIsNoteLoading] = useState(false); // note URL取得中
+  // 単独記事URL用の状態
   const [singleArticleUrl, setSingleArticleUrl] = useState(''); // 単独記事URL
-  const [urlImportType, setUrlImportType] = useState<'sitemap' | 'note' | 'article'>('sitemap'); // URL取り込みタイプ
+  const [urlImportType, setUrlImportType] = useState<'sitemap' | 'article'>('sitemap'); // URL取り込みタイプ
   
   // ファイル選択前のモード選択ダイアログ
   const [showCsvModeSelectModal, setShowCsvModeSelectModal] = useState(false);
@@ -2073,7 +2071,7 @@ export default function SNSGeneratorApp() {
       if (docSnap.exists()) {
         const existingData = docSnap.data();
         // 他のフィールドのサイズを計算（blogData、blogUrls、blogUrlDatesなど）
-        const otherFields = ['blogData', 'blogUrls', 'blogUrlDates', 'sitemapUrl', 'noteUrl', 'settings', 'themes', 'myPostThemes'];
+        const otherFields = ['blogData', 'blogUrls', 'blogUrlDates', 'sitemapUrl', 'settings', 'themes', 'myPostThemes'];
         for (const field of otherFields) {
           if (existingData[field]) {
             const fieldSize = new Blob([JSON.stringify(existingData[field])]).size;
@@ -2578,108 +2576,9 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // noteプロフィールページから記事URL一覧を取得
-  const handleFetchNoteUrls = async () => {
-    if (!noteUrl || !user) return;
-    
-    setIsNoteLoading(true);
-    setBlogImportProgress('noteプロフィールから記事URL一覧を取得中...');
-    
-    try {
-      const response = await fetch('/api/blog/note', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          noteUrl: noteUrl.trim(),
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'note記事の取得に失敗しました');
-      }
-      
-      if (!data.urls || data.urls.length === 0) {
-        throw new Error('note記事が見つかりませんでした');
-      }
-      
-      // 既に取り込まれているURLを除外
-      const existingUrlsSet = new Set(blogUrls);
-      const filteredUrls = data.urls.filter((item: { url: string; date: string; title?: string }) => !existingUrlsSet.has(item.url));
-      
-      // タイトルがないURLに対してタイトルを取得
-      const urlsWithoutTitle = filteredUrls.filter((item: { url: string; date: string; title?: string }) => !item.title || item.title === '');
-      if (urlsWithoutTitle.length > 0) {
-        setBlogImportProgress(`タイトルを取得中... (${urlsWithoutTitle.length}件)`);
-        try {
-          const titleResponse = await fetch('/api/blog/titles', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              urls: urlsWithoutTitle.map((item: { url: string; date: string; title?: string }) => item.url),
-            }),
-          });
-          
-          if (titleResponse.ok) {
-            const titleData = await titleResponse.json();
-            if (titleData.titles) {
-              const titleMap = new Map(titleData.titles.map((t: { url: string; title: string }) => [t.url, t.title]));
-              // タイトルを更新
-              filteredUrls.forEach((item: { url: string; date: string; title?: string }) => {
-                if (!item.title && titleMap.has(item.url)) {
-                  const fetchedTitle = titleMap.get(item.url);
-                  item.title = (fetchedTitle && typeof fetchedTitle === 'string') ? fetchedTitle : '';
-                }
-              });
-            }
-          }
-        } catch (error) {
-          console.error('タイトル取得エラー:', error);
-          // タイトル取得に失敗しても続行
-        }
-      }
-      
-      setSitemapUrls(filteredUrls);
-      setSelectedUrls(new Set()); // 選択をリセット
-      setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました（既存の${data.urls.length - filteredUrls.length}件は除外）`);
-      setShowSitemapUrlModal(true); // モーダルを開く
-      
-      // note URLをFirestoreに保存
-      try {
-        await setDoc(doc(db, 'users', user.uid), {
-          noteUrl: noteUrl.trim()
-        }, { merge: true });
-      } catch (saveError) {
-        console.error('note URLの保存エラー:', saveError);
-        // 保存エラーは無視（表示には影響しない）
-      }
-    } catch (error: any) {
-      console.error('Note fetch error:', error);
-      alert(`note記事の取得に失敗しました: ${error.message}`);
-      setBlogImportProgress('');
-    } finally {
-      setIsNoteLoading(false);
-    }
-  };
-
   // URLの種類を自動判別する関数
-  const detectUrlType = (url: string): 'note-profile' | 'note-article' | 'blog-sitemap' | 'single-article' => {
+  const detectUrlType = (url: string): 'blog-sitemap' | 'single-article' => {
     const normalizedUrl = url.trim();
-    
-    // note.comのURLかチェック
-    if (normalizedUrl.includes('note.com')) {
-      // note記事のURLパターン: /username/n/xxxxx
-      if (/note\.com\/[^\/]+\/n\/[a-zA-Z0-9]+/.test(normalizedUrl)) {
-        return 'note-article'; // 単独のnote記事
-      } else {
-        return 'note-profile'; // noteプロフィール
-      }
-    }
     
     // その他のURLは、まずサイトマップを試す
     return 'blog-sitemap';
@@ -2704,9 +2603,7 @@ export default function SNSGeneratorApp() {
     }
     
     // URLタイプに応じて適切なローディング状態を設定
-    if (urlType === 'note-profile') {
-      setIsNoteLoading(true);
-    } else if (urlType === 'blog-sitemap') {
+    if (urlType === 'blog-sitemap') {
       setIsSitemapLoading(true);
     } else {
       setIsBlogImporting(true);
@@ -2715,28 +2612,7 @@ export default function SNSGeneratorApp() {
     setBlogImportProgress('URLを解析中...');
     
     try {
-      if (urlType === 'note-profile') {
-        // noteプロフィールの場合
-        setNoteUrl(normalizedUrl);
-        await handleFetchNoteUrls();
-        // handleFetchNoteUrls内でsetIsNoteLoading(false)が呼ばれる
-      } else if (urlType === 'note-article') {
-        // 単独のnote記事の場合
-        // 既に取り込まれているかチェック
-        if (blogUrls.includes(normalizedUrl)) {
-          if (!confirm('このURLは既に取り込まれています。更新しますか？')) {
-            setIsBlogImporting(false);
-            setBlogImportProgress('');
-            return;
-          }
-        }
-        setBlogImportProgress('記事を取得中...');
-        await handleImportSelectedUrls([normalizedUrl], 'append');
-        setSingleArticleUrl('');
-        setBlogImportProgress('取り込み完了');
-        setTimeout(() => setBlogImportProgress(''), 2000);
-        setIsBlogImporting(false);
-      } else if (urlType === 'blog-sitemap') {
+      if (urlType === 'blog-sitemap') {
         // ブログサイトの場合、サイトマップを試す
         const urlObj = new URL(normalizedUrl);
         const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
@@ -2823,7 +2699,6 @@ export default function SNSGeneratorApp() {
       // エラー時は全てのローディング状態をリセット
       setIsBlogImporting(false);
       setIsSitemapLoading(false);
-      setIsNoteLoading(false);
     }
   };
 
@@ -2903,211 +2778,83 @@ export default function SNSGeneratorApp() {
         setBlogImportProgress('');
         setIsSitemapLoading(false);
       }
-    } else if (urlImportType === 'note') {
-      // noteの場合（カスタムドメイン含む）
-      setIsNoteLoading(true);
-      setBlogImportProgress('noteから記事を取得中...');
-      
-      try {
-        // note.comのURLかカスタムドメインかを判定
-        if (normalizedUrl.includes('note.com')) {
-          // note.comのURLの場合
-          setNoteUrl(normalizedUrl);
-          await handleFetchNoteUrls();
-        } else {
-          // カスタムドメインの可能性がある場合、noteかどうかを判定
-          await handleFetchNoteFromCustomDomain(normalizedUrl);
-        }
-      } catch (error: any) {
-        alert(`note記事の取得に失敗しました: ${error.message}`);
-        setBlogImportProgress('');
-        setIsNoteLoading(false);
-      }
     } else if (urlImportType === 'article') {
-      // 単独記事の場合
-      setIsBlogImporting(true);
-      setBlogImportProgress('記事を取得中...');
-      
-      try {
-        // 既に取り込まれているかチェック
-        if (blogUrls.includes(normalizedUrl)) {
-          if (!confirm('このURLは既に取り込まれています。更新しますか？')) {
-            setIsBlogImporting(false);
-            setBlogImportProgress('');
-            return;
-          }
-        }
+      // 単独記事またはエントリー一覧ページの場合
+      // /entry/で終わるURLの場合は、エントリー一覧ページから記事リストを取得
+      if (normalizedUrl.includes('/entry/') && (normalizedUrl.endsWith('/entry') || normalizedUrl.endsWith('/entry/'))) {
+        // エントリー一覧ページから記事リストを取得
+        setIsBlogImporting(true);
+        setBlogImportProgress('エントリー一覧から記事を取得中...');
         
-        await handleImportSelectedUrls([normalizedUrl], 'append');
-        setSingleArticleUrl('');
-        setBlogImportProgress('取り込み完了');
-        setTimeout(() => setBlogImportProgress(''), 2000);
-        setIsBlogImporting(false);
-      } catch (error: any) {
-        alert(`記事の取り込みに失敗しました: ${error.message}`);
-        setBlogImportProgress('');
-        setIsBlogImporting(false);
+        try {
+          const token = await user.getIdToken();
+          const response = await fetch('/api/blog/entry-list', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ entryListUrl: normalizedUrl }),
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'エントリー一覧の取得に失敗しました');
+          }
+          
+          const data = await response.json();
+          if (!data.success || !data.urls || data.urls.length === 0) {
+            throw new Error('記事URLが見つかりませんでした');
+          }
+          
+          // 記事URLのリストを取得して、選択モーダルを表示
+          // sitemapUrlsの形式に合わせて変換
+          const urlList = data.urls.map((url: string) => ({
+            url: url,
+            date: '', // 日付は後で取得
+            title: undefined,
+          }));
+          setSitemapUrls(urlList);
+          setSelectedUrls(new Set());
+          setShowSitemapUrlModal(true);
+          setSingleArticleUrl('');
+          setBlogImportProgress('');
+          setIsBlogImporting(false);
+        } catch (error: any) {
+          alert(`エントリー一覧の取得に失敗しました: ${error.message}`);
+          setBlogImportProgress('');
+          setIsBlogImporting(false);
+        }
+      } else {
+        // 単独記事の場合
+        setIsBlogImporting(true);
+        setBlogImportProgress('記事を取得中...');
+        
+        try {
+          // 既に取り込まれているかチェック
+          if (blogUrls.includes(normalizedUrl)) {
+            if (!confirm('このURLは既に取り込まれています。更新しますか？')) {
+              setIsBlogImporting(false);
+              setBlogImportProgress('');
+              return;
+            }
+          }
+          
+          await handleImportSelectedUrls([normalizedUrl], 'append');
+          setSingleArticleUrl('');
+          setBlogImportProgress('取り込み完了');
+          setTimeout(() => setBlogImportProgress(''), 2000);
+          setIsBlogImporting(false);
+        } catch (error: any) {
+          alert(`記事の取り込みに失敗しました: ${error.message}`);
+          setBlogImportProgress('');
+          setIsBlogImporting(false);
+        }
       }
     }
   };
 
   // カスタムドメインのnoteから記事を取得
-  const handleFetchNoteFromCustomDomain = async (customDomainUrl: string) => {
-    if (!user) return;
-    
-    setIsNoteLoading(true);
-    setBlogImportProgress('カスタムドメインのnoteから記事を取得中...');
-    
-    try {
-      // URLバリアントを試す（末尾スラッシュの有無）
-      const urlVariants = [
-        customDomainUrl,
-        customDomainUrl.endsWith('/') ? customDomainUrl.slice(0, -1) : customDomainUrl + '/',
-      ];
-      const uniqueVariants = Array.from(new Set(urlVariants));
-      
-      let response: Response | null = null;
-      let html = '';
-      let finalUrl = customDomainUrl;
-      
-      for (const urlToTry of uniqueVariants) {
-        try {
-          response = await fetch(urlToTry, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            },
-            redirect: 'follow', // リダイレクトを明示的に追従
-            signal: AbortSignal.timeout(30000),
-          });
-          
-          if (response.ok) {
-            finalUrl = response.url || urlToTry; // リダイレクト後の最終URL
-            html = await response.text();
-            break; // 成功したらループを抜ける
-          } else if (response.status === 404 && urlToTry !== uniqueVariants[uniqueVariants.length - 1]) {
-            // 404の場合は次のバリアントを試す
-            continue;
-          } else {
-            throw new Error(`ページの取得に失敗しました: ${response.status}`);
-          }
-        } catch (error: any) {
-          if (urlToTry === uniqueVariants[uniqueVariants.length - 1]) {
-            // すべてのバリアントを試した場合はエラーをスロー
-            throw error;
-          }
-          // 次のバリアントを試す
-          continue;
-        }
-      }
-      
-      if (!response || !response.ok) {
-        throw new Error(`ページの取得に失敗しました: ${response?.status || '不明なエラー'}`);
-      }
-      
-      // noteかどうかを判定（og:site_name、構造化データ、note固有のクラス名など）
-      const isNote = html.includes('og:site_name') && html.match(/content=["']note["']/i) ||
-                    html.includes('"@type":"Article"') && html.includes('note') ||
-                    html.includes('class="note-') ||
-                    html.includes('data-note-') ||
-                    html.includes('/n/'); // noteの記事URLパターン
-      
-      if (!isNote) {
-        throw new Error('このURLはnoteのページではないようです。noteのURLを入力してください。');
-      }
-      
-      // noteの記事URLパターンを抽出（カスタムドメインでも/n/パターンは共通）
-      const articleUrls: Array<{ url: string; date: string; title?: string }> = [];
-      const urlSet = new Set<string>();
-      
-      // パターン1: /n/xxxxx のパターン（note記事のID）
-      const noteArticlePattern = /\/n\/([a-zA-Z0-9]+)/g;
-      const matches = html.matchAll(noteArticlePattern);
-      
-      const urlObj = new URL(customDomainUrl);
-      const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-      
-      for (const match of matches) {
-        const articleId = match[1];
-        // カスタムドメインの場合は、そのドメインで記事URLを構築
-        const fullUrl = `${baseUrl}/n/${articleId}`;
-        
-        if (!urlSet.has(fullUrl)) {
-          urlSet.add(fullUrl);
-          articleUrls.push({
-            url: fullUrl,
-            date: '',
-            title: '',
-          });
-          
-          // 最大100件まで取得
-          if (articleUrls.length >= 100) {
-            break;
-          }
-        }
-      }
-      
-      // 記事が見つからない場合
-      if (articleUrls.length === 0) {
-        throw new Error('note記事が見つかりませんでした。プロフィールページまたは記事一覧ページのURLを入力してください。');
-      }
-      
-      // 既に取り込まれているURLを除外
-      const existingUrlsSet = new Set(blogUrls);
-      const filteredUrls = articleUrls.filter((item) => !existingUrlsSet.has(item.url));
-      
-      // タイトルがないURLに対してタイトルを取得
-      const urlsWithoutTitle = filteredUrls.filter((item) => !item.title || item.title === '');
-      if (urlsWithoutTitle.length > 0) {
-        setBlogImportProgress(`タイトルを取得中... (${urlsWithoutTitle.length}件)`);
-        try {
-          const titleResponse = await fetch('/api/blog/titles', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              urls: urlsWithoutTitle.map((item) => item.url),
-            }),
-          });
-          
-          if (titleResponse.ok) {
-            const titleData = await titleResponse.json();
-            if (titleData.titles) {
-              const titleMap = new Map(titleData.titles.map((t: { url: string; title: string }) => [t.url, t.title]));
-              filteredUrls.forEach((item) => {
-                if (!item.title && titleMap.has(item.url)) {
-                  const fetchedTitle = titleMap.get(item.url);
-                  item.title = (fetchedTitle && typeof fetchedTitle === 'string') ? fetchedTitle : '';
-                }
-              });
-            }
-          }
-        } catch (error) {
-          console.error('タイトル取得エラー:', error);
-        }
-      }
-      
-      setSitemapUrls(filteredUrls);
-      setSelectedUrls(new Set());
-      setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました（既存の${articleUrls.length - filteredUrls.length}件は除外）`);
-      setShowSitemapUrlModal(true);
-      
-      // note URLをFirestoreに保存
-      try {
-        await setDoc(doc(db, 'users', user.uid), {
-          noteUrl: customDomainUrl
-        }, { merge: true });
-      } catch (saveError) {
-        console.error('note URLの保存エラー:', saveError);
-      }
-    } catch (error: any) {
-      console.error('Note fetch error:', error);
-      alert(`note記事の取得に失敗しました: ${error.message}`);
-      setBlogImportProgress('');
-    } finally {
-      setIsNoteLoading(false);
-    }
-  };
 
   // 単独記事URLを取り込む（後方互換性のため残す）
   const handleImportSingleArticle = async () => {
@@ -5118,10 +4865,6 @@ export default function SNSGeneratorApp() {
             setSitemapUrl(data.sitemapUrl);
           }
           
-          // note URLを読み込み
-          if (data.noteUrl) {
-            setNoteUrl(data.noteUrl);
-          }
           
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
@@ -6977,27 +6720,12 @@ ${formattedRewrittenPost}
                             name="urlImportType"
                             value="sitemap"
                             checked={urlImportType === 'sitemap'}
-                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
+                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
                             className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                           />
                           <div>
-                            <p className="text-sm font-bold text-slate-800">サイトマップのURL</p>
-                            <p className="text-xs text-slate-500">サイトマップから記事一覧を取得します</p>
-                          </div>
-                        </label>
-                        
-                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
-                          <input
-                            type="radio"
-                            name="urlImportType"
-                            value="note"
-                            checked={urlImportType === 'note'}
-                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">noteのURL（カスタムドメイン含む）</p>
-                            <p className="text-xs text-slate-500">note.comまたはカスタムドメインのnoteから全記事を取得します</p>
+                            <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
+                            <p className="text-xs text-slate-500">WordPressの場合、URLに/post-sitemap.xmlを付けてください</p>
                           </div>
                         </label>
                         
@@ -7007,15 +6735,41 @@ ${formattedRewrittenPost}
                             name="urlImportType"
                             value="article"
                             checked={urlImportType === 'article'}
-                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
+                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">エントリー一覧のURL（はてなブログ）</p>
+                            <p className="text-xs text-slate-500">はてなブログの場合、URLに/entry/を付けてください。一覧から選択できます</p>
+                          </div>
+                        </label>
+                        
+                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                          <input
+                            type="radio"
+                            name="urlImportType"
+                            value="article"
+                            checked={urlImportType === 'article'}
+                            onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
                             className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                           />
                           <div>
                             <p className="text-sm font-bold text-slate-800">記事の単独URL</p>
-                            <p className="text-xs text-slate-500">指定したURLの記事のみを取り込みます</p>
+                            <p className="text-xs text-slate-500">WordPressとはてなブログの両方に対応。指定したURLの記事のみを取り込みます</p>
                           </div>
                         </label>
                       </div>
+                    </div>
+                    
+                    {/* 注意書き */}
+                    <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-slate-700">
+                      <p className="font-bold mb-1">📝 取り込み方法</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li><strong>WordPressの場合:</strong> URLに<code className="bg-white px-1 rounded">/post-sitemap.xml</code>を付けてください（例: <code className="bg-white px-1 rounded">https://example.com/post-sitemap.xml</code>）</li>
+                        <li><strong>はてなブログの場合:</strong> URLに<code className="bg-white px-1 rounded">/entry/</code>を付けてください（例: <code className="bg-white px-1 rounded">https://example.com/entry/</code>）</li>
+                      </ul>
+                      <p className="mt-2 text-slate-600">それぞれのURLを基にして、CSVで取り込むブログのURLを選択できます。</p>
+                      <p className="mt-1 text-slate-600">単独URLでは、記載されたURLのみからタイトル、投稿日、本文を読み取ります（WordPressとはてなブログの両方に対応）。</p>
                     </div>
                     
                     {/* URL入力欄 */}
@@ -7029,17 +6783,15 @@ ${formattedRewrittenPost}
                             type="text"
                             placeholder={
                               urlImportType === 'sitemap' 
-                                ? "例: https://example.com/post-sitemap.xml または https://example.com"
-                                : urlImportType === 'note'
-                                ? "例: https://note.com/username または https://example.com（カスタムドメイン）"
-                                : "例: https://example.com/article/123"
+                                ? "例: https://example.com/post-sitemap.xml（WordPressの場合、URLに/post-sitemap.xmlを付けてください）"
+                                : "例: https://example.com/entry/（はてなブログの場合、URLに/entry/を付けてください）または https://example.com/article/123（単独記事）"
                             }
                             value={singleArticleUrl}
                             onChange={(e) => setSingleArticleUrl(e.target.value)}
                             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                            disabled={isBlogImporting || isSitemapLoading || isNoteLoading}
+                            disabled={isBlogImporting || isSitemapLoading}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !isBlogImporting && !isSitemapLoading && !isNoteLoading && singleArticleUrl.trim()) {
+                              if (e.key === 'Enter' && !isBlogImporting && !isSitemapLoading && singleArticleUrl.trim()) {
                                 handleUrlImportByType();
                               }
                             }}
@@ -7047,10 +6799,10 @@ ${formattedRewrittenPost}
                         </div>
                         <button
                           onClick={handleUrlImportByType}
-                          disabled={isBlogImporting || isSitemapLoading || isNoteLoading || !singleArticleUrl.trim()}
+                          disabled={isBlogImporting || isSitemapLoading || !singleArticleUrl.trim()}
                           className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
-                          {(isBlogImporting || isSitemapLoading || isNoteLoading) ? (
+                          {(isBlogImporting || isSitemapLoading) ? (
                             <>
                               <Loader2 size={16} className="animate-spin" />
                               処理中...
@@ -7761,27 +7513,12 @@ ${formattedRewrittenPost}
                               name="urlImportTypeModal"
                               value="sitemap"
                               checked={urlImportType === 'sitemap'}
-                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
-                              <p className="text-sm font-bold text-slate-800">サイトマップのURL</p>
-                              <p className="text-xs text-slate-500">サイトマップから記事一覧を取得します</p>
-                            </div>
-                          </label>
-                          
-                          <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
-                            <input
-                              type="radio"
-                              name="urlImportTypeModal"
-                              value="note"
-                              checked={urlImportType === 'note'}
-                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
-                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                            />
-                            <div>
-                              <p className="text-sm font-bold text-slate-800">noteのURL（カスタムドメイン含む）</p>
-                              <p className="text-xs text-slate-500">note.comまたはカスタムドメインのnoteから全記事を取得します</p>
+                              <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
+                              <p className="text-xs text-slate-500">WordPressの場合、URLに/post-sitemap.xmlを付けてください</p>
                             </div>
                           </label>
                           
@@ -7791,15 +7528,41 @@ ${formattedRewrittenPost}
                               name="urlImportTypeModal"
                               value="article"
                               checked={urlImportType === 'article'}
-                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'note' | 'article')}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
+                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                            />
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">エントリー一覧のURL（はてなブログ）</p>
+                              <p className="text-xs text-slate-500">はてなブログの場合、URLに/entry/を付けてください。一覧から選択できます</p>
+                            </div>
+                          </label>
+                          
+                          <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                            <input
+                              type="radio"
+                              name="urlImportTypeModal"
+                              value="article"
+                              checked={urlImportType === 'article'}
+                              onChange={(e) => setUrlImportType(e.target.value as 'sitemap' | 'article')}
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">記事の単独URL</p>
-                              <p className="text-xs text-slate-500">指定したURLの記事のみを取り込みます</p>
+                              <p className="text-xs text-slate-500">WordPressとはてなブログの両方に対応。指定したURLの記事のみを取り込みます</p>
                             </div>
                           </label>
                         </div>
+                      </div>
+                      
+                      {/* 注意書き */}
+                      <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-slate-700">
+                        <p className="font-bold mb-1">📝 取り込み方法</p>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li><strong>WordPressの場合:</strong> URLに<code className="bg-white px-1 rounded">/post-sitemap.xml</code>を付けてください（例: <code className="bg-white px-1 rounded">https://example.com/post-sitemap.xml</code>）</li>
+                          <li><strong>はてなブログの場合:</strong> URLに<code className="bg-white px-1 rounded">/entry/</code>を付けてください（例: <code className="bg-white px-1 rounded">https://example.com/entry/</code>）</li>
+                        </ul>
+                        <p className="mt-2 text-slate-600">それぞれのURLを基にして、CSVで取り込むブログのURLを選択できます。</p>
+                        <p className="mt-1 text-slate-600">単独URLでは、記載されたURLのみからタイトル、投稿日、本文を読み取ります（WordPressとはてなブログの両方に対応）。</p>
                       </div>
                       
                       {/* URL入力欄 */}
@@ -7811,10 +7574,8 @@ ${formattedRewrittenPost}
                           type="text"
                           placeholder={
                             urlImportType === 'sitemap' 
-                              ? "例: https://example.com/post-sitemap.xml または https://example.com"
-                              : urlImportType === 'note'
-                              ? "例: https://note.com/username または https://example.com（カスタムドメイン）"
-                              : "例: https://example.com/article/123"
+                              ? "例: https://example.com/post-sitemap.xml（WordPressの場合、URLに/post-sitemap.xmlを付けてください）"
+                              : "例: https://example.com/entry/（はてなブログの場合、URLに/entry/を付けてください）または https://example.com/article/123（単独記事）"
                           }
                           value={urlImportType === 'sitemap' ? sitemapUrl : singleArticleUrl}
                           onChange={(e) => {
@@ -7825,9 +7586,9 @@ ${formattedRewrittenPost}
                             }
                           }}
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                          disabled={isSitemapLoading || isBlogImporting || isNoteLoading}
+                          disabled={isSitemapLoading || isBlogImporting}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !isSitemapLoading && !isBlogImporting && !isNoteLoading) {
+                            if (e.key === 'Enter' && !isSitemapLoading && !isBlogImporting) {
                               if (urlImportType === 'sitemap' && sitemapUrl.trim()) {
                                 handleFetchSitemap().then(() => {
                                   // 成功時のみモーダルを閉じる
@@ -7835,7 +7596,7 @@ ${formattedRewrittenPost}
                                 }).catch(() => {
                                   // エラー時はモーダルを開いたまま
                                 });
-                              } else if ((urlImportType === 'note' || urlImportType === 'article') && singleArticleUrl.trim()) {
+                              } else if (urlImportType === 'article' && singleArticleUrl.trim()) {
                                 handleUrlImportByType().then(() => {
                                   // 成功時のみモーダルを閉じる
                                   setShowUrlInputModal(false);
@@ -7860,7 +7621,7 @@ ${formattedRewrittenPost}
                                 } else {
                                   alert('サイトマップURLを入力してください');
                                 }
-                              } else if (urlImportType === 'note' || urlImportType === 'article') {
+                              } else if (urlImportType === 'article') {
                                 if (singleArticleUrl.trim()) {
                                   await handleUrlImportByType();
                                   // 成功時のみモーダルを閉じる
@@ -7876,7 +7637,7 @@ ${formattedRewrittenPost}
                           }}
                           disabled={
                             (urlImportType === 'sitemap' && (isSitemapLoading || !sitemapUrl.trim())) ||
-                            ((urlImportType === 'note' || urlImportType === 'article') && (isBlogImporting || isNoteLoading || !singleArticleUrl.trim()))
+                            (urlImportType === 'article' && (isBlogImporting || !singleArticleUrl.trim()))
                           }
                           className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
