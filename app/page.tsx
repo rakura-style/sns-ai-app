@@ -7288,18 +7288,7 @@ ${formattedRewrittenPost}
                               {isBlogImporting && (
                                 <Loader2 size={14} className="animate-spin text-[#066099]" />
                               )}
-                              {(() => {
-                                try {
-                                  if (blogData && blogData.trim()) {
-                                    const blogPosts = parseCsvToPosts(blogData);
-                                    const MAX_BLOG_POSTS = 50;
-                                    return `ブログ一覧（${blogPosts.length}/${MAX_BLOG_POSTS}）`;
-                                  }
-                                  return 'ブログ一覧（0/50）';
-                                } catch {
-                                  return 'ブログ一覧（0/50）';
-                                }
-                              })()}
+                              ブログ一覧（{blogUrls.length}/50）
                               {isBlogImporting && (
                                 <span className="text-xs font-normal text-[#066099]">取込み中...</span>
                               )}
