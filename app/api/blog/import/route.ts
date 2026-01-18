@@ -529,30 +529,84 @@ function extractContent(html: string, blogType: BlogType = 'auto'): string {
       if (contentHtml) console.log('extractContent: .single-content で取得成功');
     }
     
-    // 6. .content クラス（article内）
+    // 6. .wp-block-post-contentクラス（Gutenberg）
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'wp-block-post-content');
+      if (contentHtml) console.log('extractContent: .wp-block-post-content で取得成功');
+    }
+    
+    // 7. .site-contentクラス
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'site-content');
+      if (contentHtml) console.log('extractContent: .site-content で取得成功');
+    }
+    
+    // 8. #contentまたは.contentクラス
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'content');
+      if (contentHtml) console.log('extractContent: .content で取得成功');
+    }
+    
+    // 9. .content クラス（article内）
     if (!contentHtml) {
       // まずarticleを取得してその中のcontentを探す
       const articleHtml = extractNestedTag(text, 'article', '');
       if (articleHtml) {
         contentHtml = extractNestedTag(articleHtml, 'div', 'content');
-        if (contentHtml) console.log('extractContent: article .content で取得成功');
+        if (!contentHtml) {
+          // article内に直接pタグがある場合
+          contentHtml = articleHtml;
+        }
+        if (contentHtml) console.log('extractContent: article内 で取得成功');
       }
     }
     
-    // 7. articleタグ内のコンテンツ全体
+    // 10. articleタグ内のコンテンツ全体
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'article', '');
       if (contentHtml) console.log('extractContent: article で取得成功');
     }
     
-    // 8. mainタグ
+    // 11. mainタグ
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'main', '');
       if (contentHtml) console.log('extractContent: main で取得成功');
     }
     
+    // 12. #main-contentや.main-contentクラス
     if (!contentHtml) {
-      console.log('extractContent: WordPress形式でコンテンツが見つかりませんでした。HTML先頭500文字:', text.substring(0, 500));
+      contentHtml = extractNestedTag(text, 'div', 'main-content');
+      if (contentHtml) console.log('extractContent: .main-content で取得成功');
+    }
+    
+    // 13. bodyから直接抽出（最後の手段）
+    if (!contentHtml) {
+      // header, footer, nav, aside, sidebar を除外したbodyの内容
+      const bodyMatch = text.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (bodyMatch) {
+        let bodyContent = bodyMatch[1];
+        // ヘッダー、フッター、ナビ、サイドバーを除去
+        bodyContent = bodyContent.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+        bodyContent = bodyContent.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+        bodyContent = bodyContent.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
+        bodyContent = bodyContent.replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '');
+        bodyContent = bodyContent.replace(/<div[^>]*class=["'][^"']*sidebar[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '');
+        bodyContent = bodyContent.replace(/<div[^>]*id=["']sidebar["'][^>]*>[\s\S]*?<\/div>/gi, '');
+        
+        if (bodyContent.trim().length > 100) {
+          contentHtml = bodyContent;
+          console.log('extractContent: body（フィルタリング後）で取得成功');
+        }
+      }
+    }
+    
+    if (!contentHtml) {
+      console.log('extractContent: WordPress形式でコンテンツが見つかりませんでした。');
+      // クラス属性を持つ要素を列挙
+      const classMatches = text.match(/class=["'][^"']+["']/gi);
+      if (classMatches) {
+        console.log('extractContent: 見つかったクラス属性（最初の20個）:', classMatches.slice(0, 20).join(', '));
+      }
     }
   }
   // 自動判定
@@ -1554,10 +1608,25 @@ export async function POST(request: NextRequest) {
               const category = extractCategory(html); // カテゴリを抽出
               const tags = extractTags(html); // タグを抽出
               
-              // コンテンツが空の場合はスキップ（デバッグ情報を追加）
+              // コンテンツが空の場合も記録する（URLリストには追加されるようにする）
               if (!content || !content.trim()) {
                 console.warn(`記事の内容が空です（${finalUrl}）`);
-                console.warn(`HTMLサイズ: ${html.length}文字, タイトル: ${title || 'なし'}`);
+                console.warn(`HTMLサイズ: ${html.length}文字, タイトル: ${title || 'なし'}, blogType: ${effectiveBlogType}`);
+                // HTMLの一部をログに出力してデバッグ
+                console.warn(`HTML構造（class属性を含む部分）:`, html.match(/class=["'][^"']*(?:content|entry|post|article)[^"']*["']/gi)?.slice(0, 10) || 'クラス属性なし');
+                
+                // コンテンツが空でもタイトルがあれば記録する
+                if (title) {
+                  return {
+                    title: title,
+                    content: '（本文の取得に失敗しました）',
+                    date,
+                    url: finalUrl,
+                    category,
+                    tags,
+                    error: 'content_empty',
+                  };
+                }
                 return null;
               }
               
@@ -1566,8 +1635,10 @@ export async function POST(request: NextRequest) {
                 console.warn(`記事の内容が短すぎます（${finalUrl}）: ${content.trim().length}文字`);
               }
               
-              // 本文は長くても全て読み取る（切り詰め処理を削除）
+              // 本文は長くても全て読み取る
               const trimmedContent = content.trim();
+              
+              console.log(`fetchArticle成功: ${finalUrl}, タイトル: ${title?.substring(0, 30)}, コンテンツ: ${trimmedContent.length}文字`);
               
               return {
                 title: title || 'タイトルなし',

@@ -3283,8 +3283,14 @@ export default function SNSGeneratorApp() {
         const errorPosts = validPosts.filter((p: any) => p.error) as any[];
         const successPosts = validPosts.filter((p: any) => !p.error) as any[];
         
+        // 成功した投稿をallPostsに追加
         allPosts.push(...successPosts);
         processedCount += successPosts.length;
+        
+        // エラーがあった投稿もallPostsに追加（URLリストには追加されるようにする）
+        // ただし、content_empty以外のエラーは記録しない
+        const recoverableErrors = errorPosts.filter((p: any) => p.error === 'content_empty' || p.title);
+        allPosts.push(...recoverableErrors);
         
         // エラーがあった場合は進捗に表示
         if (errorPosts.length > 0) {
@@ -3334,11 +3340,24 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // 成功した投稿のみをカウント
-      const successPosts = allPosts.filter((p: any) => !p.error && p.content && p.content.trim().length > 0);
-      if (successPosts.length === 0) {
+      // 成功した投稿をカウント（タイトルまたはコンテンツがあれば成功とみなす）
+      const successPosts = allPosts.filter((p: any) => {
+        // エラーがなくコンテンツがある
+        if (!p.error && p.content && p.content.trim().length > 0) return true;
+        // エラーがあるがcontent_emptyでタイトルがある
+        if (p.error === 'content_empty' && p.title) return true;
+        return false;
+      });
+      
+      // URLが1つも取り込めなかった場合のみエラー
+      if (allPosts.length === 0) {
+        throw new Error('記事の取得に失敗しました。URLを確認してください。');
+      }
+      
+      // 部分的に失敗した場合は警告を表示
+      if (successPosts.length === 0 && allPosts.length > 0) {
         const errorDetails = allPosts.map((p: any) => {
-          if (p.error) {
+          if (p.error && p.error !== 'content_empty') {
             return `${p.url}: ${p.error}`;
           } else if (!p.content || !p.content.trim()) {
             return `${p.url}: 記事の内容が空です`;
@@ -3347,20 +3366,8 @@ export default function SNSGeneratorApp() {
           }
         }).join('\n');
         
-        // エラーの詳細を確認
-        const errorCount = allPosts.filter((p: any) => p.error).length;
-        const emptyContentCount = allPosts.filter((p: any) => !p.error && (!p.content || !p.content.trim())).length;
-        
-        let errorMessage = `記事の取得に失敗しました。\n\n`;
-        if (errorCount > 0) {
-          errorMessage += `エラーが発生したURL: ${errorCount}件\n`;
-        }
-        if (emptyContentCount > 0) {
-          errorMessage += `内容が空のURL: ${emptyContentCount}件\n`;
-        }
-        errorMessage += `\nエラー詳細:\n${errorDetails}\n\n詳細はブラウザのコンソール（F12）を確認してください。`;
-        
-        throw new Error(errorMessage);
+        console.warn(`ブログ取り込み警告: 本文の取得に失敗した記事があります\n${errorDetails}`);
+        // エラーを投げずに続行（URLリストには追加される）
       }
       
       // エラーがあった投稿がある場合は警告を表示
@@ -3369,9 +3376,13 @@ export default function SNSGeneratorApp() {
         console.warn(`ブログ取り込み: ${successPosts.length}件成功, ${errorPosts.length}件失敗`);
       }
       
-      // CSV形式に変換（エラーのない投稿のみ）
-      const validPosts = allPosts.filter((post: any) => !post.error);
-      console.log(`ブログ取り込み: エラーのない投稿数 = ${validPosts.length} / 全投稿数 = ${allPosts.length}`);
+      // CSV形式に変換（コンテンツが取得できた投稿、またはcontent_emptyでタイトルがある投稿）
+      const validPosts = allPosts.filter((post: any) => {
+        if (!post.error) return true;
+        if (post.error === 'content_empty' && post.title) return true;
+        return false;
+      });
+      console.log(`ブログ取り込み: 有効な投稿数 = ${validPosts.length} / 全投稿数 = ${allPosts.length}`);
       
       // 重複を除外（同じURLの投稿は1つだけ残す）
       const uniquePosts = new Map<string, any>();
