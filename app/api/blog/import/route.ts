@@ -194,74 +194,144 @@ function extractPostUrls(html: string, baseUrl: string): string[] {
 // ブログタイプの定義
 type BlogType = 'wordpress' | 'hatena' | 'auto';
 
+// URLとHTMLからブログタイプを自動判定
+function detectBlogType(url: string, html: string): BlogType {
+  // URLパターンで判定
+  if (url.includes('hatenablog.com') || 
+      url.includes('hatenablog.jp') || 
+      url.includes('hateblo.jp') || 
+      url.includes('hatenadiary.') ||
+      url.match(/\/entry\/\d{4}\/\d{2}\/\d{2}/)) {
+    console.log('detectBlogType: はてなブログと判定（URL）');
+    return 'hatena';
+  }
+  
+  // HTMLの特徴で判定
+  if (html.includes('class="entry-title-link"') || 
+      html.includes('class="hatena-') ||
+      html.includes('hatena-module') ||
+      html.includes('hatenablog')) {
+    console.log('detectBlogType: はてなブログと判定（HTML）');
+    return 'hatena';
+  }
+  
+  // WordPressの特徴
+  if (html.includes('/wp-content/') || 
+      html.includes('/wp-json/') || 
+      html.includes('class="post_content"') ||
+      html.includes('wp-block-') ||
+      html.includes('wordpress')) {
+    console.log('detectBlogType: WordPressと判定（HTML）');
+    return 'wordpress';
+  }
+  
+  console.log('detectBlogType: 判定不能、autoモードを使用');
+  return 'auto';
+}
+
 // 記事のタイトルを抽出（ブログタイプ別）
 function extractTitle(html: string, blogType: BlogType = 'auto'): string {
+  console.log(`extractTitle: blogType=${blogType}`);
+  
   // はてなブログの場合
   if (blogType === 'hatena') {
-    // 1. .entry-title-linkクラス（<a>タグ内のテキスト）
+    // 1. .entry-title-linkクラス（<a>タグ内のテキスト）- 最も一般的
     const entryTitleLinkMatch = html.match(/<a[^>]*class=["'][^"']*entry-title-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
     if (entryTitleLinkMatch) {
       const title = extractTextFromHTML(entryTitleLinkMatch[1]);
       if (title.trim()) {
+        console.log('extractTitle: .entry-title-link で取得成功');
         return title.trim();
       }
     }
     
-    // 2. h1.entry-titleクラス
+    // 2. h1.entry-title内のテキスト（リンクを含まない場合）
     const h1EntryTitleMatch = html.match(/<h1[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i);
     if (h1EntryTitleMatch) {
       const title = extractTextFromHTML(h1EntryTitleMatch[1]);
       if (title.trim()) {
+        console.log('extractTitle: h1.entry-title で取得成功');
         return title.trim();
       }
     }
     
-    // 3. entry-titleクラスを持つ任意の要素
+    // 3. .entry-title クラスを持つ任意の要素
     const entryTitleMatch = html.match(/<[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
     if (entryTitleMatch) {
       const title = extractTextFromHTML(entryTitleMatch[1]);
       if (title.trim()) {
+        console.log('extractTitle: .entry-title で取得成功');
         return title.trim();
       }
     }
+    
+    console.log('extractTitle: はてなブログ形式でタイトルが見つかりませんでした');
   }
   
   // WordPressの場合
   if (blogType === 'wordpress') {
-    // 1. ページ内の最初の<h1>タグを探し、そのテキストを抽出
-    const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    if (h1Match) {
-      const title = extractTextFromHTML(h1Match[1]);
-      if (title.trim()) {
-        return title.trim();
-      }
-    }
-    
-    // 2. .entry-titleクラス
-    const entryTitleMatch = html.match(/<[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+    // 1. .entry-titleクラス（h1タグ）
+    const entryTitleMatch = html.match(/<h1[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i);
     if (entryTitleMatch) {
       const title = extractTextFromHTML(entryTitleMatch[1]);
       if (title.trim()) {
+        console.log('extractTitle: h1.entry-title で取得成功');
         return title.trim();
       }
     }
     
-    // 3. .post-titleクラス
+    // 2. .post-titleクラス
     const postTitleMatch = html.match(/<[^>]*class=["'][^"']*post-title[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
     if (postTitleMatch) {
       const title = extractTextFromHTML(postTitleMatch[1]);
       if (title.trim()) {
+        console.log('extractTitle: .post-title で取得成功');
         return title.trim();
       }
     }
+    
+    // 3. .single-post-titleクラス
+    const singlePostTitleMatch = html.match(/<[^>]*class=["'][^"']*single-post-title[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+    if (singlePostTitleMatch) {
+      const title = extractTextFromHTML(singlePostTitleMatch[1]);
+      if (title.trim()) {
+        console.log('extractTitle: .single-post-title で取得成功');
+        return title.trim();
+      }
+    }
+    
+    // 4. entry-header内のh1
+    const entryHeaderMatch = html.match(/<header[^>]*class=["'][^"']*entry-header[^"']*["'][^>]*>[\s\S]*?<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (entryHeaderMatch) {
+      const title = extractTextFromHTML(entryHeaderMatch[1]);
+      if (title.trim()) {
+        console.log('extractTitle: entry-header h1 で取得成功');
+        return title.trim();
+      }
+    }
+    
+    // 5. ページ内の最初の<h1>タグ
+    const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (h1Match) {
+      const title = extractTextFromHTML(h1Match[1]);
+      if (title.trim()) {
+        console.log('extractTitle: h1 で取得成功');
+        return title.trim();
+      }
+    }
+    
+    console.log('extractTitle: WordPress形式でタイトルが見つかりませんでした');
   }
   
   // 自動判定 または フォールバック
-  // 1. はてなブログ形式を試す
+  console.log('extractTitle: 自動判定モード');
+  
+  // 1. はてなブログ形式を試す（.entry-title-link）
   const entryTitleLinkMatch = html.match(/<a[^>]*class=["'][^"']*entry-title-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
   if (entryTitleLinkMatch) {
     const title = extractTextFromHTML(entryTitleLinkMatch[1]);
     if (title.trim()) {
+      console.log('extractTitle: .entry-title-link で取得成功');
       return title.trim();
     }
   }
@@ -271,20 +341,32 @@ function extractTitle(html: string, blogType: BlogType = 'auto'): string {
   if (h1EntryTitleMatch) {
     const title = extractTextFromHTML(h1EntryTitleMatch[1]);
     if (title.trim()) {
+      console.log('extractTitle: h1.entry-title で取得成功');
       return title.trim();
     }
   }
   
-  // 3. ページ内の最初の<h1>タグ
+  // 3. .post-titleクラス
+  const postTitleMatch = html.match(/<[^>]*class=["'][^"']*post-title[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  if (postTitleMatch) {
+    const title = extractTextFromHTML(postTitleMatch[1]);
+    if (title.trim()) {
+      console.log('extractTitle: .post-title で取得成功');
+      return title.trim();
+    }
+  }
+  
+  // 4. ページ内の最初の<h1>タグ
   const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   if (h1Match) {
     const title = extractTextFromHTML(h1Match[1]);
     if (title.trim()) {
+      console.log('extractTitle: h1 で取得成功');
       return title.trim();
     }
   }
   
-  // 4. <title>タグの冒頭部分
+  // 5. <title>タグの冒頭部分（最後の手段）
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
   if (titleMatch) {
     let title = extractTextFromHTML(titleMatch[1]);
@@ -297,10 +379,12 @@ function extractTitle(html: string, blogType: BlogType = 'auto'): string {
       }
     }
     if (title.trim()) {
+      console.log('extractTitle: title タグで取得成功');
       return title.trim();
     }
   }
   
+  console.log('extractTitle: タイトルが見つかりませんでした');
   return '';
 }
 
@@ -373,70 +457,164 @@ function extractContent(html: string, blogType: BlogType = 'auto'): string {
   
   // はてなブログの場合
   if (blogType === 'hatena') {
+    console.log('extractContent: はてなブログモードで抽出中...');
+    
     // 1. .entry-contentクラス（はてなブログの標準）
     contentHtml = extractNestedTag(text, 'div', 'entry-content');
+    if (contentHtml) console.log('extractContent: .entry-content で取得成功');
     
     // 2. .entry-bodyクラス
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'div', 'entry-body');
+      if (contentHtml) console.log('extractContent: .entry-body で取得成功');
     }
     
-    // 3. articleタグ内のコンテンツ
+    // 3. .hentry クラス（はてなブログの別形式）
     if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'article', '');
-    }
-  }
-  // WordPressの場合
-  else if (blogType === 'wordpress') {
-    // 1. .post_contentクラス
-    contentHtml = extractNestedTag(text, 'div', 'post_content');
-    
-    // 2. .entry-contentクラス（一部のWordPressテーマで使用）
-    if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'div', 'entry-content');
+      contentHtml = extractNestedTag(text, 'div', 'hentry');
+      if (contentHtml) console.log('extractContent: .hentry で取得成功');
     }
     
-    // 3. .the-contentクラス
+    // 4. section.entry-contentクラス
     if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'div', 'the-content');
-    }
-    
-    // 4. .post-contentクラス
-    if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'div', 'post-content');
+      contentHtml = extractNestedTag(text, 'section', 'entry-content');
+      if (contentHtml) console.log('extractContent: section.entry-content で取得成功');
     }
     
     // 5. articleタグ内のコンテンツ
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'article', '');
+      if (contentHtml) console.log('extractContent: article で取得成功');
+    }
+    
+    // 6. #main-innerクラス
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'main-inner');
+      if (contentHtml) console.log('extractContent: .main-inner で取得成功');
+    }
+    
+    if (!contentHtml) {
+      console.log('extractContent: はてなブログ形式でコンテンツが見つかりませんでした。HTML先頭500文字:', text.substring(0, 500));
+    }
+  }
+  // WordPressの場合
+  else if (blogType === 'wordpress') {
+    console.log('extractContent: WordPressモードで抽出中...');
+    
+    // 1. .entry-contentクラス（最も一般的）
+    contentHtml = extractNestedTag(text, 'div', 'entry-content');
+    if (contentHtml) console.log('extractContent: .entry-content で取得成功');
+    
+    // 2. .post_contentクラス（アンダースコア）
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'post_content');
+      if (contentHtml) console.log('extractContent: .post_content で取得成功');
+    }
+    
+    // 3. .post-contentクラス（ハイフン）
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'post-content');
+      if (contentHtml) console.log('extractContent: .post-content で取得成功');
+    }
+    
+    // 4. .the-contentクラス
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'the-content');
+      if (contentHtml) console.log('extractContent: .the-content で取得成功');
+    }
+    
+    // 5. .single-contentクラス
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'single-content');
+      if (contentHtml) console.log('extractContent: .single-content で取得成功');
+    }
+    
+    // 6. .content クラス（article内）
+    if (!contentHtml) {
+      // まずarticleを取得してその中のcontentを探す
+      const articleHtml = extractNestedTag(text, 'article', '');
+      if (articleHtml) {
+        contentHtml = extractNestedTag(articleHtml, 'div', 'content');
+        if (contentHtml) console.log('extractContent: article .content で取得成功');
+      }
+    }
+    
+    // 7. articleタグ内のコンテンツ全体
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'article', '');
+      if (contentHtml) console.log('extractContent: article で取得成功');
+    }
+    
+    // 8. mainタグ
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'main', '');
+      if (contentHtml) console.log('extractContent: main で取得成功');
+    }
+    
+    if (!contentHtml) {
+      console.log('extractContent: WordPress形式でコンテンツが見つかりませんでした。HTML先頭500文字:', text.substring(0, 500));
     }
   }
   // 自動判定
   else {
+    console.log('extractContent: 自動判定モードで抽出中...');
+    
     // まずはてなブログ形式を試す
     contentHtml = extractNestedTag(text, 'div', 'entry-content');
+    if (contentHtml) console.log('extractContent: .entry-content で取得成功');
     
     // 次にWordPress形式を試す
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'div', 'post_content');
+      if (contentHtml) console.log('extractContent: .post_content で取得成功');
     }
     
     // その他の一般的なクラス
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'div', 'post-content');
+      if (contentHtml) console.log('extractContent: .post-content で取得成功');
     }
     
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'div', 'the-content');
+      if (contentHtml) console.log('extractContent: .the-content で取得成功');
+    }
+    
+    // はてなブログの追加パターン
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'entry-body');
+      if (contentHtml) console.log('extractContent: .entry-body で取得成功');
+    }
+    
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'hentry');
+      if (contentHtml) console.log('extractContent: .hentry で取得成功');
+    }
+    
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'section', 'entry-content');
+      if (contentHtml) console.log('extractContent: section.entry-content で取得成功');
     }
     
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'article', '');
+      if (contentHtml) console.log('extractContent: article で取得成功');
     }
     
     // mainタグを試す
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'main', '');
+      if (contentHtml) console.log('extractContent: main で取得成功');
+    }
+    
+    // contentクラスを試す
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'content');
+      if (contentHtml) console.log('extractContent: .content で取得成功');
+    }
+    
+    if (!contentHtml) {
+      console.log('extractContent: コンテンツが見つかりませんでした。HTML先頭500文字:', text.substring(0, 500));
     }
   }
   
@@ -550,92 +728,117 @@ function extractContent(html: string, blogType: BlogType = 'auto'): string {
 
 // 記事の投稿日を抽出（ブログタイプ別）
 function extractDate(html: string, url?: string, blogType: BlogType = 'auto'): string {
+  console.log(`extractDate: blogType=${blogType}, url=${url}`);
+  
   // はてなブログの場合
   if (blogType === 'hatena') {
-    // 1. .date-publishedクラス内の日付
-    const datePublishedMatch = html.match(/<[^>]*class=["'][^"']*date-published[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
-    if (datePublishedMatch) {
-      const dateText = extractTextFromHTML(datePublishedMatch[1]);
-      const datePatterns = [
-        /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/,
-        /(\d{4})年(\d{1,2})月(\d{1,2})日/,
-      ];
-      for (const pattern of datePatterns) {
-        const match = dateText.match(pattern);
-        if (match) {
-          const year = match[1];
-          const month = match[2].padStart(2, '0');
-          const day = match[3].padStart(2, '0');
-          return `${year}-${month}-${day}`;
-        }
+    // 1. URLから日付を抽出（/entry/2024/01/01/形式）- 最も確実
+    if (url) {
+      const urlDateMatch = url.match(/\/entry\/(\d{4})\/(\d{2})\/(\d{2})/);
+      if (urlDateMatch) {
+        console.log('extractDate: URLから日付を取得成功');
+        return `${urlDateMatch[1]}-${urlDateMatch[2]}-${urlDateMatch[3]}`;
       }
     }
     
-    // 2. .updatedクラス内の日付
-    const updatedMatch = html.match(/<[^>]*class=["'][^"']*updated[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
-    if (updatedMatch) {
-      const updatedContent = updatedMatch[1];
-      const datetimeMatch = updatedContent.match(/datetime=["']([^"']+)["']/i);
-      if (datetimeMatch) {
-        try {
-          const dateStr = datetimeMatch[1];
-          const date = new Date(dateStr);
-          if (!isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0];
-          }
-        } catch (e) {}
-      }
-      const dateText = extractTextFromHTML(updatedContent);
-      const datePatterns = [
-        /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/,
-        /(\d{4})年(\d{1,2})月(\d{1,2})日/,
-      ];
-      for (const pattern of datePatterns) {
-        const match = dateText.match(pattern);
-        if (match) {
-          const year = match[1];
-          const month = match[2].padStart(2, '0');
-          const day = match[3].padStart(2, '0');
-          return `${year}-${month}-${day}`;
+    // 2. <time>タグのdatetime属性（.entry-date内）
+    const entryDateTimeMatch = html.match(/<[^>]*class=["'][^"']*entry-date[^"']*["'][^>]*>[\s\S]*?<time[^>]*datetime=["']([^"']+)["']/i);
+    if (entryDateTimeMatch) {
+      try {
+        const date = new Date(entryDateTimeMatch[1]);
+        if (!isNaN(date.getTime())) {
+          console.log('extractDate: .entry-date time で取得成功');
+          return date.toISOString().split('T')[0];
         }
-      }
+      } catch (e) {}
     }
     
-    // 3. <time>タグ
+    // 3. <time>タグ（datetime属性）
     const timeMatch = html.match(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/i);
     if (timeMatch) {
       try {
         const date = new Date(timeMatch[1]);
         if (!isNaN(date.getTime())) {
+          console.log('extractDate: time タグで取得成功');
           return date.toISOString().split('T')[0];
         }
       } catch (e) {}
     }
     
-    // 4. URLから日付を抽出（/entry/2024/01/01/形式）
-    if (url) {
-      const urlDateMatch = url.match(/\/entry\/(\d{4})\/(\d{2})\/(\d{2})/);
-      if (urlDateMatch) {
-        return `${urlDateMatch[1]}-${urlDateMatch[2]}-${urlDateMatch[3]}`;
+    // 4. .date クラス内のテキスト
+    const dateClassMatch = html.match(/<[^>]*class=["'][^"']*\bdate\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+    if (dateClassMatch) {
+      const dateText = extractTextFromHTML(dateClassMatch[1]);
+      const datePatterns = [
+        /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/,
+        /(\d{4})年(\d{1,2})月(\d{1,2})日/,
+      ];
+      for (const pattern of datePatterns) {
+        const match = dateText.match(pattern);
+        if (match) {
+          const year = match[1];
+          const month = match[2].padStart(2, '0');
+          const day = match[3].padStart(2, '0');
+          console.log('extractDate: .date クラスで取得成功');
+          return `${year}-${month}-${day}`;
+        }
       }
     }
+    
+    console.log('extractDate: はてなブログ形式で日付が見つかりませんでした');
   }
   
   // WordPressの場合
   if (blogType === 'wordpress') {
-    // 1. <time>タグを優先
-    const timeMatches = html.matchAll(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/gi);
-    for (const match of timeMatches) {
+    // 1. meta property="article:published_time"
+    const metaPublishedMatch = html.match(/<meta[^>]*property=["']article:published_time["'][^>]*content=["']([^"']+)["']/i);
+    if (metaPublishedMatch) {
       try {
-        const dateStr = match[1];
-        const date = new Date(dateStr);
+        const date = new Date(metaPublishedMatch[1]);
         if (!isNaN(date.getTime())) {
+          console.log('extractDate: meta article:published_time で取得成功');
           return date.toISOString().split('T')[0];
         }
       } catch (e) {}
     }
     
-    // 2. .post-dateクラス
+    // 2. <time>タグのdatetime属性（.entry-date内）
+    const entryDateTimeMatch = html.match(/<time[^>]*class=["'][^"']*entry-date[^"']*["'][^>]*datetime=["']([^"']+)["']/i);
+    if (entryDateTimeMatch) {
+      try {
+        const date = new Date(entryDateTimeMatch[1]);
+        if (!isNaN(date.getTime())) {
+          console.log('extractDate: time.entry-date で取得成功');
+          return date.toISOString().split('T')[0];
+        }
+      } catch (e) {}
+    }
+    
+    // 3. <time>タグのdatetime属性（一般）
+    const timeMatch = html.match(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/i);
+    if (timeMatch) {
+      try {
+        const date = new Date(timeMatch[1]);
+        if (!isNaN(date.getTime())) {
+          console.log('extractDate: time タグで取得成功');
+          return date.toISOString().split('T')[0];
+        }
+      } catch (e) {}
+    }
+    
+    // 4. .posted-on 内の<time>タグ
+    const postedOnMatch = html.match(/<[^>]*class=["'][^"']*posted-on[^"']*["'][^>]*>[\s\S]*?<time[^>]*datetime=["']([^"']+)["']/i);
+    if (postedOnMatch) {
+      try {
+        const date = new Date(postedOnMatch[1]);
+        if (!isNaN(date.getTime())) {
+          console.log('extractDate: .posted-on time で取得成功');
+          return date.toISOString().split('T')[0];
+        }
+      } catch (e) {}
+    }
+    
+    // 5. .post-date クラス内のテキスト
     const postDateMatch = html.match(/<[^>]*class=["'][^"']*post-date[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
     if (postDateMatch) {
       const dateText = extractTextFromHTML(postDateMatch[1]);
@@ -649,61 +852,50 @@ function extractDate(html: string, url?: string, blogType: BlogType = 'auto'): s
           const year = match[1];
           const month = match[2].padStart(2, '0');
           const day = match[3].padStart(2, '0');
+          console.log('extractDate: .post-date で取得成功');
           return `${year}-${month}-${day}`;
         }
       }
     }
+    
+    console.log('extractDate: WordPress形式で日付が見つかりませんでした');
   }
   
   // 自動判定 または フォールバック
-  // 1. はてなブログ形式を試す
-  const updatedMatch = html.match(/<[^>]*class=["'][^"']*updated[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
-  if (updatedMatch) {
-    const updatedContent = updatedMatch[1];
-    const datetimeMatch = updatedContent.match(/datetime=["']([^"']+)["']/i);
-    if (datetimeMatch) {
-      try {
-        const dateStr = datetimeMatch[1];
-        const date = new Date(dateStr);
-        if (!isNaN(date.getTime())) {
-          return date.toISOString().split('T')[0];
-        }
-      } catch (e) {}
-    }
-    const dateText = extractTextFromHTML(updatedContent);
-    const datePatterns = [
-      /(\d{4})[\.\/\-](\d{1,2})[\.\/\-](\d{1,2})/,
-      /(\d{4})年(\d{1,2})月(\d{1,2})日/,
-    ];
-    for (const pattern of datePatterns) {
-      const match = dateText.match(pattern);
-      if (match) {
-        const year = match[1];
-        const month = match[2].padStart(2, '0');
-        const day = match[3].padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      }
+  console.log('extractDate: 自動判定モード');
+  
+  // 1. URLから日付を抽出（/entry/YYYY/MM/DD/形式）- はてなブログ
+  if (url) {
+    const urlDateMatch = url.match(/\/entry\/(\d{4})\/(\d{2})\/(\d{2})/);
+    if (urlDateMatch) {
+      console.log('extractDate: URLから日付を取得成功');
+      return `${urlDateMatch[1]}-${urlDateMatch[2]}-${urlDateMatch[3]}`;
     }
   }
   
-  // 2. <time>タグ
+  // 2. meta property="article:published_time"
+  const metaPublishedMatch = html.match(/<meta[^>]*property=["']article:published_time["'][^>]*content=["']([^"']+)["']/i);
+  if (metaPublishedMatch) {
+    try {
+      const date = new Date(metaPublishedMatch[1]);
+      if (!isNaN(date.getTime())) {
+        console.log('extractDate: meta article:published_time で取得成功');
+        return date.toISOString().split('T')[0];
+      }
+    } catch (e) {}
+  }
+  
+  // 3. <time>タグのdatetime属性
   const timeMatches = html.matchAll(/<time[^>]*datetime=["']([^"']+)["'][^>]*>/gi);
   for (const match of timeMatches) {
     try {
       const dateStr = match[1];
       const date = new Date(dateStr);
       if (!isNaN(date.getTime())) {
+        console.log('extractDate: time タグで取得成功');
         return date.toISOString().split('T')[0];
       }
     } catch (e) {}
-  }
-  
-  // 3. URLから日付を抽出（/entry/YYYY/MM/DD/形式）
-  if (url) {
-    const urlDateMatch = url.match(/\/entry\/(\d{4})\/(\d{2})\/(\d{2})/);
-    if (urlDateMatch) {
-      return `${urlDateMatch[1]}-${urlDateMatch[2]}-${urlDateMatch[3]}`;
-    }
   }
   
   // 4. 日付形式のテキストを探す
@@ -713,6 +905,7 @@ function extractDate(html: string, url?: string, blogType: BlogType = 'auto'): s
     const year = pattern1[1];
     const month = pattern1[2].padStart(2, '0');
     const day = pattern1[3].padStart(2, '0');
+    console.log('extractDate: YYYY.MM.DD パターンで取得成功');
     return `${year}-${month}-${day}`;
   }
   
@@ -722,6 +915,7 @@ function extractDate(html: string, url?: string, blogType: BlogType = 'auto'): s
     const year = pattern2[1];
     const month = pattern2[2].padStart(2, '0');
     const day = pattern2[3].padStart(2, '0');
+    console.log('extractDate: YYYY/MM/DD パターンで取得成功');
     return `${year}-${month}-${day}`;
   }
   
@@ -731,17 +925,19 @@ function extractDate(html: string, url?: string, blogType: BlogType = 'auto'): s
     const year = pattern3[1];
     const month = pattern3[2].padStart(2, '0');
     const day = pattern3[3].padStart(2, '0');
+    console.log('extractDate: YYYY年MM月DD日 パターンで取得成功');
     return `${year}-${month}-${day}`;
   }
   
   // パターン4: YYYY-MM-DD（既に正しい形式）
   const pattern4 = html.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (pattern4) {
+    console.log('extractDate: YYYY-MM-DD パターンで取得成功');
     return pattern4[0];
   }
   
   // 投稿日が見つからない場合は空欄を返し、エラーログを出力
-  console.error('投稿日の取得に失敗しました。URL:', url || '不明');
+  console.log('extractDate: 日付が見つかりませんでした。URL:', url || '不明');
   return '';
 }
 
@@ -1345,9 +1541,16 @@ export async function POST(request: NextRequest) {
                 return null;
               }
               
-              const title = extractTitle(html, articleBlogType);
-              const content = extractContent(html, articleBlogType); // テキスト形式で抽出（全文）
-              const date = extractDate(html, finalUrl, articleBlogType); // URLも渡して日付抽出
+              // blogTypeが'auto'の場合、URLとHTMLから自動判定
+              let effectiveBlogType = articleBlogType;
+              if (articleBlogType === 'auto') {
+                effectiveBlogType = detectBlogType(finalUrl, html);
+                console.log(`fetchArticle: 自動検出したblogType = ${effectiveBlogType}`);
+              }
+              
+              const title = extractTitle(html, effectiveBlogType);
+              const content = extractContent(html, effectiveBlogType); // テキスト形式で抽出（全文）
+              const date = extractDate(html, finalUrl, effectiveBlogType); // URLも渡して日付抽出
               const category = extractCategory(html); // カテゴリを抽出
               const tags = extractTags(html); // タグを抽出
               

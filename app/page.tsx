@@ -2506,7 +2506,15 @@ export default function SNSGeneratorApp() {
         }),
       });
       
-      const data = await response.json();
+      // レスポンスをテキストとして取得し、JSONとしてパースを試みる
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('サイトマップAPIのレスポンスがJSONではありません:', responseText.substring(0, 200));
+        throw new Error(`サイトマップの取得に失敗しました。サイトマップURLが正しいか確認してください。`);
+      }
       
       if (!response.ok) {
         throw new Error(data.error || 'サイトマップの取得に失敗しました');
