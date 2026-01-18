@@ -2974,10 +2974,34 @@ export default function SNSGeneratorApp() {
     if (!user) return;
     
     let urls = urlsToImport.length > 0 ? urlsToImport : Array.from(selectedUrls);
+    console.log('[handleImportSelectedUrls] 開始 - urlsToImport:', urlsToImport.length, 'selectedUrls:', selectedUrls.size, 'urls:', urls.length);
+    
     if (urls.length === 0) {
       alert('取り込むURLを選択してください');
       return;
     }
+    
+    // 最終的なURLリストを関数スコープで初期化（エラー発生時でもURLを保存するため）
+    let updatedBlogUrls: string[] = mode === 'replace' ? [] : [...blogUrls];
+    let updatedBlogUrlDates: { [key: string]: string } = mode === 'replace' ? {} : { ...blogUrlDates };
+    const dateStr = new Date().toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    
+    // 取り込み開始時点で全URLをblogUrlsに追加（記事取得の成否に関わらずURLは保存）
+    for (const originalUrl of urls) {
+      if (originalUrl && (originalUrl.startsWith('http://') || originalUrl.startsWith('https://'))) {
+        if (!updatedBlogUrls.includes(originalUrl)) {
+          updatedBlogUrls.push(originalUrl);
+          updatedBlogUrlDates[originalUrl] = dateStr;
+        }
+      }
+    }
+    console.log('[handleImportSelectedUrls] URL追加後 - updatedBlogUrls:', updatedBlogUrls.length);
     
     // 一覧ページURL（/entryなど）の場合は、先に記事URLを収集
     const processedUrls: string[] = [];
@@ -3558,8 +3582,7 @@ export default function SNSGeneratorApp() {
       }
       
       // 取り込んだURLを記録（重複しないように）
-      const updatedBlogUrls = mode === 'replace' ? [] : [...blogUrls];
-      const updatedBlogUrlDates = mode === 'replace' ? {} : { ...blogUrlDates };
+      // ※updatedBlogUrlsとupdatedBlogUrlDatesは関数スコープで初期化済み
       
       // 元のURLリストを保持（確実に正しいURLを保存するため）
       const originalUrlsMap = new Map<string, string>();
@@ -3748,12 +3771,53 @@ export default function SNSGeneratorApp() {
       } else if (error.message && error.message.includes('exceeds the maximum allowed size')) {
         alert(`ブログデータの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\n制限: 1MB\n\n対処方法:\n1. 古いブログデータを削除してください\n2. 取り込むURLの数を減らしてください（1回あたり50件以下を推奨）\n3. CSVデータを削除してから再度試してください`);
       } else {
-      alert(`ブログの取り込みに失敗しました: ${error.message}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+        alert(`ブログの取り込みに失敗しました: ${error.message}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
       }
       setBlogImportProgress(`エラー: ${error.message}`);
     } finally {
       setIsBlogImporting(false);
-      // エラーがある場合は進捗メッセージを保持（既に設定済み）
+      
+      // エラー発生時でも、URLリストは保存する（取り込み開始時に追加済み）
+      if (updatedBlogUrls.length > 0) {
+        console.log('[handleImportSelectedUrls] finally - URLリストを保存:', updatedBlogUrls.length);
+        
+        // 50件制限を適用
+        const MAX_BLOG_URLS = 50;
+        if (updatedBlogUrls.length > MAX_BLOG_URLS) {
+          const sortedUrls = [...updatedBlogUrls].sort((a, b) => {
+            const dateA = updatedBlogUrlDates[a] || '';
+            const dateB = updatedBlogUrlDates[b] || '';
+            if (dateA && dateB) {
+              return new Date(dateA.replace(/\//g, '-')).getTime() - new Date(dateB.replace(/\//g, '-')).getTime();
+            }
+            if (dateA) return -1;
+            if (dateB) return 1;
+            return 0;
+          });
+          const urlsToRemove = sortedUrls.slice(0, updatedBlogUrls.length - MAX_BLOG_URLS);
+          updatedBlogUrls = updatedBlogUrls.filter(url => !urlsToRemove.includes(url));
+          Object.keys(updatedBlogUrlDates).forEach(key => {
+            if (!updatedBlogUrls.includes(key)) {
+              delete updatedBlogUrlDates[key];
+            }
+          });
+        }
+        
+        setBlogUrls(updatedBlogUrls);
+        setBlogUrlDates(updatedBlogUrlDates);
+        
+        // Firestoreにも保存
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          await setDoc(userRef, {
+            blogUrls: updatedBlogUrls,
+            blogUrlDates: updatedBlogUrlDates
+          }, { merge: true });
+          console.log('[handleImportSelectedUrls] Firestoreへの保存成功');
+        } catch (saveError) {
+          console.error('[handleImportSelectedUrls] Firestore保存エラー:', saveError);
+        }
+      }
     }
   };
 
@@ -4938,6 +5002,7 @@ export default function SNSGeneratorApp() {
           if (data.blogUploadDate) setBlogUploadDate(data.blogUploadDate);
           
           // 取り込んだURLの一覧を読み込み（50件に制限）
+          console.log('[ユーザーデータ読み込み] blogUrls:', data.blogUrls?.length || 0, 'blogUrlDates:', Object.keys(data.blogUrlDates || {}).length);
           if (data.blogUrls && Array.isArray(data.blogUrls)) {
             const MAX_BLOG_URLS = 50;
             let urlsToSet = data.blogUrls;
@@ -4973,10 +5038,14 @@ export default function SNSGeneratorApp() {
               }, { merge: true });
             }
             
+            console.log('[ユーザーデータ読み込み] setBlogUrls呼び出し:', urlsToSet.length);
             setBlogUrls(urlsToSet);
             setBlogUrlDates(datesToSet);
           } else if (data.blogUrlDates && typeof data.blogUrlDates === 'object') {
+            console.log('[ユーザーデータ読み込み] blogUrlsなし、blogUrlDatesのみ設定');
             setBlogUrlDates(data.blogUrlDates);
+          } else {
+            console.log('[ユーザーデータ読み込み] blogUrlsとblogUrlDatesが空');
           }
           
           // サイトマップURLを読み込み
@@ -7867,7 +7936,12 @@ ${formattedRewrittenPost}
                       </div>
                       
                       <div className="flex-1 overflow-y-auto border border-slate-200 rounded-lg p-4 space-y-2">
-                        {sitemapUrls.map((item) => (
+                        {sitemapUrls.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-8 text-slate-500">
+                            <p className="text-sm font-medium">新しく取り込めるURLが見つかりませんでした</p>
+                            <p className="text-xs mt-1">すでに取り込み済みのURLは表示されません</p>
+                          </div>
+                        ) : sitemapUrls.map((item) => (
                           <label
                             key={item.url}
                             className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer border border-transparent hover:border-slate-200 transition-colors"
@@ -7912,7 +7986,7 @@ ${formattedRewrittenPost}
                       <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
                         <div className="flex flex-col gap-1">
                           <p className="text-sm text-slate-600">
-                            {selectedUrls.size}件のURLが選択されています
+                            {sitemapUrls.length === 0 ? '取り込み可能なURLがありません' : `${selectedUrls.size}件のURLが選択されています`}
                           </p>
                           {selectedUrls.size > 50 && (
                             <p className="text-xs text-red-600 font-medium">
