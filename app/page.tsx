@@ -3408,12 +3408,25 @@ export default function SNSGeneratorApp() {
       }
       
       // CSV形式に変換（コンテンツが取得できた投稿、またはcontent_emptyでタイトルがある投稿）
+      // タイトルがあれば有効な投稿として扱う（コンテンツが空でもOK）
       const validPosts = allPosts.filter((post: any) => {
+        // エラーがなければ有効
         if (!post.error) return true;
+        // content_emptyでタイトルがあれば有効
         if (post.error === 'content_empty' && post.title) return true;
+        // タイトルがあれば有効（エラーがあっても）
+        if (post.title && post.title.trim()) return true;
         return false;
       });
       console.log(`ブログ取り込み: 有効な投稿数 = ${validPosts.length} / 全投稿数 = ${allPosts.length}`);
+      
+      // デバッグ: 最初の3件の投稿を確認
+      console.log('ブログ取り込み: 最初の3件の投稿:', allPosts.slice(0, 3).map((p: any) => ({
+        url: p.url,
+        title: p.title?.substring(0, 30),
+        contentLength: p.content?.length || 0,
+        error: p.error
+      })));
       
       // 重複を除外（同じURLの投稿は1つだけ残す）
       const uniquePosts = new Map<string, any>();
@@ -3578,6 +3591,7 @@ export default function SNSGeneratorApp() {
       const testParsed = parseCsvToPosts(finalBlogData);
       console.log(`ブログ取り込み: 保存するデータからパースした投稿数 = ${testParsed.length}`);
       
+      console.log(`ブログ取り込み: setBlogData呼び出し - データサイズ: ${finalBlogData.length}文字, 行数: ${finalBlogData.split('\n').length}`);
       setBlogData(finalBlogData);
       setBlogUploadDate(dateStr);
       
@@ -3585,7 +3599,9 @@ export default function SNSGeneratorApp() {
       if (finalBlogData && finalBlogData.trim() && finalBlogData.split('\n').length > 1) {
         setDataSource('all');
         setAnalysisDataSource('all');
-        console.log(`ブログ取り込み: dataSourceを'all'に変更しました`);
+        console.log(`ブログ取り込み: dataSourceを'all'に変更しました - 過去投稿一覧に表示されます`);
+      } else {
+        console.warn(`ブログ取り込み: blogDataが空のためdataSourceは変更されません`);
       }
       
       // 取り込んだURLを記録（重複しないように）
