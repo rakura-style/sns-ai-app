@@ -2735,19 +2735,57 @@ export default function SNSGeneratorApp() {
       try {
         const baseUrl = normalizedUrl.endsWith('/') ? normalizedUrl.slice(0, -1) : normalizedUrl;
         
-        // 試すサイトマップURLのパターン（優先度順）
-        const sitemapPatterns = [
+        // まずrobots.txtからサイトマップURLを取得してみる
+        const sitemapPatterns: string[] = [];
+        
+        try {
+          setBlogImportProgress('robots.txtからサイトマップを検索中...');
+          const robotsResponse = await fetch(`${baseUrl}/robots.txt`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          if (robotsResponse.ok) {
+            const robotsTxt = await robotsResponse.text();
+            // Sitemap: で始まる行を探す
+            const sitemapMatches = robotsTxt.match(/^Sitemap:\s*(.+)$/gim);
+            if (sitemapMatches) {
+              for (const match of sitemapMatches) {
+                const sitemapUrl = match.replace(/^Sitemap:\s*/i, '').trim();
+                if (sitemapUrl && !sitemapPatterns.includes(sitemapUrl)) {
+                  console.log(`robots.txtからサイトマップを発見: ${sitemapUrl}`);
+                  sitemapPatterns.push(sitemapUrl);
+                }
+              }
+            }
+          }
+        } catch (robotsError) {
+          console.log('robots.txtの取得に失敗（スキップ）:', robotsError);
+        }
+        
+        // 追加のサイトマップURLパターン（優先度順）
+        const additionalPatterns = [
           `${baseUrl}/post-sitemap.xml`,           // Yoast SEO
           `${baseUrl}/sitemap.xml`,                 // 一般的なサイトマップ
           `${baseUrl}/sitemap_index.xml`,           // サイトマップインデックス
           `${baseUrl}/wp-sitemap.xml`,              // WordPress 5.5+
           `${baseUrl}/wp-sitemap-posts-post-1.xml`, // WordPress 5.5+ 記事用
+          `${baseUrl}/page-sitemap.xml`,            // Yoast SEO ページ用
+          `${baseUrl}/category-sitemap.xml`,        // Yoast SEO カテゴリ用
         ];
         
+        // 重複を避けて追加
+        for (const pattern of additionalPatterns) {
+          if (!sitemapPatterns.includes(pattern)) {
+            sitemapPatterns.push(pattern);
+          }
+        }
+        
         let successUrl = null;
+        let lastError = '';
+        const triedUrls: string[] = [];
         
         for (const sitemapUrl of sitemapPatterns) {
           setBlogImportProgress(`${sitemapUrl} を確認中...`);
+          triedUrls.push(sitemapUrl);
           
           try {
             // APIを直接呼び出して確認
@@ -2762,47 +2800,65 @@ export default function SNSGeneratorApp() {
             });
             
             const responseText = await response.text();
+            console.log(`サイトマップ ${sitemapUrl} のレスポンス:`, response.status, responseText.substring(0, 200));
+            
             let data: any;
             try {
               data = JSON.parse(responseText);
             } catch {
+              console.log(`サイトマップ ${sitemapUrl}: JSONパースエラー`);
+              lastError = `${sitemapUrl}: JSONパースエラー`;
               continue; // JSONパースエラーの場合は次のパターンを試す
             }
             
-            if (response.ok && data.urls && data.urls.length > 0) {
-              successUrl = sitemapUrl;
-              setSitemapUrl(sitemapUrl);
-              
-              // 成功した場合、handleFetchSitemapと同様の処理を行う
-              const existingUrlsSet = new Set(blogUrls);
-              const filteredUrls = data.urls.filter((item: { url: string; date: string; title?: string }) => !existingUrlsSet.has(item.url));
-              
-              setSitemapUrls(filteredUrls);
-              setSelectedUrls(new Set());
-              setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました`);
-              setShowSitemapUrlModal(true);
-              
-              // サイトマップURLをFirestoreに保存
-              if (user) {
-                try {
-                  await setDoc(doc(db, 'users', user.uid), {
-                    sitemapUrl: sitemapUrl
-                  }, { merge: true });
-                } catch (saveError) {
-                  console.error('サイトマップURLの保存エラー:', saveError);
-                }
-              }
-              
-              break;
+            if (!response.ok) {
+              console.log(`サイトマップ ${sitemapUrl}: APIエラー - ${data.error || response.status}`);
+              lastError = `${sitemapUrl}: ${data.error || `HTTPエラー ${response.status}`}`;
+              continue;
             }
-          } catch (error) {
-            console.log(`サイトマップ ${sitemapUrl} の取得に失敗:`, error);
+            
+            if (!data.urls || data.urls.length === 0) {
+              console.log(`サイトマップ ${sitemapUrl}: URLが0件`);
+              lastError = `${sitemapUrl}: URLが見つかりませんでした`;
+              continue;
+            }
+            
+            // 成功
+            successUrl = sitemapUrl;
+            setSitemapUrl(sitemapUrl);
+            console.log(`サイトマップ ${sitemapUrl}: ${data.urls.length}件のURL取得成功`);
+            
+            // 成功した場合、handleFetchSitemapと同様の処理を行う
+            const existingUrlsSet = new Set(blogUrls);
+            const filteredUrls = data.urls.filter((item: { url: string; date: string; title?: string }) => !existingUrlsSet.has(item.url));
+            
+            setSitemapUrls(filteredUrls);
+            setSelectedUrls(new Set());
+            setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました`);
+            setShowSitemapUrlModal(true);
+            
+            // サイトマップURLをFirestoreに保存
+            if (user) {
+              try {
+                await setDoc(doc(db, 'users', user.uid), {
+                  sitemapUrl: sitemapUrl
+                }, { merge: true });
+              } catch (saveError) {
+                console.error('サイトマップURLの保存エラー:', saveError);
+              }
+            }
+            
+            break;
+          } catch (error: any) {
+            console.log(`サイトマップ ${sitemapUrl} の取得に失敗:`, error.message || error);
+            lastError = `${sitemapUrl}: ${error.message || 'ネットワークエラー'}`;
             // 次のパターンを試す
           }
         }
         
         if (!successUrl) {
-          throw new Error('サイトマップが見つかりませんでした。URLを確認してください。');
+          console.error('すべてのサイトマップパターンが失敗:', triedUrls.join(', '));
+          throw new Error(`サイトマップが見つかりませんでした。\n\n試したURL:\n${triedUrls.join('\n')}\n\n最後のエラー: ${lastError}`);
         }
       } catch (error: any) {
         alert(`サイトマップの取得に失敗しました: ${error.message}`);

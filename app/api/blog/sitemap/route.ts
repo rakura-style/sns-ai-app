@@ -183,6 +183,7 @@ export async function POST(request: NextRequest) {
     
     // サイトマップURLかどうかを判定
     const isSitemapUrl = normalizedUrl.endsWith('.xml') || normalizedUrl.includes('sitemap');
+    console.log(`サイトマップAPI: URL=${normalizedUrl}, isSitemapUrl=${isSitemapUrl}`);
     
     if (!isSitemapUrl) {
       // サイトマップURLでない場合、一覧ページから記事URLを収集
@@ -290,12 +291,25 @@ export async function POST(request: NextRequest) {
     }
     
     // サイトマップを取得
-    const response = await fetch(normalizedUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-      signal: AbortSignal.timeout(30000), // 30秒タイムアウト
-    });
+    console.log(`サイトマップAPI: ${normalizedUrl} を取得中...`);
+    let response;
+    try {
+      response = await fetch(normalizedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/xml, text/xml, */*',
+        },
+        signal: AbortSignal.timeout(30000), // 30秒タイムアウト
+      });
+    } catch (fetchError: any) {
+      console.error(`サイトマップAPI: fetch失敗 - ${fetchError.message}`);
+      return NextResponse.json(
+        { error: `サイトマップへの接続に失敗しました: ${fetchError.message}` },
+        { status: 500 }
+      );
+    }
+    
+    console.log(`サイトマップAPI: レスポンスステータス=${response.status}`);
     
     if (!response.ok) {
       return NextResponse.json(
@@ -305,6 +319,7 @@ export async function POST(request: NextRequest) {
     }
     
     const xml = await response.text();
+    console.log(`サイトマップAPI: XMLサイズ=${xml.length}文字, 先頭100文字=${xml.substring(0, 100)}`);
     
     // サイトマップインデックスの場合（複数のサイトマップを参照している場合）
     const sitemapIndexMatch = xml.match(/<sitemapindex/i);
@@ -436,9 +451,12 @@ export async function POST(request: NextRequest) {
       return dateB - dateA;
     });
     
+    const resultUrls = urls.slice(0, 100);
+    console.log(`サイトマップAPI: ${resultUrls.length}件のURLを返却`);
+    
     return NextResponse.json({
       success: true,
-      urls: urls.slice(0, 100), // 最大100件（Firestoreのドキュメントサイズ制限のため）
+      urls: resultUrls, // 最大100件（Firestoreのドキュメントサイズ制限のため）
     });
   } catch (error: any) {
     console.error('Sitemap fetch error:', error);
