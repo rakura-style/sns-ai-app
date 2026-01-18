@@ -578,14 +578,17 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
     次回投稿すべき**「程よいテーマ案を3つ」**を作成してください。
     
     【重要】
-    - 各テーマは以下の3つの要素を「主題：、内容：、目的：」という形式で端的にまとめて表現してください：
-      1. 主題（何について話すか）
-      2. 内容（伝えたいメッセージ）
-      3. 目的（伝えることなのか、連絡が欲しいのか、セミナーやLINE公式に登録してほしいのかなど）
-    - 各テーマは20文字程度で表現してください（15～25文字を目安）
-    - 形式例：「主題：朝の時間活用、内容：時間管理の重要性を伝える、目的：セミナー参加を促す」「主題：リモートワーク、内容：集中力維持のコツを共有、目的：LINE公式登録を促す」「主題：週末カフェ、内容：日常の小さな発見を伝える、目的：共感を得る」
+    - 各テーマは以下の3つの要素を改行区切りで表現してください：
+      1. 主題：（何について話すか）
+      2. 内容：（伝えたいメッセージ）
+      3. 目的：（伝えることなのか、連絡が欲しいのか、セミナーやLINE公式に登録してほしいのかなど）
+    - 各要素は改行で区切り、以下の形式で出力してください：
+      主題：朝の時間活用
+      内容：時間管理の重要性を伝える
+      目的：セミナー参加を促す
+    - 各行は15～25文字程度で表現してください
     - 抽象的すぎる例（避ける）：「時間管理」「働き方の工夫」「日常の小さな発見」
-    - 具体的すぎる例（避ける）：「朝の時間を有効活用する3つの方法について詳しく説明し、セミナーへの参加を促す」「リモートワークで集中力を保つ工夫を具体的に紹介し、LINE公式アカウントへの登録を促す」
+    - 具体的すぎる例（避ける）：「朝の時間を有効活用する3つの方法について詳しく説明し、セミナーへの参加を促す」
     - CSVデータにtitle列がある場合、投稿にはタイトルが含まれています。タイトルの内容からもテーマを抽出してください
     - テーマは、過去の投稿の内容から考察した、抽象的すぎず具体的すぎない、程よいトピックとして作成してください
 
@@ -759,14 +762,17 @@ const generateTrendThemes = async (token: string, userId: string) => {
     多くの反応が見込める**「程よいテーマ案を3つ」**作成してください。
     
     【重要】
-    - 各テーマは以下の3つの要素を「主題：、内容：、目的：」という形式で端的にまとめて表現してください：
-      1. 主題（何について話すか）
-      2. 内容（伝えたいメッセージ）
-      3. 目的（伝えることなのか、連絡が欲しいのか、セミナーやLINE公式に登録してほしいのかなど）
-    - 各テーマは20文字程度で表現してください（15～25文字を目安）
-    - 形式例：「主題：朝の時間活用、内容：時間管理の重要性を伝える、目的：セミナー参加を促す」「主題：リモートワーク、内容：集中力維持のコツを共有、目的：LINE公式登録を促す」「主題：週末カフェ、内容：日常の小さな発見を伝える、目的：共感を得る」
+    - 各テーマは以下の3つの要素を改行区切りで表現してください：
+      1. 主題：（何について話すか）
+      2. 内容：（伝えたいメッセージ）
+      3. 目的：（伝えることなのか、連絡が欲しいのか、セミナーやLINE公式に登録してほしいのかなど）
+    - 各要素は改行で区切り、以下の形式で出力してください：
+      主題：朝の時間活用
+      内容：時間管理の重要性を伝える
+      目的：セミナー参加を促す
+    - 各行は15～25文字程度で表現してください
     - 抽象的すぎる例（避ける）：「時間管理」「働き方の工夫」「日常の小さな発見」
-    - 具体的すぎる例（避ける）：「朝の時間を有効活用する3つの方法について詳しく説明し、セミナーへの参加を促す」「リモートワークで集中力を保つ工夫を具体的に紹介し、LINE公式アカウントへの登録を促す」
+    - 具体的すぎる例（避ける）：「朝の時間を有効活用する3つの方法について詳しく説明し、セミナーへの参加を促す」
       
     出力は必ず **純粋なJSON配列形式 (例: ["テーマA", "テーマB", "テーマC"])** で返してください。
   `;
@@ -2984,6 +2990,7 @@ export default function SNSGeneratorApp() {
     // 最終的なURLリストを関数スコープで初期化（エラー発生時でもURLを保存するため）
     let updatedBlogUrls: string[] = mode === 'replace' ? [] : [...blogUrls];
     let updatedBlogUrlDates: { [key: string]: string } = mode === 'replace' ? {} : { ...blogUrlDates };
+    let saveSucceeded = false; // tryブロック内での保存成功フラグ
     const dateStr = new Date().toLocaleString('ja-JP', {
       year: 'numeric',
       month: '2-digit',
@@ -3720,15 +3727,24 @@ export default function SNSGeneratorApp() {
         }
       }
       
+      console.log('[handleImportSelectedUrls] tryブロック - setBlogUrls呼び出し:', updatedBlogUrls.length, updatedBlogUrls);
       setBlogUrls(updatedBlogUrls);
       setBlogUrlDates(updatedBlogUrlDates);
       
       // FirestoreにURLの一覧と取込み日時を保存
-      const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, {
-        blogUrls: updatedBlogUrls,
-        blogUrlDates: updatedBlogUrlDates
-      }, { merge: true });
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        await setDoc(userRef, {
+          blogUrls: updatedBlogUrls,
+          blogUrlDates: updatedBlogUrlDates
+        }, { merge: true });
+        console.log('[handleImportSelectedUrls] tryブロック - Firestore保存完了');
+        saveSucceeded = true; // 保存成功フラグを設定
+      } catch (saveError) {
+        console.error('[handleImportSelectedUrls] tryブロック - Firestore保存エラー:', saveError);
+        // 保存に失敗しても、状態更新は成功しているのでsaveSucceededはfalseのまま
+        // finallyブロックで再試行される
+      }
       
       // エラーがあった投稿をカウント
       const errorCount = allPosts.filter((p: any) => p.error).length;
@@ -3778,8 +3794,9 @@ export default function SNSGeneratorApp() {
       setIsBlogImporting(false);
       
       // エラー発生時でも、URLリストは保存する（取り込み開始時に追加済み）
-      if (updatedBlogUrls.length > 0) {
-        console.log('[handleImportSelectedUrls] finally - URLリストを保存:', updatedBlogUrls.length);
+      // tryブロックで保存成功した場合はスキップ
+      if (!saveSucceeded && updatedBlogUrls.length > 0) {
+        console.log('[handleImportSelectedUrls] finally - エラー発生のためURLリストを保存:', updatedBlogUrls.length);
         
         // 50件制限を適用
         const MAX_BLOG_URLS = 50;
@@ -8152,7 +8169,7 @@ ${formattedRewrittenPost}
                                 }}
                                 className="w-full h-full text-left p-3 pt-6 flex flex-col justify-between z-10"
                               >
-                                <span className="line-clamp-3 leading-snug font-medium">{theme}</span>
+                                <span className="line-clamp-4 leading-snug font-medium whitespace-pre-line text-[10px]">{theme}</span>
                           {selectedTheme === theme && <div className="flex justify-end"><Check size={14} className="text-[#066099]" /></div>}
                         </button>
                             )}
