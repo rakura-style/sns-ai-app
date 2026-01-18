@@ -1866,7 +1866,7 @@ export default function SNSGeneratorApp() {
   const [sortBy, setSortBy] = useState<string>('engagement-desc');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showPostAnalysis, setShowPostAnalysis] = useState(false);
-  const [excludeRTAndReplies, setExcludeRTAndReplies] = useState(false);
+  const [excludeRTAndReplies, setExcludeRTAndReplies] = useState(true); // デフォルトでRT・返信を除外
   const [csvImportMode, setCsvImportMode] = useState<'replace' | 'append'>('replace');
   const [showCsvImportModal, setShowCsvImportModal] = useState(false);
   const [pendingCsvData, setPendingCsvData] = useState<string>('');
@@ -2728,21 +2728,86 @@ export default function SNSGeneratorApp() {
     }
     
     if (urlImportType === 'sitemap') {
-      // サイトマップの場合：入力されたURLに/post-sitemap.xmlを追加
+      // サイトマップの場合：複数のサイトマップパターンを試す
       setIsSitemapLoading(true);
-      setBlogImportProgress('サイトマップを確認中...');
+      setBlogImportProgress('サイトマップを検索中...');
       
       try {
-        // 入力URLに/post-sitemap.xmlを追加
         const baseUrl = normalizedUrl.endsWith('/') ? normalizedUrl.slice(0, -1) : normalizedUrl;
-        const sitemapUrlToUse = `${baseUrl}/post-sitemap.xml`;
         
-        setSitemapUrl(sitemapUrlToUse);
-        // URLを直接渡して呼び出す（状態更新を待たない）
-        await handleFetchSitemap(sitemapUrlToUse);
+        // 試すサイトマップURLのパターン（優先度順）
+        const sitemapPatterns = [
+          `${baseUrl}/post-sitemap.xml`,           // Yoast SEO
+          `${baseUrl}/sitemap.xml`,                 // 一般的なサイトマップ
+          `${baseUrl}/sitemap_index.xml`,           // サイトマップインデックス
+          `${baseUrl}/wp-sitemap.xml`,              // WordPress 5.5+
+          `${baseUrl}/wp-sitemap-posts-post-1.xml`, // WordPress 5.5+ 記事用
+        ];
+        
+        let successUrl = null;
+        
+        for (const sitemapUrl of sitemapPatterns) {
+          setBlogImportProgress(`${sitemapUrl} を確認中...`);
+          
+          try {
+            // APIを直接呼び出して確認
+            const response = await fetch('/api/blog/sitemap', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                sitemapUrl: sitemapUrl,
+              }),
+            });
+            
+            const responseText = await response.text();
+            let data: any;
+            try {
+              data = JSON.parse(responseText);
+            } catch {
+              continue; // JSONパースエラーの場合は次のパターンを試す
+            }
+            
+            if (response.ok && data.urls && data.urls.length > 0) {
+              successUrl = sitemapUrl;
+              setSitemapUrl(sitemapUrl);
+              
+              // 成功した場合、handleFetchSitemapと同様の処理を行う
+              const existingUrlsSet = new Set(blogUrls);
+              const filteredUrls = data.urls.filter((item: { url: string; date: string; title?: string }) => !existingUrlsSet.has(item.url));
+              
+              setSitemapUrls(filteredUrls);
+              setSelectedUrls(new Set());
+              setBlogImportProgress(`${filteredUrls.length}件のURLを取得しました`);
+              setShowSitemapUrlModal(true);
+              
+              // サイトマップURLをFirestoreに保存
+              if (user) {
+                try {
+                  await setDoc(doc(db, 'users', user.uid), {
+                    sitemapUrl: sitemapUrl
+                  }, { merge: true });
+                } catch (saveError) {
+                  console.error('サイトマップURLの保存エラー:', saveError);
+                }
+              }
+              
+              break;
+            }
+          } catch (error) {
+            console.log(`サイトマップ ${sitemapUrl} の取得に失敗:`, error);
+            // 次のパターンを試す
+          }
+        }
+        
+        if (!successUrl) {
+          throw new Error('サイトマップが見つかりませんでした。URLを確認してください。');
+        }
       } catch (error: any) {
         alert(`サイトマップの取得に失敗しました: ${error.message}`);
         setBlogImportProgress('');
+      } finally {
         setIsSitemapLoading(false);
       }
     } else if (urlImportType === 'entry') {
@@ -6712,7 +6777,7 @@ ${formattedRewrittenPost}
                           />
                           <div>
                             <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
-                            <p className="text-xs text-slate-500">入力されたURLに/post-sitemap.xmlを追加して検索します</p>
+                            <p className="text-xs text-slate-500">サイトマップを自動検索します（/sitemap.xml, /post-sitemap.xml等）</p>
                           </div>
                         </label>
                         
@@ -6804,7 +6869,7 @@ ${formattedRewrittenPost}
                         <div className="flex-1 relative">
                           <input
                             type="text"
-                            placeholder="サイトマップURLを直接入力（例: https://example.com/post-sitemap.xml）"
+                            placeholder="サイトマップURLを直接入力（例: https://example.com/sitemap.xml）"
                           value={sitemapUrl}
                           onChange={(e) => setSitemapUrl(e.target.value)}
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
@@ -7066,7 +7131,10 @@ ${formattedRewrittenPost}
                         {/* ブログデータ（URL一覧） */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-sm font-bold text-slate-700">
+                            <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                              {isBlogImporting && (
+                                <Loader2 size={14} className="animate-spin text-[#066099]" />
+                              )}
                               {(() => {
                                 try {
                                   if (blogData && blogData.trim()) {
@@ -7079,6 +7147,9 @@ ${formattedRewrittenPost}
                                   return 'ブログ一覧（0/50）';
                                 }
                               })()}
+                              {isBlogImporting && (
+                                <span className="text-xs font-normal text-[#066099]">取込み中...</span>
+                              )}
                             </h4>
                             <div className="flex items-center gap-2">
                               <button
@@ -7126,7 +7197,17 @@ ${formattedRewrittenPost}
                               )}
                             </div>
                           </div>
-                          <div className="border border-slate-200 rounded-lg p-4 max-h-96 overflow-y-auto bg-slate-50">
+                          <div className="border border-slate-200 rounded-lg p-4 max-h-96 overflow-y-auto bg-slate-50 relative">
+                            {/* 取込み中のオーバーレイ */}
+                            {isBlogImporting && (
+                              <div className="absolute inset-0 bg-white/80 z-10 flex flex-col items-center justify-center rounded-lg">
+                                <Loader2 size={32} className="animate-spin text-[#066099] mb-2" />
+                                <p className="text-sm font-medium text-slate-700">取込み中...</p>
+                                {blogImportProgress && (
+                                  <p className="text-xs text-slate-500 mt-1 max-w-xs text-center px-4">{blogImportProgress}</p>
+                                )}
+                              </div>
+                            )}
                             {blogUrls && blogUrls.length > 0 ? (
                               <div className="space-y-2">
                                 {blogUrls.map((url: string, index: number) => {
@@ -7496,7 +7577,7 @@ ${formattedRewrittenPost}
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
-                              <p className="text-xs text-slate-500">入力されたURLに/post-sitemap.xmlを追加して検索します</p>
+                              <p className="text-xs text-slate-500">サイトマップを自動検索します（/sitemap.xml, /post-sitemap.xml等）</p>
                             </div>
                           </label>
                           
