@@ -96,7 +96,7 @@ const callSecureApi = async (prompt: string, token: string, actionType: 'post' |
     if (error.code === 'permission-denied' || error.message?.includes('permission')) {
       console.warn("Usage check permission denied (server-side check will be performed):", error);
     } else {
-      console.error("Usage check failed:", error);
+    console.error("Usage check failed:", error);
     }
     // エラーが発生しても続行（サーバー側で制限チェックされる）
   }
@@ -490,29 +490,29 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
         
         selectedPosts = Array.from(uniquePosts.values()).slice(0, 100);
       }
-      
-      // 選択された投稿をCSV形式に戻す
+        
+        // 選択された投稿をCSV形式に戻す
       if (selectedPosts.length > 0) {
         const originalHeader = sampledCsv.split('\n')[0];
-        const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
-        
+          const headers = originalHeader.split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
+          
         const dataRows = selectedPosts.map((post: any) => {
-          return headers.map((header: string) => {
-            // ヘッダー名に基づいて値を取得（大文字小文字を区別しない、複数のキーを試す）
-            const headerLower = header.toLowerCase();
-            const value = post[header] || post[header.toLowerCase()] || post[header.toUpperCase()] || 
-                         post[headerLower] || post[headerLower.charAt(0).toUpperCase() + headerLower.slice(1)] || '';
-            const strValue = String(value);
-            
-            // CSV形式にエスケープ（カンマ、ダブルクォート、改行を含む場合）
-            if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
-              return `"${strValue.replace(/"/g, '""')}"`;
-            }
-            return strValue;
-          }).join(',');
-        });
-        
-        optimizedCsv = [originalHeader, ...dataRows].join('\n');
+            return headers.map((header: string) => {
+              // ヘッダー名に基づいて値を取得（大文字小文字を区別しない、複数のキーを試す）
+              const headerLower = header.toLowerCase();
+              const value = post[header] || post[header.toLowerCase()] || post[header.toUpperCase()] || 
+                           post[headerLower] || post[headerLower.charAt(0).toUpperCase() + headerLower.slice(1)] || '';
+              const strValue = String(value);
+              
+              // CSV形式にエスケープ（カンマ、ダブルクォート、改行を含む場合）
+              if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+                return `"${strValue.replace(/"/g, '""')}"`;
+              }
+              return strValue;
+            }).join(',');
+          });
+          
+          optimizedCsv = [originalHeader, ...dataRows].join('\n');
       } else {
         // 選択された投稿がない場合は、サンプリングデータを使用
         optimizedCsv = sampledCsv;
@@ -526,7 +526,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
       // その他のエラーの場合は、サンプリングデータを使用
       if (!optimizedCsv) {
         optimizedCsv = sampleCsvForAnalysis(combinedCsv, 100);
-      }
+    }
     }
   } else {
     // パース関数が提供されていない場合は、サンプリングのみ
@@ -965,7 +965,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
     - 自身の名前: ${displayName}（本文中で「○○」のようなプレースホルダは使わず、必ずこの名前をそのまま使用してください）
     - 絵文字の使い方: ${settings.emoji}
     - 性格・特徴: ${settings.character}
-    
+
     【重要】パーソナリティ設定は、文体や表現方法、元となる投稿者の基礎知識を示すものです。テーマを考える材料ではありません。指定されたテーマに関する投稿のみを生成してください。
 
     【最重要: 文字数制限（絶対厳守）】
@@ -994,7 +994,7 @@ const generatePost = async (mode: string, topic: string, inputData: any, setting
     7. 【最重要】投稿する文章以外の文は一切不要です。プロンプトに対する受け答え、説明、補足などは一切含めず、条件に合った投稿文のみを出力してください。
 
     この設定になりきってAIっぽくならない文章の投稿を作成してください。
-`;
+  `;
 
   let prompt = "";
   if (mode === 'rewrite') {
@@ -1738,12 +1738,12 @@ const ResultCard = ({ content, isLoading, error, onChange, user, onPostToX, isPo
             
             {/* 書き換え後の文章（または元の生成結果） */}
             <div className="flex-1 min-h-0 flex flex-col p-6">
-              <textarea
+          <textarea
                 className="w-full flex-1 min-h-[500px] whitespace-pre-wrap text-slate-800 leading-relaxed font-sans text-sm animate-in fade-in duration-500 bg-transparent focus:ring-0 resize-y outline-none"
                 value={rewrittenContent || content}
-                onChange={(e) => onChange && onChange(e.target.value)}
-                placeholder="生成された内容がここに表示されます。直接編集も可能です。"
-              />
+            onChange={(e) => onChange && onChange(e.target.value)}
+            placeholder="生成された内容がここに表示されます。直接編集も可能です。"
+          />
             </div>
           </div>
         )}
@@ -2185,8 +2185,8 @@ export default function SNSGeneratorApp() {
       
       // 一度に保存（merge: trueを使用）
       try {
-        await setDoc(doc(db, 'users', userId), saveData, { merge: true });
-        console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
+      await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+      console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
         return dateStr;
       } catch (saveError: any) {
         // 容量超過エラーを検出
@@ -2247,7 +2247,7 @@ export default function SNSGeneratorApp() {
         try {
           await setDoc(doc(db, 'users', userId), saveData, { merge: true });
           console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
-          return dateStr;
+      return dateStr;
         } catch (saveError: any) {
           // 容量超過エラーを検出
           if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
@@ -2256,17 +2256,17 @@ export default function SNSGeneratorApp() {
           }
           throw saveError;
         }
-      } else {
+    } else {
         // 1MB未満で、既存データと合わせても1MB未満の場合は通常通り保存
         try {
-          await setDoc(doc(db, 'users', userId), {
-            csvData: csvData,
-            csvUploadDate: dateStr,
-            csvUpdatedTime: dateStr,
-            csvIsSplit: false
-          }, { merge: true });
-          
-          return dateStr;
+      await setDoc(doc(db, 'users', userId), {
+        csvData: csvData,
+        csvUploadDate: dateStr,
+        csvUpdatedTime: dateStr,
+        csvIsSplit: false
+      }, { merge: true });
+      
+      return dateStr;
         } catch (saveError: any) {
           // 容量超過エラーを検出
           if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
@@ -2400,9 +2400,9 @@ export default function SNSGeneratorApp() {
       }
       
       try {
-        await setDoc(doc(db, 'users', userId), saveData, { merge: true });
-        console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
-        return dateStr;
+      await setDoc(doc(db, 'users', userId), saveData, { merge: true });
+      console.log(`分割保存完了: ${chunks.length}個のチャンクをFirestoreに保存しました`);
+      return dateStr;
       } catch (saveError: any) {
         // 容量超過エラーを検出
         if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
@@ -2413,14 +2413,14 @@ export default function SNSGeneratorApp() {
       }
     } else {
       try {
-        await setDoc(doc(db, 'users', userId), {
-          blogData: blogData,
-          blogUploadDate: dateStr,
-          blogUpdatedTime: dateStr,
-          blogIsSplit: false
-        }, { merge: true });
-        
-        return dateStr;
+      await setDoc(doc(db, 'users', userId), {
+        blogData: blogData,
+        blogUploadDate: dateStr,
+        blogUpdatedTime: dateStr,
+        blogIsSplit: false
+      }, { merge: true });
+      
+      return dateStr;
       } catch (saveError: any) {
         // 容量超過エラーを検出
         if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
@@ -2687,7 +2687,7 @@ export default function SNSGeneratorApp() {
               return;
             }
           }
-          await handleImportSelectedUrls([normalizedUrl], 'append');
+          await handleImportSelectedUrls([normalizedUrl], 'append', 'wordpress');
           setSingleArticleUrl('');
           setBlogImportProgress('取り込み完了');
           setTimeout(() => setBlogImportProgress(''), 2000);
@@ -2818,7 +2818,8 @@ export default function SNSGeneratorApp() {
           }
         }
         
-        await handleImportSelectedUrls([normalizedUrl], 'append');
+        // 単独URLの場合は自動判定
+        await handleImportSelectedUrls([normalizedUrl], 'append', 'auto');
         setSingleArticleUrl('');
         setBlogImportProgress('取り込み完了');
         setTimeout(() => setBlogImportProgress(''), 2000);
@@ -2840,7 +2841,7 @@ export default function SNSGeneratorApp() {
   };
 
   // 選択されたURLを取り込む
-  const handleImportSelectedUrls = async (urlsToImport: string[] = [], mode: 'append' | 'replace' = blogImportMode) => {
+  const handleImportSelectedUrls = async (urlsToImport: string[] = [], mode: 'append' | 'replace' = blogImportMode, blogType: 'wordpress' | 'hatena' | 'auto' = 'auto') => {
     if (!user) return;
     
     let urls = urlsToImport.length > 0 ? urlsToImport : Array.from(selectedUrls);
@@ -2971,6 +2972,7 @@ export default function SNSGeneratorApp() {
                 maxPosts: 1, // 1つのURLから1記事のみ
                 forceRefresh: true,
                 userId: user.uid,
+                blogType: blogType, // ブログタイプを渡す
               }),
             });
             
@@ -3606,7 +3608,7 @@ export default function SNSGeneratorApp() {
       } else if (error.message && error.message.includes('exceeds the maximum allowed size')) {
         alert(`ブログデータの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\n制限: 1MB\n\n対処方法:\n1. 古いブログデータを削除してください\n2. 取り込むURLの数を減らしてください（1回あたり50件以下を推奨）\n3. CSVデータを削除してから再度試してください`);
       } else {
-        alert(`ブログの取り込みに失敗しました: ${error.message}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+      alert(`ブログの取り込みに失敗しました: ${error.message}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
       }
       setBlogImportProgress(`エラー: ${error.message}`);
     } finally {
@@ -3617,7 +3619,7 @@ export default function SNSGeneratorApp() {
 
   // 個別URLの更新（再取得）
   const handleUpdateUrl = async (url: string) => {
-    await handleImportSelectedUrls([url], 'append'); // 追加モードで実行（既存URLを更新）
+    await handleImportSelectedUrls([url], 'append', 'auto'); // 追加モードで実行（既存URLを更新）
   };
 
   // 旧実装のhandleBlogImport関数は削除（サイトマップ方式に変更）
@@ -3975,8 +3977,8 @@ export default function SNSGeneratorApp() {
           if (tweetIdEndIndex >= 0 && jaMatchIndex > tweetIdEndIndex) {
             // tweet_id列の次の文字（カンマの後）から、,jaの前までを抽出
             let rawTextValue = row.slice(tweetIdEndIndex + 1, jaMatchIndex);
-            
-            // 先頭と末尾のダブルクォートを除去
+          
+          // 先頭と末尾のダブルクォートを除去
             if (rawTextValue.startsWith('"') && rawTextValue.endsWith('"') && rawTextValue.length >= 2) {
               rawTextValue = rawTextValue.slice(1, -1).replace(/""/g, '"');
             }
@@ -4043,9 +4045,9 @@ export default function SNSGeneratorApp() {
             
             if (textHeaderIndex >= 0 && values.length > textHeaderIndex) {
               textValue = String(values[textHeaderIndex] || '').trim();
-              if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
-                textValue = textValue.slice(1, -1).replace(/""/g, '"');
-              }
+          if (textValue.startsWith('"') && textValue.endsWith('"') && textValue.length >= 2) {
+            textValue = textValue.slice(1, -1).replace(/""/g, '"');
+          }
             }
           }
         }
@@ -4681,13 +4683,13 @@ export default function SNSGeneratorApp() {
           if (originalXPostCount > MAX_X_POSTS) {
             alert(`XのCSVデータを取り込みました。\n\n取り込まれたデータ: ${parsed.length}件（X投稿: ${xPostCount}件、その他: ${parsed.length - xPostCount}件）\n\nX投稿はエンゲージメント順→新しい順でソートし、上位${MAX_X_POSTS}件のみを保持しました。\nそれより下の${originalXPostCount - MAX_X_POSTS}件は自動で削除されました。`);
           } else {
-            alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n元のデータが大きすぎたため、一部のデータは取り込まれていません。`);
+          alert(`取込み可能なデータ量（${parsed.length}件、${sizeInMB} MB）を取り込みました。\n\n元のデータが大きすぎたため、一部のデータは取り込まれていません。`);
           }
         } else {
           if (originalXPostCount > MAX_X_POSTS) {
             alert(`XのCSVデータを取り込みました。\n\n取り込まれたデータ: ${parsed.length}件（X投稿: ${xPostCount}件、その他: ${parsed.length - xPostCount}件）\n\nX投稿はエンゲージメント順→新しい順でソートし、上位${MAX_X_POSTS}件のみを保持しました。\nそれより下の${originalXPostCount - MAX_X_POSTS}件は自動で削除されました。`);
-          } else {
-            alert(`${parsed.length}件のデータ（${sizeInMB} MB）を取り込みました。`);
+        } else {
+          alert(`${parsed.length}件のデータ（${sizeInMB} MB）を取り込みました。`);
           }
         }
       } catch (saveError: any) {
@@ -4698,7 +4700,7 @@ export default function SNSGeneratorApp() {
           alert(saveError.message);
         } else if (saveError.message && saveError.message.includes('exceeds the maximum allowed size')) {
           // Firestoreのエラーメッセージから容量超過を検出
-          const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
+        const sizeInMB = (dataSize / 1024 / 1024).toFixed(2);
           alert(`データの保存に失敗しました。\n\n原因: Firestoreの容量制限（1MB）を超えています。\n\nCSVデータサイズ: 約${sizeInMB}MB\n制限: 1MB\n\n対処方法:\n1. 古いデータを削除してください\n2. データを分割して取り込んでください\n3. ブログデータを削除してから再度試してください\n\n※メモリ上にはデータが保持されていますが、次回の読み込み時には失われます。`);
         } else {
           // その他のエラーの場合
@@ -4949,9 +4951,9 @@ export default function SNSGeneratorApp() {
     if (dataSource === 'blog' || dataSource === 'all') {
       if (blogData && blogData.trim()) {
         try {
-          const blogPosts = parseCsvToPosts(blogData);
-          // 取り込まれたURLのブログは全て参照する
-          posts.push(...blogPosts);
+        const blogPosts = parseCsvToPosts(blogData);
+        // 取り込まれたURLのブログは全て参照する
+        posts.push(...blogPosts);
           console.log(`ブログデータから${blogPosts.length}件の投稿を読み込みました`);
         } catch (error) {
           console.error('ブログデータのパースエラー:', error);
@@ -5218,9 +5220,9 @@ export default function SNSGeneratorApp() {
           }
           
           // tweet_idがない場合は、内容で判定（フォールバック）
-          const lineContent = line.toLowerCase();
-          const postContent = postToDelete.content.toLowerCase().substring(0, 50);
-          return !lineContent.includes(postContent);
+            const lineContent = line.toLowerCase();
+            const postContent = postToDelete.content.toLowerCase().substring(0, 50);
+            return !lineContent.includes(postContent);
         });
         
         const updatedCsvData = [header, ...filteredLines].join('\n');
@@ -5285,9 +5287,9 @@ export default function SNSGeneratorApp() {
           
           setBlogUrls(updatedBlogUrls);
           setBlogUrlDates(updatedBlogUrlDates);
-          
-          // Firestoreに保存
-          await setDoc(doc(db, 'users', user.uid), {
+        
+        // Firestoreに保存
+        await setDoc(doc(db, 'users', user.uid), {
             blogData: updatedBlogData,
             blogUrls: updatedBlogUrls,
             blogUrlDates: updatedBlogUrlDates,
@@ -5610,19 +5612,19 @@ export default function SNSGeneratorApp() {
       const token = await user.getIdToken(); 
       const userId = user.uid;
       
-      // データの存在チェック（事前チェック）
-      const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
-      const isCsvDataDefault = csvData === defaultCsv || !csvData || csvData.trim() === '';
-      const hasBlogData = blogData && blogData.trim() && blogData.split('\n').length > 1;
-      
-      if (isCsvDataDefault && !hasBlogData) {
-        throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
-      }
-      
+        // データの存在チェック（事前チェック）
+        const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+        const isCsvDataDefault = csvData === defaultCsv || !csvData || csvData.trim() === '';
+        const hasBlogData = blogData && blogData.trim() && blogData.split('\n').length > 1;
+        
+        if (isCsvDataDefault && !hasBlogData) {
+          throw new Error('分析するデータがありません。\n\nXのCSVデータまたはブログデータを取り込んでください。');
+        }
+        
       const analysisResult = await analyzeCsvAndGenerateThemes(csvData, token, userId, parseCsvToPosts, blogData, analysisDataSource, deletedPostIdentifiers);
       
-      if (analysisResult.settings) {
-        // styleをpersonaに変換し、characterの最後に注意事項を追加
+        if (analysisResult.settings) {
+          // styleをpersonaに変換し、characterの最後に注意事項を追加
         // 文字数設定（minLengthとmaxLength）は既存の設定を保持
         setAllSettings(prev => {
           const migratedSettings = {
@@ -5638,29 +5640,29 @@ export default function SNSGeneratorApp() {
           // 既存の設定とマージして、mypostモードの設定を更新
           if (user) {
             (async () => {
-              try {
-                const userRef = doc(db, 'users', user.uid);
-                const userDoc = await getDoc(userRef);
-                const currentData = userDoc.exists() ? userDoc.data() : {};
-                const currentSettings = currentData.settings || {};
-                
+          try {
+            const userRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userRef);
+            const currentData = userDoc.exists() ? userDoc.data() : {};
+            const currentSettings = currentData.settings || {};
+            
                 // 既存のmypost設定とマージ（分析結果を優先、ただし文字数設定は既存の設定を保持）
-                const updatedMypostSettings = {
-                  ...(currentSettings.mypost || {}),
+            const updatedMypostSettings = {
+              ...(currentSettings.mypost || {}),
                   ...migratedSettings,
                   // 文字数設定は既存の設定を保持
                   minLength: currentSettings.mypost?.minLength || prev.mypost.minLength,
                   maxLength: currentSettings.mypost?.maxLength || prev.mypost.maxLength
-                };
-                
-                await setDoc(userRef, {
-                  settings: {
-                    ...currentSettings,
-                    mypost: updatedMypostSettings
-                  }
-                }, { merge: true });
-                
-                console.log("パーソナリティ設定を保存しました:", updatedMypostSettings);
+            };
+            
+            await setDoc(userRef, {
+              settings: {
+                ...currentSettings,
+                mypost: updatedMypostSettings
+              }
+            }, { merge: true });
+            
+            console.log("パーソナリティ設定を保存しました:", updatedMypostSettings);
               } catch (error) {
                 console.error("パーソナリティ設定の保存に失敗:", error);
               }
@@ -6198,51 +6200,51 @@ ${formattedRewrittenPost}
                 
                 {activeMode === 'mypost' && (
                   <div className="flex flex-col gap-3">
-                    {/* データソース選択（分析・更新用） */}
+                      {/* データソース選択（分析・更新用） */}
                     <div className="flex flex-col sm:flex-row gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="analysisDataSource"
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
                           value="all"
                           checked={analysisDataSource === 'all'}
                           onChange={(e) => {
                             setAnalysisDataSource('all');
                             setDataSource('all');
                           }}
-                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                        />
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
                         <span className="text-xs text-slate-700 font-bold">全データ</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="analysisDataSource"
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
                           value="x"
                           checked={analysisDataSource === 'x'}
                           onChange={(e) => {
                             setAnalysisDataSource('x');
                             setDataSource('csv');
                           }}
-                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                        />
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
                         <span className="text-xs text-slate-700">X投稿</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="analysisDataSource"
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="analysisDataSource"
                           value="blog"
                           checked={analysisDataSource === 'blog'}
                           onChange={(e) => {
                             setAnalysisDataSource('blog');
                             setDataSource('blog');
                           }}
-                          className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                        />
+                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                          />
                         <span className="text-xs text-slate-700">ブログ</span>
-                      </label>
-                    </div>
+                        </label>
+                      </div>
                     
                     {/* 2×2グリッド: データ取込み、過去投稿、パーソナリティ分析、テーマ候補更新 */}
                     <div className="flex justify-end">
@@ -6254,7 +6256,7 @@ ${formattedRewrittenPost}
                           className="hidden" 
                           accept=".csv, .txt" 
                         />
-                        <button 
+                      <button
                           onClick={() => setShowDataImportModal(true)}
                           disabled={isCsvLoading || isBlogImporting}
                           className="text-xs px-3 py-1.5 rounded-lg font-bold border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 shadow-sm"
@@ -6266,27 +6268,27 @@ ${formattedRewrittenPost}
                             <Upload size={12} />
                           )}
                           データ取込み
-                        </button>
+                      </button>
                         {parsedPosts.length > 0 ? (
-                          <button 
-                            onClick={() => {
-                              if (selectedSection === 'posts') {
-                                setSelectedSection(null);
-                                setShowPostAnalysis(false);
-                              } else {
-                                setSelectedSection('posts');
-                                setShowPostAnalysis(true);
-                              }
-                            }}
+                        <button 
+                          onClick={() => {
+                            if (selectedSection === 'posts') {
+                              setSelectedSection(null);
+                              setShowPostAnalysis(false);
+                            } else {
+                              setSelectedSection('posts');
+                              setShowPostAnalysis(true);
+                            }
+                          }}
                             className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1 font-bold shadow-sm ${
-                              selectedSection === 'posts'
-                                ? 'bg-slate-100 border-slate-400 text-slate-800'
-                                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <BarChart3 size={12} />
-                            過去投稿 ({parsedPosts.length})
-                          </button>
+                            selectedSection === 'posts'
+                              ? 'bg-slate-100 border-slate-400 text-slate-800'
+                              : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <BarChart3 size={12} />
+                          過去投稿 ({parsedPosts.length})
+                        </button>
                         ) : (
                           <div className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 flex items-center justify-center gap-1 font-bold shadow-sm">
                             <BarChart3 size={12} />
@@ -6743,10 +6745,10 @@ ${formattedRewrittenPost}
                       <label className="block text-sm font-bold text-slate-700 mb-2">
                         URL入力
                       </label>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 relative">
-                          <input
-                            type="text"
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
                             placeholder={
                               urlImportType === 'sitemap' 
                                 ? "例: https://example.com"
@@ -6795,35 +6797,35 @@ ${formattedRewrittenPost}
                           <input
                             type="text"
                             placeholder="サイトマップURLを直接入力（例: https://example.com/post-sitemap.xml）"
-                            value={sitemapUrl}
-                            onChange={(e) => setSitemapUrl(e.target.value)}
-                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
-                            disabled={isSitemapLoading || isBlogImporting}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !isSitemapLoading && sitemapUrl.trim()) {
-                                handleFetchSitemap();
-                              }
-                            }}
-                          />
-                        </div>
-                        <button
-                          onClick={() => handleFetchSitemap()}
-                          disabled={isSitemapLoading || !sitemapUrl.trim()}
-                          className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        >
-                          {isSitemapLoading ? (
-                            <>
-                              <Loader2 size={16} className="animate-spin" />
-                              取得中...
-                            </>
-                          ) : (
-                            <>
-                              <Upload size={16} />
-                              URL一覧取得
-                            </>
-                          )}
-                        </button>
+                          value={sitemapUrl}
+                          onChange={(e) => setSitemapUrl(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-[#066099] outline-none bg-white text-black"
+                          disabled={isSitemapLoading || isBlogImporting}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !isSitemapLoading && sitemapUrl.trim()) {
+                              handleFetchSitemap();
+                            }
+                          }}
+                        />
                       </div>
+                      <button
+                          onClick={() => handleFetchSitemap()}
+                        disabled={isSitemapLoading || !sitemapUrl.trim()}
+                        className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {isSitemapLoading ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            取得中...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={16} />
+                            URL一覧取得
+                          </>
+                        )}
+                      </button>
+                    </div>
                     </details>
                     
                     {blogImportProgress && (
@@ -6959,8 +6961,8 @@ ${formattedRewrittenPost}
                             </h4>
                             <div className="flex items-center gap-2">
                               {/* 追加ボタン（X） */}
-                              <button
-                                onClick={() => {
+                            <button
+                              onClick={() => {
                                   // まずモード選択モーダルを表示
                                   setShowCsvModeSelectModal(true);
                                 }}
@@ -6974,30 +6976,30 @@ ${formattedRewrittenPost}
                               {/* 更新ボタン（X） */}
                               <button
                                 onClick={() => {
-                                  const fileInput = fileInputRef.current;
-                                  if (fileInput) {
-                                    const tempHandler = async (e: Event) => {
-                                      const target = e.target as HTMLInputElement;
-                                      const file = target.files?.[0];
-                                      if (!file) return;
-                                      
-                                      const reader = new FileReader();
-                                      reader.onload = async (event) => {
-                                        const text = event.target?.result as string;
-                                        if (text) {
+                                const fileInput = fileInputRef.current;
+                                if (fileInput) {
+                                  const tempHandler = async (e: Event) => {
+                                    const target = e.target as HTMLInputElement;
+                                    const file = target.files?.[0];
+                                    if (!file) return;
+                                    
+                                    const reader = new FileReader();
+                                    reader.onload = async (event) => {
+                                      const text = event.target?.result as string;
+                                      if (text) {
                                           await applyCsvData(text, 'replace');
-                                        }
-                                        target.value = '';
-                                        fileInput.removeEventListener('change', tempHandler);
-                                      };
-                                      reader.readAsText(file);
+                                      }
+                                      target.value = '';
+                                      fileInput.removeEventListener('change', tempHandler);
                                     };
-                                    fileInput.addEventListener('change', tempHandler);
-                                    fileInput.click();
-                                  }
-                                }}
-                                disabled={isCsvLoading}
-                                className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                    reader.readAsText(file);
+                                  };
+                                  fileInput.addEventListener('change', tempHandler);
+                                  fileInput.click();
+                                }
+                              }}
+                              disabled={isCsvLoading}
+                              className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                 title="CSVデータを更新"
                               >
                                 <RefreshCcw size={12} />
@@ -7014,7 +7016,7 @@ ${formattedRewrittenPost}
                               >
                                 <Trash2 size={12} />
                                 削除
-                              </button>
+                            </button>
                             </div>
                           </div>
                           <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
@@ -7090,7 +7092,7 @@ ${formattedRewrittenPost}
                                     }
                                     // 一括更新は1回の取り込み処理として実行し、内部で50件制限のアラートも1回だけ出す
                                     try {
-                                      await handleImportSelectedUrls(blogUrls, 'append');
+                                      await handleImportSelectedUrls(blogUrls, 'append', 'auto');
                                     } catch (error: any) {
                                       alert(`更新に失敗しました: ${error.message || '不明なエラー'}`);
                                     }
@@ -7551,7 +7553,7 @@ ${formattedRewrittenPost}
                               if (urlImportType === 'sitemap' && sitemapUrl.trim()) {
                                 handleFetchSitemap().then(() => {
                                   // 成功時のみモーダルを閉じる
-                                  setShowUrlInputModal(false);
+                              setShowUrlInputModal(false);
                                 }).catch(() => {
                                   // エラー時はモーダルを開いたまま
                                 });
@@ -7573,12 +7575,12 @@ ${formattedRewrittenPost}
                           onClick={async () => {
                             try {
                               if (urlImportType === 'sitemap') {
-                                if (sitemapUrl.trim()) {
-                                  await handleFetchSitemap();
+                            if (sitemapUrl.trim()) {
+                              await handleFetchSitemap();
                                   // 成功時のみモーダルを閉じる
-                                  setShowUrlInputModal(false);
-                                } else {
-                                  alert('サイトマップURLを入力してください');
+                              setShowUrlInputModal(false);
+                            } else {
+                              alert('サイトマップURLを入力してください');
                                 }
                               } else if (urlImportType === 'entry' || urlImportType === 'article') {
                                 if (singleArticleUrl.trim()) {
@@ -7733,9 +7735,9 @@ ${formattedRewrittenPost}
                               className="mt-1 w-5 h-5 text-[#066099] border-slate-300 rounded focus:ring-[#066099]"
                             />
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
+                                <p className="text-sm text-slate-700 font-medium truncate" title={item.url}>
                                 {item.title || item.url}
-                              </p>
+                                </p>
                               {item.date && (
                                 <p className="text-xs text-slate-400 mt-1">
                                   更新日: {item.date}
@@ -7784,7 +7786,9 @@ ${formattedRewrittenPost}
                                 }
                               }
                               setShowSitemapUrlModal(false);
-                              await handleImportSelectedUrls([], blogImportMode);
+                              // URLタイプに基づいてblogTypeを決定
+                              const importBlogType = urlImportType === 'sitemap' ? 'wordpress' : urlImportType === 'entry' ? 'hatena' : 'auto';
+                              await handleImportSelectedUrls([], blogImportMode, importBlogType);
                             }}
                             disabled={isBlogImporting || selectedUrls.size === 0}
                             className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -7877,16 +7881,16 @@ ${formattedRewrittenPost}
                         
                         return (
                           <div
-                            key={i}
+                          key={i}
                             className={`relative rounded-xl border text-xs transition-all h-24 flex flex-col group overflow-hidden
                               ${selectedTheme === theme && !isEditing
-                                ? 'bg-gradient-to-br from-sky-50 to-white border-[#066099] ring-1 ring-[#066099] text-[#066099] shadow-sm' 
-                                : 'bg-white border-slate-200 hover:border-[#066099]/50 text-slate-600 hover:shadow-sm'
-                              }`}
-                            >
+                              ? 'bg-gradient-to-br from-sky-50 to-white border-[#066099] ring-1 ring-[#066099] text-[#066099] shadow-sm' 
+                              : 'bg-white border-slate-200 hover:border-[#066099]/50 text-slate-600 hover:shadow-sm'
+                            }`}
+                        >
                             <div className="absolute top-0 right-0 p-1.5 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
-                              <Lightbulb size={24} />
-                            </div>
+                            <Lightbulb size={24} />
+                          </div>
                             {isEditing ? (
                               <textarea
                                 className="w-full h-full p-3 pt-6 text-xs bg-transparent border-none focus:ring-0 outline-none resize-none leading-snug z-10"
@@ -7919,8 +7923,8 @@ ${formattedRewrittenPost}
                                 className="w-full h-full text-left p-3 pt-6 flex flex-col justify-between z-10"
                               >
                                 <span className="line-clamp-3 leading-snug font-medium">{theme}</span>
-                                {selectedTheme === theme && <div className="flex justify-end"><Check size={14} className="text-[#066099]" /></div>}
-                              </button>
+                          {selectedTheme === theme && <div className="flex justify-end"><Check size={14} className="text-[#066099]" /></div>}
+                        </button>
                             )}
                             {!isEditing && (
                               <div className="absolute bottom-1 right-1 text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
