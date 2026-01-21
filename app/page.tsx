@@ -2379,12 +2379,6 @@ export default function SNSGeneratorApp() {
     try {
       const parsed = new URL(trimmed);
       parsed.hash = '';
-      const params = new URLSearchParams(parsed.search);
-      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'yclid', '_ga'].forEach((key) => {
-        params.delete(key);
-      });
-      const search = params.toString();
-      parsed.search = search ? `?${search}` : '';
       let normalized = parsed.toString();
       if (normalized.endsWith('/')) normalized = normalized.slice(0, -1);
       return normalized;
@@ -3503,12 +3497,12 @@ export default function SNSGeneratorApp() {
       
       // 重複を除外（同じURLの投稿は1つだけ残す）
       const uniquePosts = new Map<string, any>();
+      let noUrlCounter = 0;
       for (const post of validPosts) {
         const rawUrl = post.url || (post as any).URL || '';
         const url = normalizeUrlForDedup(String(rawUrl));
-        const fallbackKey = `${(post.title || '').trim()}|${(post.date || '').trim()}`;
-        const key = url || fallbackKey;
-        if (key && !uniquePosts.has(key)) {
+        const key = url ? `u:${url}` : `no-url:${noUrlCounter++}`;
+        if (!uniquePosts.has(key)) {
           uniquePosts.set(key, post);
         }
       }
@@ -4651,15 +4645,15 @@ export default function SNSGeneratorApp() {
 
     const header = 'Date,Title,Content,Category,Tags,URL';
     const unique = new Map<string, any>();
+    let noUrlCounter = 0;
     for (const post of posts) {
       const raw = post.rawData || {};
       const rawUrl =
         raw.URL || raw.url || raw.Url ||
         raw.Link || raw.Permalink || post.url || post.URL || '';
       const normalized = normalizeUrlForDedup(String(rawUrl));
-      const fallbackKey = `${(post.title || '').trim()}|${(post.date || '').trim()}`;
-      const key = normalized || fallbackKey;
-      if (key && !unique.has(key)) {
+      const key = normalized ? `u:${normalized}` : `no-url:${noUrlCounter++}`;
+      if (!unique.has(key)) {
         unique.set(key, post);
       }
     }
@@ -5355,6 +5349,7 @@ export default function SNSGeneratorApp() {
     
     // 重複を除外（Xはtweet_id、ブログはURLで判定）
     const dedupedPostsMap = new Map<string, any>();
+    let dedupIndex = 0;
     for (const post of posts) {
       const rawData = post.rawData || {};
       const tweetId = post.tweet_id || 
@@ -5377,7 +5372,7 @@ export default function SNSGeneratorApp() {
         ? `x:${tweetId}`
         : normalizedUrl
           ? `b:${normalizedUrl}`
-          : `c:${(post.content || '').substring(0, 50).toLowerCase()}`;
+          : `n:${dedupIndex++}`;
       if (!dedupedPostsMap.has(key)) {
         dedupedPostsMap.set(key, post);
       }
@@ -5749,12 +5744,16 @@ export default function SNSGeneratorApp() {
     }
     
     try {
+      setIsBlogImporting(true);
+      setBlogImportProgress('削除中...');
       // ブログURL一覧から削除
-      const urlSetToDelete = new Set(urlsToDelete);
-      const updatedBlogUrls = blogUrls.filter(url => !urlSetToDelete.has(url));
+      const normalizedSetToDelete = new Set(urlsToDelete.map(u => normalizeUrlForDedup(u)));
+      const updatedBlogUrls = blogUrls.filter(url => !normalizedSetToDelete.has(normalizeUrlForDedup(url)));
       const updatedBlogUrlDates = { ...blogUrlDates };
-      urlsToDelete.forEach(url => {
-        delete updatedBlogUrlDates[url];
+      Object.keys(updatedBlogUrlDates).forEach(key => {
+        if (normalizedSetToDelete.has(normalizeUrlForDedup(key))) {
+          delete updatedBlogUrlDates[key];
+        }
       });
       
       setBlogUrls(updatedBlogUrls);
@@ -5778,8 +5777,8 @@ export default function SNSGeneratorApp() {
       
       // 削除したURLのデータが含まれている場合、parsedPostsからも削除
       const updatedParsedPosts = parsedPosts.filter(post => {
-        const postUrl = post.URL || post.url;
-        return !urlSetToDelete.has(postUrl);
+        const postUrl = post.URL || post.url || (post.rawData && (post.rawData.URL || post.rawData.url)) || '';
+        return !normalizedSetToDelete.has(normalizeUrlForDedup(String(postUrl)));
       });
       setParsedPosts(updatedParsedPosts);
       
@@ -5800,7 +5799,7 @@ export default function SNSGeneratorApp() {
             if (!line.trim()) return false;
             const values = parseCsvRow(line);
             const lineUrl = values[urlColumnIndex]?.replace(/^"|"$/g, '') || '';
-            return !urlSetToDelete.has(lineUrl);
+            return !normalizedSetToDelete.has(normalizeUrlForDedup(lineUrl));
           });
           
           const updatedBlogData = [header, ...filteredDataLines].join('\n');
@@ -5820,6 +5819,9 @@ export default function SNSGeneratorApp() {
     } catch (error) {
       console.error('一括削除エラー:', error);
       alert('URLの削除に失敗しました');
+    } finally {
+      setIsBlogImporting(false);
+      setBlogImportProgress('');
     }
   };
 
@@ -5831,10 +5833,17 @@ export default function SNSGeneratorApp() {
     }
     
     try {
+      setIsBlogImporting(true);
+      setBlogImportProgress('削除中...');
       // ブログURL一覧から削除
-      const updatedBlogUrls = blogUrls.filter(url => url !== urlToDelete);
+      const normalizedToDelete = normalizeUrlForDedup(urlToDelete);
+      const updatedBlogUrls = blogUrls.filter(url => normalizeUrlForDedup(url) !== normalizedToDelete);
       const updatedBlogUrlDates = { ...blogUrlDates };
-      delete updatedBlogUrlDates[urlToDelete];
+      Object.keys(updatedBlogUrlDates).forEach(key => {
+        if (normalizeUrlForDedup(key) === normalizedToDelete) {
+          delete updatedBlogUrlDates[key];
+        }
+      });
       
       setBlogUrls(updatedBlogUrls);
       setBlogUrlDates(updatedBlogUrlDates);
@@ -5855,8 +5864,8 @@ export default function SNSGeneratorApp() {
       
       // 削除したURLのデータが含まれている場合、parsedPostsからも削除
       const updatedPosts = parsedPosts.filter(post => {
-        const postUrl = post.URL || post.url || (post.rawData && post.rawData.URL);
-        return postUrl !== urlToDelete;
+        const postUrl = post.URL || post.url || (post.rawData && (post.rawData.URL || post.rawData.url));
+        return normalizeUrlForDedup(String(postUrl || '')) !== normalizedToDelete;
       });
       setParsedPosts(updatedPosts);
       
@@ -5878,8 +5887,8 @@ export default function SNSGeneratorApp() {
           try {
             const posts = parseCsvToPosts(blogData);
             const remainingPosts = posts.filter((post: any) => {
-              const postUrl = post.URL || post.url;
-              return postUrl !== urlToDelete;
+              const postUrl = post.URL || post.url || post.Url || '';
+              return normalizeUrlForDedup(String(postUrl)) !== normalizedToDelete;
             });
             
             if (remainingPosts.length > 0) {
@@ -5924,6 +5933,9 @@ export default function SNSGeneratorApp() {
     } catch (error) {
       console.error('URLの削除に失敗:', error);
       alert('URLの削除に失敗しました');
+    } finally {
+      setIsBlogImporting(false);
+      setBlogImportProgress('');
     }
   };
 
@@ -6844,6 +6856,9 @@ ${formattedRewrittenPost}
                   <div key={dataSource} className="space-y-2 max-h-96 overflow-y-auto">
                     {(() => {
                       // フィルタリングとソート
+                      const effectiveDataSource = (dataSource === 'csv' && blogData && blogData.trim())
+                        ? 'all'
+                        : dataSource;
                       let filtered = parsedPosts.filter(post => {
                         // データソースでフィルタリング（tweet_id列の有無で判定）
                         // rawDataも確認して、より確実に判定
@@ -6873,12 +6888,12 @@ ${formattedRewrittenPost}
                         const isBlogPost = hasUrl && !hasTweetId;
                         
                         // X投稿とブログ投稿のフィルター
-                        if (dataSource === 'all') {
+                        if (effectiveDataSource === 'all') {
                           // 全データ選択の場合は全て表示
-                        } else if (dataSource === 'csv') {
+                        } else if (effectiveDataSource === 'csv') {
                           // X投稿のみ
                           if (!isCsvPost) return false;
-                        } else if (dataSource === 'blog') {
+                        } else if (effectiveDataSource === 'blog') {
                           // ブログ投稿のみ - Xのデータ（tweet_idがあるもの）は確実に除外
                           // tweet_idがある場合は確実に除外（Xのデータ）
                           if (hasTweetId || isCsvPost) return false;
@@ -6994,7 +7009,7 @@ ${formattedRewrittenPost}
                         
                         return (
                           <div
-                            key={`${dataSource}-${post.id}-${urlValue || post.tweet_id || index}`}
+                            key={`${effectiveDataSource}-${post.id}-${urlValue || post.tweet_id || index}`}
                             className="p-3 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#066099]/50 transition-colors group"
                           >
                             <div className="flex items-start justify-between gap-3">
