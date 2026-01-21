@@ -4512,24 +4512,31 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // contentが空でない場合のみ投稿を追加（ハッシュタグだけの場合は後で除外）
-      if (content && content.trim()) {
-        const trimmedContent = content.trim();
-        // ハッシュタグだけ（#と空白のみ）の場合は除外
-        if (!trimmedContent.match(/^[#\s]+$/)) {
-          posts.push({
-            id: `post-${i}`,
-            title,
-            content,
-            category, // カテゴリを追加
-            tags, // タグを追加
-            likes,
-            views,
-            engagement,
-            date,
-            rawData: post
-          });
-        }
+      // 投稿の追加条件
+      const trimmedContent = content ? content.trim() : '';
+      const isHashtagOnly = trimmedContent ? /^[#\s]+$/.test(trimmedContent) : false;
+      const hasTitle = title && title.trim();
+      const urlValue = post['URL'] || post['url'] || post['Url'] || '';
+      const hasUrl = !!(urlValue && String(urlValue).trim());
+
+      // XのCSV（text列がある場合）は本文必須、ブログはタイトル/URLがあれば表示
+      const shouldIncludePost = hasTextColumn
+        ? !!(trimmedContent && !isHashtagOnly)
+        : !!((trimmedContent && !isHashtagOnly) || hasTitle || hasUrl);
+
+      if (shouldIncludePost) {
+        posts.push({
+          id: `post-${i}`,
+          title,
+          content,
+          category, // カテゴリを追加
+          tags, // タグを追加
+          likes,
+          views,
+          engagement,
+          date,
+          rawData: post
+        });
       }
     }
     
@@ -6520,6 +6527,14 @@ ${formattedRewrittenPost}
                             } else {
                               setSelectedSection('posts');
                               setShowPostAnalysis(true);
+                              // 分析用のデータソースと表示用のデータソースを同期
+                              if (analysisDataSource === 'blog') {
+                                setDataSource('blog');
+                              } else if (analysisDataSource === 'x') {
+                                setDataSource('csv');
+                              } else {
+                                setDataSource('all');
+                              }
                             }
                           }}
                             className={`text-xs border px-3 py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1 font-bold shadow-sm ${
@@ -6671,8 +6686,13 @@ ${formattedRewrittenPost}
                           rawData['tweet_id']
                         );
                         
-                        // URL列がある場合はブログ投稿と判定
-                        const hasUrl = !!(post.URL || post.url || rawData.URL || rawData.url);
+                        // URL列がある場合はブログ投稿と判定（複数のキーを許容）
+                        const urlValue =
+                          post.URL || post.url || post.Url ||
+                          rawData.URL || rawData.url || rawData.Url ||
+                          post.Link || rawData.Link ||
+                          post.Permalink || rawData.Permalink;
+                        const hasUrl = !!(urlValue && String(urlValue).trim());
                         
                         const isCsvPost = hasTweetId;
                         const isBlogPost = hasUrl && !hasTweetId;
@@ -6694,9 +6714,14 @@ ${formattedRewrittenPost}
                           return false;
                         }
                         
-                        // キーワード検索
-                        if (searchKeyword && searchKeyword.trim() && !post.content.toLowerCase().includes(searchKeyword.toLowerCase())) {
-                          return false;
+                        // キーワード検索（本文・タイトル・URLを対象）
+                        if (searchKeyword && searchKeyword.trim()) {
+                          const keyword = searchKeyword.toLowerCase();
+                          const contentText = (post.content || '').toLowerCase();
+                          const titleText = (post.title || post.Title || '').toLowerCase();
+                          const urlText = String(urlValue || '').toLowerCase();
+                          const hit = contentText.includes(keyword) || titleText.includes(keyword) || urlText.includes(keyword);
+                          if (!hit) return false;
                         }
                         
                         // RTと返信の除外（X投稿のみに適用）
@@ -6763,7 +6788,7 @@ ${formattedRewrittenPost}
                         }
                       });
                       
-                      return filtered.map((post) => {
+                      return filtered.map((post, index) => {
                         // ブログ投稿かどうかを判定
                         const rawData = post.rawData || {};
                         const hasTweetId = !!(
@@ -6778,7 +6803,12 @@ ${formattedRewrittenPost}
                           rawData['TweetID'] ||
                           rawData['tweet_id']
                         );
-                        const hasUrl = !!(post.URL || post.url || rawData.URL || rawData.url);
+                        const urlValue =
+                          post.URL || post.url || post.Url ||
+                          rawData.URL || rawData.url || rawData.Url ||
+                          post.Link || rawData.Link ||
+                          post.Permalink || rawData.Permalink;
+                        const hasUrl = !!(urlValue && String(urlValue).trim());
                         const isBlogPost = hasUrl && !hasTweetId;
                         
                         // 過去投稿一覧に表示するのはタイトルのみ
@@ -6789,7 +6819,7 @@ ${formattedRewrittenPost}
                         
                         return (
                           <div
-                            key={`${dataSource}-${post.id}`}
+                            key={`${dataSource}-${post.id}-${urlValue || post.tweet_id || index}`}
                             className="p-3 bg-slate-50 rounded-lg border border-slate-200 hover:border-[#066099]/50 transition-colors group"
                           >
                             <div className="flex items-start justify-between gap-3">
