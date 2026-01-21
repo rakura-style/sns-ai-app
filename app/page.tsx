@@ -1221,7 +1221,7 @@ const MobileMenu = ({ user, isSubscribed, onGoogleLogin, onLogout, onManageSubsc
 };
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, blogData }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, blogData, getBlogCsvForDownload }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -1298,7 +1298,8 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
                 <button 
                   onClick={() => {
                     // CSVダウンロード処理
-                    const blob = new Blob([blogData], { type: 'text/csv;charset=utf-8;' });
+                    const csvForDownload = getBlogCsvForDownload ? getBlogCsvForDownload(blogData) : blogData;
+                    const blob = new Blob([`\uFEFF${csvForDownload}`], { type: 'text/csv;charset=utf-8;' });
                     const link = document.createElement('a');
                     const url = URL.createObjectURL(blob);
                     link.setAttribute('href', url);
@@ -2336,6 +2337,42 @@ export default function SNSGeneratorApp() {
     }
   };
 
+  // CSVを行単位に分割（ダブルクォート内の改行を保持）
+  const splitCsvIntoRows = (csvText: string): string[] => {
+    if (!csvText) return [];
+    const normalized = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const rows: string[] = [];
+    let currentRow = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < normalized.length; i++) {
+      const char = normalized[i];
+      const nextChar = i + 1 < normalized.length ? normalized[i + 1] : '';
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          currentRow += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === '\n' && !inQuotes) {
+        if (currentRow !== '' || rows.length > 0) {
+          rows.push(currentRow);
+        }
+        currentRow = '';
+      } else {
+        currentRow += char;
+      }
+    }
+
+    if (currentRow !== '' || rows.length > 0) {
+      rows.push(currentRow);
+    }
+
+    return rows;
+  };
+
   // ブログデータをFirestoreに保存（CSVデータと同様の分割機能付き）
   const saveBlogDataToFirestore = async (userId: string, blogData: string, dateStr: string): Promise<string> => {
     const ONE_MB = 1024 * 1024;
@@ -2346,7 +2383,7 @@ export default function SNSGeneratorApp() {
     if (dataSize >= ONE_MB) {
       console.log(`ブログデータサイズ: ${(dataSize / 1024 / 1024).toFixed(2)} MB → 800KBずつ自動分割して保存`);
       
-      const lines = blogData.split('\n');
+      const lines = splitCsvIntoRows(blogData);
       if (lines.length < 2) {
         throw new Error('ブログデータが不正です');
       }
@@ -2449,7 +2486,23 @@ export default function SNSGeneratorApp() {
         }
       }
       if (chunks.length > 0) {
-        return chunks.join('');
+        // チャンクをCSV行として結合し、ヘッダー重複を除去
+        let mergedRows: string[] = [];
+        let header: string | null = null;
+        for (const chunk of chunks) {
+          const rows = splitCsvIntoRows(chunk);
+          if (rows.length === 0) continue;
+          if (!header) {
+            header = rows[0];
+            mergedRows.push(...rows);
+          } else {
+            const startIndex = rows[0] === header ? 1 : 0;
+            mergedRows.push(...rows.slice(startIndex));
+          }
+        }
+        if (mergedRows.length > 0) {
+          return mergedRows.join('\n');
+        }
       }
     } else if (data.blogData) {
       return data.blogData;
@@ -4543,6 +4596,48 @@ export default function SNSGeneratorApp() {
     return posts;
   };
 
+  const escapeCsvField = (value: string): string => {
+    let text = value ?? '';
+    text = String(text);
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    text = text.replace(/"/g, '""');
+    // CSV内の改行はCRLFに統一
+    text = text.replace(/\n/g, '\r\n');
+    return `"${text}"`;
+  };
+
+  // ダウンロード用にブログCSVを再生成（列ずれ・文字化け対策）
+  const buildBlogCsvForDownload = (csvText: string): string => {
+    const posts = parseCsvToPosts(csvText);
+    if (posts.length === 0) {
+      // フォールバック: 元データをCRLFに統一
+      return csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n');
+    }
+
+    const header = 'Date,Title,Content,Category,Tags,URL';
+    const rows = posts.map((post: any) => {
+      const raw = post.rawData || {};
+      const url =
+        raw.URL || raw.url || raw.Url ||
+        raw.Link || raw.Permalink || '';
+      const date = post.date || post.Date || raw.Date || raw.date || '';
+      const title = post.title || post.Title || raw.Title || raw.title || '';
+      const content = post.content || post.Content || raw.Content || raw.content || '';
+      const category = post.category || post.Category || raw.Category || raw.category || '';
+      const tags = post.tags || post.Tags || raw.Tags || raw.tags || '';
+      return [
+        escapeCsvField(date),
+        escapeCsvField(title),
+        escapeCsvField(content),
+        escapeCsvField(category),
+        escapeCsvField(tags),
+        escapeCsvField(url),
+      ].join(',');
+    });
+
+    return [header, ...rows].join('\r\n');
+  };
+
   const [trendThemes, setTrendThemes] = useState<string[]>([]);
   const [myPostThemes, setMyPostThemes] = useState<string[]>([]);
   
@@ -6360,6 +6455,7 @@ ${formattedRewrittenPost}
                 onOpenFacebookSettings={() => setShowFacebookSettings(true)}
                 onOpenXSettings={() => setShowXSettings(true)}
                 blogData={blogData}
+                getBlogCsvForDownload={buildBlogCsvForDownload}
               />
             </div>
           ) : (
