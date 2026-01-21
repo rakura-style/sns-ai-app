@@ -2373,6 +2373,26 @@ export default function SNSGeneratorApp() {
     return rows;
   };
 
+  const normalizeUrlForDedup = (url: string): string => {
+    if (!url) return '';
+    const trimmed = url.trim();
+    try {
+      const parsed = new URL(trimmed);
+      parsed.hash = '';
+      const params = new URLSearchParams(parsed.search);
+      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'yclid', '_ga'].forEach((key) => {
+        params.delete(key);
+      });
+      const search = params.toString();
+      parsed.search = search ? `?${search}` : '';
+      let normalized = parsed.toString();
+      if (normalized.endsWith('/')) normalized = normalized.slice(0, -1);
+      return normalized;
+    } catch {
+      return trimmed.replace(/\/$/, '');
+    }
+  };
+
   // ブログデータをFirestoreに保存（CSVデータと同様の分割機能付き）
   const saveBlogDataToFirestore = async (userId: string, blogData: string, dateStr: string): Promise<string> => {
     const ONE_MB = 1024 * 1024;
@@ -3484,9 +3504,12 @@ export default function SNSGeneratorApp() {
       // 重複を除外（同じURLの投稿は1つだけ残す）
       const uniquePosts = new Map<string, any>();
       for (const post of validPosts) {
-        const url = (post.url || '').trim();
-        if (url && !uniquePosts.has(url)) {
-          uniquePosts.set(url, post);
+        const rawUrl = post.url || (post as any).URL || '';
+        const url = normalizeUrlForDedup(String(rawUrl));
+        const fallbackKey = `${(post.title || '').trim()}|${(post.date || '').trim()}`;
+        const key = url || fallbackKey;
+        if (key && !uniquePosts.has(key)) {
+          uniquePosts.set(key, post);
         }
       }
       const uniquePostsArray = Array.from(uniquePosts.values());
@@ -3527,17 +3550,17 @@ export default function SNSGeneratorApp() {
           console.log(`ブログ取り込み: 既存データからパースした投稿数 = ${existingPosts.length}`);
           
           // URLの正規化関数（末尾のスラッシュを統一）
-          const normalizeUrl = (url: string) => {
-            if (!url) return '';
-            return url.trim().replace(/\/$/, '');
-          };
+          const normalizeUrl = (url: string) => normalizeUrlForDedup(url);
           
-          const newUrlsSet = new Set(allPosts.map(p => normalizeUrl(p.url)));
+          const newUrlsSet = new Set(allPosts.map(p => {
+            const rawUrl = p.url || (p as any).URL || '';
+            return normalizeUrl(rawUrl);
+          }));
           console.log(`ブログ取り込み: 新しいURL数 = ${newUrlsSet.size}`);
           
           // 既存データから新しいURLのデータを除外
           const filteredExistingPosts = existingPosts.filter(post => {
-            const url = normalizeUrl(post.URL || post.url || '');
+            const url = normalizeUrl(post.URL || post.url || post.Url || '');
             const isDuplicate = newUrlsSet.has(url);
             if (isDuplicate) {
               console.log(`ブログ取り込み: 重複を除外 - ${url}`);
@@ -3556,7 +3579,7 @@ export default function SNSGeneratorApp() {
               const content = `"${(post.Content || post.content || '').replace(/"/g, '""')}"`; // 改行を保持
               const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
               const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
-              const url = `"${post.URL || post.url || ''}"`;
+              const url = `"${post.URL || post.url || post.Url || ''}"`;
               return `${date},${title},${content},${category},${tags},${url}`;
             }),
           ].join('\n');
@@ -4106,14 +4129,15 @@ export default function SNSGeneratorApp() {
     
     // ヘッダー行を取得
     const headerValues = parseCsvRow(rows[0]);
-    const headers = headerValues.map((h: string) => {
-      // ヘッダーからダブルクォートを除去
+    const headers = headerValues.map((h: string, index: number) => {
+      // ヘッダーからダブルクォートやBOM/制御文字を除去
       let header = h.trim();
       if (header.startsWith('"') && header.endsWith('"')) {
         header = header.slice(1, -1);
       }
       header = header.replace(/""/g, '"');
-      return header;
+      header = header.replace(/^\uFEFF/, '').replace(/\r/g, '').trim();
+      return header || `Column${index + 1}`;
     });
     
     // データ行をパース（最適化：事前に配列サイズを確保し、インデックスで直接代入）
@@ -4396,6 +4420,17 @@ export default function SNSGeneratorApp() {
         post[header] = value;
       }
       
+      // URL列を標準化（ヘッダー揺れ対策）
+      const urlKey = Object.keys(post).find((key) => {
+        const normalized = key.toLowerCase().trim();
+        return normalized === 'url' || normalized === 'link' || normalized === 'permalink';
+      });
+      if (urlKey && post[urlKey]) {
+        const normalizedUrl = String(post[urlKey]).trim();
+        post.url = normalizedUrl;
+        post.URL = normalizedUrl;
+      }
+
       // いいね数を抽出
       let likes = 0;
       for (const key of likesKeys) {
@@ -4615,7 +4650,20 @@ export default function SNSGeneratorApp() {
     }
 
     const header = 'Date,Title,Content,Category,Tags,URL';
-    const rows = posts.map((post: any) => {
+    const unique = new Map<string, any>();
+    for (const post of posts) {
+      const raw = post.rawData || {};
+      const rawUrl =
+        raw.URL || raw.url || raw.Url ||
+        raw.Link || raw.Permalink || post.url || post.URL || '';
+      const normalized = normalizeUrlForDedup(String(rawUrl));
+      const fallbackKey = `${(post.title || '').trim()}|${(post.date || '').trim()}`;
+      const key = normalized || fallbackKey;
+      if (key && !unique.has(key)) {
+        unique.set(key, post);
+      }
+    }
+    const rows = Array.from(unique.values()).map((post: any) => {
       const raw = post.rawData || {};
       const url =
         raw.URL || raw.url || raw.Url ||
@@ -5305,8 +5353,39 @@ export default function SNSGeneratorApp() {
       }
     }
     
+    // 重複を除外（Xはtweet_id、ブログはURLで判定）
+    const dedupedPostsMap = new Map<string, any>();
+    for (const post of posts) {
+      const rawData = post.rawData || {};
+      const tweetId = post.tweet_id || 
+        post.tweetId || 
+        post['Tweet ID'] || 
+        post['TweetID'] || 
+        post['tweet_id'] ||
+        rawData.tweet_id ||
+        rawData.tweetId ||
+        rawData['Tweet ID'] ||
+        rawData['TweetID'];
+      const urlValue =
+        post.URL || post.url || post.Url ||
+        rawData.URL || rawData.url || rawData.Url ||
+        post.Link || rawData.Link ||
+        post.Permalink || rawData.Permalink;
+      const hasTweetId = !!tweetId;
+      const normalizedUrl = urlValue ? normalizeUrlForDedup(String(urlValue)) : '';
+      const key = hasTweetId
+        ? `x:${tweetId}`
+        : normalizedUrl
+          ? `b:${normalizedUrl}`
+          : `c:${(post.content || '').substring(0, 50).toLowerCase()}`;
+      if (!dedupedPostsMap.has(key)) {
+        dedupedPostsMap.set(key, post);
+      }
+    }
+    const dedupedPosts = Array.from(dedupedPostsMap.values());
+
     // 削除された投稿を除外
-    const filteredPosts = posts.filter((post) => {
+    const filteredPosts = dedupedPosts.filter((post) => {
       const rawData = post.rawData || {};
       const tweetId = post.tweet_id || 
         post.tweetId || 
