@@ -1221,7 +1221,7 @@ const MobileMenu = ({ user, isSubscribed, onGoogleLogin, onLogout, onManageSubsc
 };
 
 // 🔥 ドロップダウンメニューコンポーネントの追加
-const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, blogData, getBlogCsvForDownload }: any) => {
+const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, onUpgrade, isPortalLoading, onOpenXSettings, blogData, getBlogCsvForDownload, getAllDataCsvForDownload }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -1317,6 +1317,34 @@ const SettingsDropdown = ({ user, isSubscribed, onLogout, onManageSubscription, 
                     <Download size={14} />
                   </div>
                   ブログデータCSVをダウンロード
+                </button>
+              </>
+            )}
+
+            {getAllDataCsvForDownload && (
+              <>
+                <div className="h-px bg-slate-100 my-1 mx-2"></div>
+                <button
+                  onClick={() => {
+                    const csvForDownload = getAllDataCsvForDownload();
+                    const blob = new Blob([`\uFEFF${csvForDownload}`], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', `all_data_${new Date().toISOString().split('T')[0]}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    setIsOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+                >
+                  <div className="bg-slate-700 p-1 rounded text-white">
+                    <Download size={14} />
+                  </div>
+                  全データCSVをダウンロード
                 </button>
               </>
             )}
@@ -4680,6 +4708,84 @@ export default function SNSGeneratorApp() {
     return [header, ...rows].join('\r\n');
   };
 
+  const buildAllDataCsvForDownload = (): string => {
+    const header = [
+      'Source',
+      'Date',
+      'Title',
+      'Content',
+      'URL',
+      'Likes',
+      'Views',
+      'Engagement',
+      'TweetId',
+      'Category',
+      'Tags',
+    ].join(',');
+
+    const rows: string[] = [];
+
+    // Xデータ
+    if (csvData && csvData.trim()) {
+      const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
+      if (csvData !== defaultCsv) {
+        const xPosts = parseCsvToPosts(csvData);
+        xPosts.forEach((post: any) => {
+          const raw = post.rawData || {};
+          const tweetId =
+            post.tweet_id ||
+            post.tweetId ||
+            post['Tweet ID'] ||
+            post['TweetID'] ||
+            raw.tweet_id ||
+            raw.tweetId ||
+            raw['Tweet ID'] ||
+            raw['TweetID'] ||
+            '';
+          rows.push([
+            escapeCsvField('x'),
+            escapeCsvField(post.date || post.Date || raw.Date || ''),
+            escapeCsvField(''),
+            escapeCsvField(post.content || ''),
+            escapeCsvField(raw.URL || raw.url || ''),
+            escapeCsvField(String(post.likes ?? '')),
+            escapeCsvField(String(post.views ?? '')),
+            escapeCsvField(String(post.engagement ?? '')),
+            escapeCsvField(String(tweetId)),
+            escapeCsvField(''),
+            escapeCsvField(''),
+          ].join(','));
+        });
+      }
+    }
+
+    // ブログデータ
+    if (blogData && blogData.trim()) {
+      const blogPosts = parseCsvToPosts(blogData);
+      blogPosts.forEach((post: any) => {
+        const raw = post.rawData || {};
+        const url =
+          raw.URL || raw.url || raw.Url ||
+          raw.Link || raw.Permalink || post.url || post.URL || '';
+        rows.push([
+          escapeCsvField('blog'),
+          escapeCsvField(post.date || post.Date || raw.Date || ''),
+          escapeCsvField(post.title || post.Title || raw.Title || ''),
+          escapeCsvField(post.content || post.Content || raw.Content || ''),
+          escapeCsvField(url),
+          escapeCsvField(''),
+          escapeCsvField(''),
+          escapeCsvField(''),
+          escapeCsvField(''),
+          escapeCsvField(post.category || post.Category || raw.Category || ''),
+          escapeCsvField(post.tags || post.Tags || raw.Tags || ''),
+        ].join(','));
+      });
+    }
+
+    return [header, ...rows].join('\r\n');
+  };
+
   const [trendThemes, setTrendThemes] = useState<string[]>([]);
   const [myPostThemes, setMyPostThemes] = useState<string[]>([]);
   
@@ -6547,6 +6653,7 @@ ${formattedRewrittenPost}
                 onOpenXSettings={() => setShowXSettings(true)}
                 blogData={blogData}
                 getBlogCsvForDownload={buildBlogCsvForDownload}
+                getAllDataCsvForDownload={buildAllDataCsvForDownload}
               />
             </div>
           ) : (
