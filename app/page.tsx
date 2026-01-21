@@ -4724,6 +4724,15 @@ export default function SNSGeneratorApp() {
     ].join(',');
 
     const rows: string[] = [];
+    const seenContentKeys = new Set<string>();
+    const shouldSkipByContent = (source: string, contentValue: string): boolean => {
+      const trimmed = (contentValue || '').trim();
+      if (!trimmed) return false;
+      const key = `${source}|${trimmed}`;
+      if (seenContentKeys.has(key)) return true;
+      seenContentKeys.add(key);
+      return false;
+    };
 
     // Xデータ
     if (csvData && csvData.trim()) {
@@ -4742,11 +4751,20 @@ export default function SNSGeneratorApp() {
             raw['Tweet ID'] ||
             raw['TweetID'] ||
             '';
+          const createdAt =
+            raw.created_at ||
+            raw.createdAt ||
+            post.created_at ||
+            post.createdAt ||
+            '';
+          const dateValue = createdAt || post.date || post.Date || raw.Date || '';
+          const contentValue = post.content || '';
+          if (shouldSkipByContent('x', contentValue)) return;
           rows.push([
             escapeCsvField('x'),
-            escapeCsvField(post.date || post.Date || raw.Date || ''),
+            escapeCsvField(dateValue),
             escapeCsvField(''),
-            escapeCsvField(post.content || ''),
+            escapeCsvField(contentValue),
             escapeCsvField(raw.URL || raw.url || ''),
             escapeCsvField(String(post.likes ?? '')),
             escapeCsvField(String(post.views ?? '')),
@@ -4767,11 +4785,13 @@ export default function SNSGeneratorApp() {
         const url =
           raw.URL || raw.url || raw.Url ||
           raw.Link || raw.Permalink || post.url || post.URL || '';
+        const contentValue = post.content || post.Content || raw.Content || '';
+        if (shouldSkipByContent('blog', contentValue)) return;
         rows.push([
           escapeCsvField('blog'),
           escapeCsvField(post.date || post.Date || raw.Date || ''),
           escapeCsvField(post.title || post.Title || raw.Title || ''),
-          escapeCsvField(post.content || post.Content || raw.Content || ''),
+          escapeCsvField(contentValue),
           escapeCsvField(url),
           escapeCsvField(''),
           escapeCsvField(''),
