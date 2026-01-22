@@ -4676,9 +4676,10 @@ export default function SNSGeneratorApp() {
     let noUrlCounter = 0;
     for (const post of posts) {
       const raw = post.rawData || {};
+      // URL取得を強化（post側もrawData側も両方確認）
       const rawUrl =
-        raw.URL || raw.url || raw.Url ||
-        raw.Link || raw.Permalink || post.url || post.URL || '';
+        raw.URL || raw.url || raw.Url || raw.Link || raw.Permalink ||
+        post.URL || post.url || post.Url || '';
       const normalized = normalizeUrlForDedup(String(rawUrl));
       const key = normalized ? `u:${normalized}` : `no-url:${noUrlCounter++}`;
       if (!unique.has(key)) {
@@ -4687,14 +4688,16 @@ export default function SNSGeneratorApp() {
     }
     const rows = Array.from(unique.values()).map((post: any) => {
       const raw = post.rawData || {};
+      // URL取得を強化
       const url =
-        raw.URL || raw.url || raw.Url ||
-        raw.Link || raw.Permalink || '';
+        raw.URL || raw.url || raw.Url || raw.Link || raw.Permalink ||
+        post.URL || post.url || post.Url || '';
       const date = post.date || post.Date || raw.Date || raw.date || '';
       const title = post.title || post.Title || raw.Title || raw.title || '';
       const content = post.content || post.Content || raw.Content || raw.content || '';
       const category = post.category || post.Category || raw.Category || raw.category || '';
-      const tags = post.tags || post.Tags || raw.Tags || raw.tags || '';
+      // タグ取得を強化
+      const tags = post.tags || post.Tags || raw.Tags || raw.tags || raw.Tag || raw.tag || '';
       return [
         escapeCsvField(date),
         escapeCsvField(title),
@@ -4709,6 +4712,7 @@ export default function SNSGeneratorApp() {
   };
 
   const buildAllDataCsvForDownload = (): string => {
+    // TweetId列を削除
     const header = [
       'Source',
       'Date',
@@ -4718,7 +4722,6 @@ export default function SNSGeneratorApp() {
       'Likes',
       'Views',
       'Engagement',
-      'TweetId',
       'Category',
       'Tags',
     ].join(',');
@@ -4741,35 +4744,31 @@ export default function SNSGeneratorApp() {
         const xPosts = parseCsvToPosts(csvData);
         xPosts.forEach((post: any) => {
           const raw = post.rawData || {};
-          const tweetId =
-            post.tweet_id ||
-            post.tweetId ||
-            post['Tweet ID'] ||
-            post['TweetID'] ||
-            raw.tweet_id ||
-            raw.tweetId ||
-            raw['Tweet ID'] ||
-            raw['TweetID'] ||
-            '';
+          // 日付取得を強化（created_atを複数パターンで取得）
           const createdAt =
+            raw['created_at'] ||
             raw.created_at ||
             raw.createdAt ||
+            raw['Created At'] ||
+            post['created_at'] ||
             post.created_at ||
             post.createdAt ||
+            raw.Date ||
+            raw.date ||
+            post.date ||
+            post.Date ||
             '';
-          const dateValue = createdAt || post.date || post.Date || raw.Date || '';
           const contentValue = post.content || '';
           if (shouldSkipByContent('x', contentValue)) return;
           rows.push([
             escapeCsvField('x'),
-            escapeCsvField(dateValue),
+            escapeCsvField(createdAt),
             escapeCsvField(''),
             escapeCsvField(contentValue),
             escapeCsvField(raw.URL || raw.url || ''),
             escapeCsvField(String(post.likes ?? '')),
             escapeCsvField(String(post.views ?? '')),
             escapeCsvField(String(post.engagement ?? '')),
-            escapeCsvField(String(tweetId)),
             escapeCsvField(''),
             escapeCsvField(''),
           ].join(','));
@@ -4786,6 +4785,7 @@ export default function SNSGeneratorApp() {
           raw.URL || raw.url || raw.Url ||
           raw.Link || raw.Permalink || post.url || post.URL || '';
         const contentValue = post.content || post.Content || raw.Content || '';
+        const tags = post.tags || post.Tags || raw.Tags || raw.tags || raw.Tag || raw.tag || '';
         if (shouldSkipByContent('blog', contentValue)) return;
         rows.push([
           escapeCsvField('blog'),
@@ -4796,9 +4796,8 @@ export default function SNSGeneratorApp() {
           escapeCsvField(''),
           escapeCsvField(''),
           escapeCsvField(''),
-          escapeCsvField(''),
           escapeCsvField(post.category || post.Category || raw.Category || ''),
-          escapeCsvField(post.tags || post.Tags || raw.Tags || ''),
+          escapeCsvField(tags),
         ].join(','));
       });
     }
