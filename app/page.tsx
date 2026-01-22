@@ -4179,7 +4179,8 @@ export default function SNSGeneratorApp() {
     const contentKeys = hasTextColumn 
       ? ['text', 'Text', 'Tweet', 'tweet', 'Post Content', '投稿内容', '投稿', 'Post']
       : ['Content', 'content', 'Post Content', '投稿内容', 'Text', 'text', 'Tweet', 'tweet', '投稿', 'Post'];
-    const dateKeys = ['Date', 'date', '日付', '投稿日', 'Posted At'];
+    // 日付キー（created_atを最優先、clientは日付ではないので除外）
+    const dateKeys = ['created_at', 'Created At', 'createdAt', 'Date', 'date', '日付', '投稿日', 'Posted At'];
     
     // 数値列のインデックスを事前に取得
     const numericColumnIndices = new Set<number>();
@@ -4590,15 +4591,24 @@ export default function SNSGeneratorApp() {
         }
       }
       
-      // 日付を取得
+      // 日付を取得（created_atを最優先、clientは日付ではないので除外）
       let date = '';
       for (const key of dateKeys) {
         const val = post[key];
         if (val !== undefined && val !== '') {
-          date = String(val);
+          const strVal = String(val);
+          // client列の値（Twitter for iPhone等）を日付として誤認識しないようにする
+          if (strVal.includes('Twitter') || strVal.includes('iPhone') || strVal.includes('Android') || strVal.includes('Web') || strVal.includes('TweetDeck')) {
+            continue; // これは日付ではなくclient情報なのでスキップ
+          }
+          date = strVal;
           break;
         }
       }
+      
+      // client列は削除（rawDataからも除外）
+      if (post.client) delete post.client;
+      if (post.Client) delete post.Client;
       
       // カテゴリを取得
       let category = '';
@@ -4744,25 +4754,39 @@ export default function SNSGeneratorApp() {
         const xPosts = parseCsvToPosts(csvData);
         xPosts.forEach((post: any) => {
           const raw = post.rawData || {};
-          // 日付取得を強化（created_atを複数パターンで取得）
-          const createdAt =
-            raw['created_at'] ||
-            raw.created_at ||
-            raw.createdAt ||
-            raw['Created At'] ||
-            post['created_at'] ||
-            post.created_at ||
-            post.createdAt ||
-            raw.Date ||
-            raw.date ||
-            post.date ||
-            post.Date ||
-            '';
+          // 日付取得を強化（created_atを最優先、client列の値は除外）
+          const isClientValue = (val: string) => {
+            if (!val) return false;
+            return val.includes('Twitter') || val.includes('iPhone') || val.includes('Android') || val.includes('Web') || val.includes('TweetDeck');
+          };
+          
+          // 日付候補を順番に確認
+          let dateValue = '';
+          const dateCandidates = [
+            raw['created_at'],
+            raw.created_at,
+            raw.createdAt,
+            raw['Created At'],
+            post['created_at'],
+            post.created_at,
+            post.createdAt,
+            post.date,
+            post.Date,
+            raw.Date,
+            raw.date,
+          ];
+          for (const candidate of dateCandidates) {
+            if (candidate && !isClientValue(String(candidate))) {
+              dateValue = String(candidate);
+              break;
+            }
+          }
+          
           const contentValue = post.content || '';
           if (shouldSkipByContent('x', contentValue)) return;
           rows.push([
             escapeCsvField('x'),
-            escapeCsvField(createdAt),
+            escapeCsvField(dateValue),
             escapeCsvField(''),
             escapeCsvField(contentValue),
             escapeCsvField(raw.URL || raw.url || ''),
