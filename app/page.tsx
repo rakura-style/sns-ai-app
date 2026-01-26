@@ -4593,16 +4593,41 @@ export default function SNSGeneratorApp() {
       
       // 日付を取得（created_atを最優先、clientは日付ではないので除外）
       let date = '';
+      // client列の値（Twitter for iPhone等）を日付として誤認識しないようにする
+      const isClientValueForDate = (val: string) => {
+        if (!val) return false;
+        const v = String(val);
+        return v.includes('Twitter') || v.includes('iPhone') || v.includes('Android') || v.includes('Web') || v.includes('TweetDeck');
+      };
+      
+      // まず、dateKeysで厳密にマッチを試みる
       for (const key of dateKeys) {
         const val = post[key];
         if (val !== undefined && val !== '') {
           const strVal = String(val);
-          // client列の値（Twitter for iPhone等）を日付として誤認識しないようにする
-          if (strVal.includes('Twitter') || strVal.includes('iPhone') || strVal.includes('Android') || strVal.includes('Web') || strVal.includes('TweetDeck')) {
-            continue; // これは日付ではなくclient情報なのでスキップ
+          if (!isClientValueForDate(strVal)) {
+            date = strVal;
+            break;
           }
-          date = strVal;
-          break;
+        }
+      }
+      
+      // 見つからない場合は、postオブジェクトの全キーを正規化して検索
+      if (!date) {
+        const dateKeyPatterns = ['created_at', 'createdat', 'date', 'posted_at', 'postedat', '投稿日', '日付'];
+        for (const pattern of dateKeyPatterns) {
+          for (const key of Object.keys(post)) {
+            const normalizedKey = key.toLowerCase().replace(/[_\s]/g, '');
+            const normalizedPattern = pattern.toLowerCase().replace(/[_\s]/g, '');
+            if (normalizedKey === normalizedPattern || normalizedKey.includes(normalizedPattern)) {
+              const val = post[key];
+              if (val !== undefined && val !== '' && !isClientValueForDate(String(val))) {
+                date = String(val);
+                break;
+              }
+            }
+          }
+          if (date) break;
         }
       }
       
@@ -4747,6 +4772,40 @@ export default function SNSGeneratorApp() {
       return false;
     };
 
+    // 日付を抽出するヘルパー関数（大文字小文字、アンダースコア/スペースを統一して検索）
+    const extractDateFromObject = (obj: any): string => {
+      if (!obj) return '';
+      
+      // client列の値（Twitter for iPhone等）を日付として誤認識しないようにする
+      const isClientValue = (val: string) => {
+        if (!val) return false;
+        const v = String(val);
+        return v.includes('Twitter') || v.includes('iPhone') || v.includes('Android') || v.includes('Web') || v.includes('TweetDeck');
+      };
+      
+      // 優先順位の高いキーのリスト
+      const dateKeyPatterns = [
+        'created_at', 'createdat', 'created at',
+        'date', 'posted_at', 'postedat', 'posted at',
+        '投稿日', '日付'
+      ];
+      
+      // objのキーを正規化して検索
+      for (const pattern of dateKeyPatterns) {
+        for (const key of Object.keys(obj)) {
+          const normalizedKey = key.toLowerCase().replace(/[_\s]/g, '');
+          const normalizedPattern = pattern.toLowerCase().replace(/[_\s]/g, '');
+          if (normalizedKey === normalizedPattern || normalizedKey.includes(normalizedPattern)) {
+            const val = obj[key];
+            if (val && !isClientValue(String(val))) {
+              return String(val);
+            }
+          }
+        }
+      }
+      return '';
+    };
+
     // Xデータ
     if (csvData && csvData.trim()) {
       const defaultCsv = 'Date,Post Content,Likes\n2023-10-01,"朝カフェ作業中。集中できる！",120\n2023-10-05,"新しいプロジェクト始動。ワクワク。",85\n2023-10-10,"【Tips】効率化の秘訣はこれだ...",350\n2023-10-15,"今日は失敗した...でもめげない！",200';
@@ -4754,32 +4813,14 @@ export default function SNSGeneratorApp() {
         const xPosts = parseCsvToPosts(csvData);
         xPosts.forEach((post: any) => {
           const raw = post.rawData || {};
-          // 日付取得を強化（created_atを最優先、client列の値は除外）
-          const isClientValue = (val: string) => {
-            if (!val) return false;
-            return val.includes('Twitter') || val.includes('iPhone') || val.includes('Android') || val.includes('Web') || val.includes('TweetDeck');
-          };
           
-          // 日付候補を順番に確認
+          // 日付取得: parseCsvToPostsで抽出されたpost.dateを最優先、次にrawDataから検索
           let dateValue = '';
-          const dateCandidates = [
-            raw['created_at'],
-            raw.created_at,
-            raw.createdAt,
-            raw['Created At'],
-            post['created_at'],
-            post.created_at,
-            post.createdAt,
-            post.date,
-            post.Date,
-            raw.Date,
-            raw.date,
-          ];
-          for (const candidate of dateCandidates) {
-            if (candidate && !isClientValue(String(candidate))) {
-              dateValue = String(candidate);
-              break;
-            }
+          if (post.date && post.date.trim()) {
+            dateValue = post.date;
+          } else {
+            // rawDataから日付を検索
+            dateValue = extractDateFromObject(raw);
           }
           
           const contentValue = post.content || '';
@@ -4789,7 +4830,7 @@ export default function SNSGeneratorApp() {
             escapeCsvField(dateValue),
             escapeCsvField(''),
             escapeCsvField(contentValue),
-            escapeCsvField(raw.URL || raw.url || ''),
+            escapeCsvField(raw.URL || raw.url || post.url || post.URL || ''),
             escapeCsvField(String(post.likes ?? '')),
             escapeCsvField(String(post.views ?? '')),
             escapeCsvField(String(post.engagement ?? '')),
@@ -4810,10 +4851,19 @@ export default function SNSGeneratorApp() {
           raw.Link || raw.Permalink || post.url || post.URL || '';
         const contentValue = post.content || post.Content || raw.Content || '';
         const tags = post.tags || post.Tags || raw.Tags || raw.tags || raw.Tag || raw.tag || '';
+        
+        // 日付取得: parseCsvToPostsで抽出されたpost.dateを最優先、次にrawDataから検索
+        let dateValue = '';
+        if (post.date && post.date.trim()) {
+          dateValue = post.date;
+        } else {
+          dateValue = extractDateFromObject(raw);
+        }
+        
         if (shouldSkipByContent('blog', contentValue)) return;
         rows.push([
           escapeCsvField('blog'),
-          escapeCsvField(post.date || post.Date || raw.Date || ''),
+          escapeCsvField(dateValue),
           escapeCsvField(post.title || post.Title || raw.Title || ''),
           escapeCsvField(contentValue),
           escapeCsvField(url),
