@@ -235,8 +235,8 @@ function extractTitle(html: string, blogType: BlogType = 'auto'): string {
   
   // はてなブログの場合 - <title>タグから取得
   if (blogType === 'hatena') {
-    // <title>タグから取得
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    // 1. <title>タグから取得（改行やHTMLエンティティを含む場合にも対応）
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     if (titleMatch) {
       let title = extractTextFromHTML(titleMatch[1]);
       // セパレーター（| や -）より前の部分を取得（ブログ名を除去）
@@ -248,7 +248,27 @@ function extractTitle(html: string, blogType: BlogType = 'auto'): string {
         }
       }
       if (title.trim()) {
-        console.log('extractTitle: <title>タグで取得成功');
+        console.log('extractTitle: <title>タグで取得成功:', title.substring(0, 50));
+        return title.trim();
+      }
+    }
+    
+    // 2. フォールバック: .entry-title-linkクラス
+    const entryTitleLinkMatch = html.match(/<a[^>]*class=["'][^"']*entry-title-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
+    if (entryTitleLinkMatch) {
+      const title = extractTextFromHTML(entryTitleLinkMatch[1]);
+      if (title.trim()) {
+        console.log('extractTitle: .entry-title-link で取得成功');
+        return title.trim();
+      }
+    }
+    
+    // 3. フォールバック: h1.entry-title
+    const h1EntryTitleMatch = html.match(/<h1[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i);
+    if (h1EntryTitleMatch) {
+      const title = extractTextFromHTML(h1EntryTitleMatch[1]);
+      if (title.trim()) {
+        console.log('extractTitle: h1.entry-title で取得成功');
         return title.trim();
       }
     }
@@ -383,7 +403,23 @@ function extractNestedTag(html: string, tagName: string, className?: string): st
   let startPattern: RegExp;
   if (className) {
     // クラス名が指定されている場合
-    startPattern = new RegExp(`<${tagName}[^>]*class=["'][^"']*${className}[^"']*["'][^>]*>`, 'i');
+    // 複数クラス（スペース区切り）に対応: 各クラスが存在するかを個別にチェック
+    const classNames = className.split(/\s+/).filter(c => c.trim());
+    
+    if (classNames.length > 1) {
+      // 複数クラスの場合: まず単純なマッチを試す
+      // class="entry-content hatenablog-entry" の形式にマッチ
+      const escapedClassNames = classNames.map(cn => cn.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+      // まず、クラス名が連続して現れるパターンを試す
+      const simplePattern = new RegExp(`<${tagName}[^>]*class=["'][^"']*${escapedClassNames.join('[^"\']*')}[^"']*["'][^>]*>`, 'i');
+      startPattern = simplePattern;
+      
+      console.log(`extractNestedTag: 複数クラス検索 - tagName=${tagName}, classes=${classNames.join(',')}`);
+    } else {
+      // 単一クラスの場合
+      const escapedClassName = className.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      startPattern = new RegExp(`<${tagName}[^>]*class=["'][^"']*${escapedClassName}[^"']*["'][^>]*>`, 'i');
+    }
   } else {
     // クラス名が指定されていない場合
     startPattern = new RegExp(`<${tagName}[^>]*>`, 'i');
@@ -447,14 +483,32 @@ function extractContent(html: string, blogType: BlogType = 'auto'): string {
   if (blogType === 'hatena') {
     console.log('extractContent: はてなブログモードで抽出中...');
     
+    // デバッグ: entry-content関連のclass属性を表示
+    const entryContentClasses = text.match(/class=["'][^"']*entry-content[^"']*["']/gi);
+    console.log('extractContent: entry-content関連クラス:', entryContentClasses?.slice(0, 5) || 'なし');
+    
     // 1. .entry-content.hatenablog-entryクラス（はてなブログの標準）
     contentHtml = extractNestedTag(text, 'div', 'entry-content hatenablog-entry');
-    if (contentHtml) console.log('extractContent: .entry-content.hatenablog-entry で取得成功');
+    if (contentHtml) {
+      console.log('extractContent: .entry-content.hatenablog-entry で取得成功, 長さ:', contentHtml.length);
+    }
     
-    // 2. フォールバック: .entry-contentクラスのみ
+    // 2. フォールバック: .hatenablog-entryクラスのみ
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'div', 'hatenablog-entry');
+      if (contentHtml) console.log('extractContent: .hatenablog-entry で取得成功, 長さ:', contentHtml.length);
+    }
+    
+    // 3. フォールバック: .entry-contentクラスのみ
     if (!contentHtml) {
       contentHtml = extractNestedTag(text, 'div', 'entry-content');
-      if (contentHtml) console.log('extractContent: .entry-content で取得成功');
+      if (contentHtml) console.log('extractContent: .entry-content で取得成功, 長さ:', contentHtml.length);
+    }
+    
+    // 4. フォールバック: articleタグ
+    if (!contentHtml) {
+      contentHtml = extractNestedTag(text, 'article', '');
+      if (contentHtml) console.log('extractContent: article タグで取得成功, 長さ:', contentHtml.length);
     }
     
     if (!contentHtml) {
