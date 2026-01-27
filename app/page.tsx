@@ -3082,7 +3082,38 @@ export default function SNSGeneratorApp() {
       return;
     }
     
-    // 最終的なURLリストを関数スコープで初期化（エラー発生時でもURLを保存するため）
+    // replaceモードの場合、最初に既存のブログデータCSVを完全に削除
+    if (mode === 'replace') {
+      setIsBlogImporting(true);
+      setBlogImportProgress('既存のブログデータを削除中...');
+      
+      try {
+        // 既存のブログデータを削除
+        setBlogData('');
+        setBlogUploadDate(null);
+        setBlogUrls([]);
+        setBlogUrlDates({});
+        
+        // Firestoreから既存データを削除
+        await setDoc(doc(db, 'users', user.uid), {
+          blogData: null,
+          blogUploadDate: null,
+          blogIsSplit: false,
+          blogChunkCount: null,
+          blogUrls: [],
+          blogUrlDates: {}
+        }, { merge: true });
+        
+        // ローカルストレージからも削除
+        localStorage.removeItem(`blogData_${user.uid}`);
+        
+        console.log('[handleImportSelectedUrls] replaceモード: 既存ブログデータを削除しました');
+      } catch (error) {
+        console.error('[handleImportSelectedUrls] 既存データ削除エラー:', error);
+      }
+    }
+    
+    // 最終的なURLリストを関数スコープで初期化（replaceモードは削除後なので空から開始）
     let updatedBlogUrls: string[] = mode === 'replace' ? [] : [...blogUrls];
     let updatedBlogUrlDates: { [key: string]: string } = mode === 'replace' ? {} : { ...blogUrlDates };
     let saveSucceeded = false; // tryブロック内での保存成功フラグ
@@ -3949,6 +3980,11 @@ export default function SNSGeneratorApp() {
           console.error('[handleImportSelectedUrls] Firestore保存エラー:', saveError);
         }
       }
+      
+      // 取り込み完了後、ダイアログを自動で閉じる
+      setShowDataImportModal(false);
+      setShowSitemapUrlModal(false);
+      setBlogImportProgress('');
     }
   };
 
