@@ -4670,6 +4670,8 @@ export default function SNSGeneratorApp() {
         : !!((trimmedContent && !isHashtagOnly) || hasTitle || hasUrl);
 
       if (shouldIncludePost) {
+        // URLをトップレベルに設定（ブログ投稿の表示・フィルタリング用）
+        const postUrl = post.url || post.URL || post.Url || '';
         posts.push({
           id: `post-${i}`,
           title,
@@ -4680,6 +4682,8 @@ export default function SNSGeneratorApp() {
           views,
           engagement,
           date,
+          url: postUrl, // URLをトップレベルに追加
+          URL: postUrl, // 大文字バージョンも追加（互換性のため）
           rawData: post
         });
       }
