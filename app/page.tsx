@@ -3108,10 +3108,18 @@ export default function SNSGeneratorApp() {
     // 一覧ページURL（/entryなど）の場合は、先に記事URLを収集
     const processedUrls: string[] = [];
     for (const url of urls) {
+      // はてなブログの記事URLパターン（/entry/YYYY/MM/DD/ または /entry/数字のみ）を検出
+      const isHatenaArticle = /\/entry\/\d{4}\/\d{2}\/\d{2}/.test(url) || 
+                              /\/entry\/\d{8,}/.test(url);
+      
       // 一覧ページURLかどうかを判定（サイトマップURLでなく、記事URLでもない場合）
+      // はてなブログの記事URLは一覧ページとして扱わない
       const isListPage = !url.endsWith('.xml') && 
                         !url.includes('sitemap') && 
+                        !isHatenaArticle &&
                         (url.includes('/entry') || url.includes('/blog') || url.includes('/posts') || url.includes('/articles'));
+      
+      console.log(`[handleImportSelectedUrls] URL判定: ${url}, isHatenaArticle=${isHatenaArticle}, isListPage=${isListPage}`);
       
       if (isListPage) {
         // 一覧ページの場合は、サイトマップAPIを使って記事URLを収集
