@@ -4224,6 +4224,20 @@ export default function SNSGeneratorApp() {
       }
     }
     
+    // 日付列のインデックスを事前に取得（スキップしないように）
+    const dateColumnIndices = new Set<number>();
+    const dateKeyPatterns = ['created_at', 'createdat', 'date', 'posted_at', 'postedat', '投稿日', '日付'];
+    headers.forEach((header: string, index: number) => {
+      const normalizedHeader = header.toLowerCase().replace(/[_\s]/g, '');
+      for (const pattern of dateKeyPatterns) {
+        const normalizedPattern = pattern.toLowerCase().replace(/[_\s]/g, '');
+        if (normalizedHeader === normalizedPattern || normalizedHeader.includes(normalizedPattern)) {
+          dateColumnIndices.add(index);
+          break;
+        }
+      }
+    });
+    
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const values = parseCsvRow(row);
@@ -4427,8 +4441,9 @@ export default function SNSGeneratorApp() {
           // text列は既に処理済み
           continue;
         }
-        if (textColumnIndex >= 0 && j > textColumnIndex && j < firstNumericIndex) {
-          // text列の結合範囲内はスキップ
+        // 日付列はスキップしない（created_at等を保持するため）
+        if (textColumnIndex >= 0 && j > textColumnIndex && j < firstNumericIndex && !dateColumnIndices.has(j)) {
+          // text列の結合範囲内はスキップ（ただし日付列は除く）
           continue;
         }
         
@@ -7101,8 +7116,7 @@ ${formattedRewrittenPost}
                           // ブログ投稿のみ - Xのデータ（tweet_idがあるもの）は確実に除外
                           // tweet_idがある場合は確実に除外（Xのデータ）
                           if (hasTweetId || isCsvPost) return false;
-                          // URLがない場合は除外（ブログ投稿ではない）
-                          if (!hasUrl) return false;
+                          // tweet_idがなければブログ投稿として表示（URLの有無は問わない）
                         } else {
                           // どちらも選択されていない場合は何も表示しない
                           return false;
@@ -7539,15 +7553,6 @@ ${formattedRewrittenPost}
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <button
-                                    onClick={() => handleUpdateUrl(url)}
-                                    disabled={isBlogImporting}
-                                    className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
-                                    title="このURLを更新"
-                                  >
-                                    <RefreshCcw size={10} />
-                                    更新
-                                  </button>
-                                  <button
                                     onClick={() => handleDeleteBlogUrl(url)}
                                     disabled={isBlogImporting}
                                     className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1"
@@ -7638,38 +7643,6 @@ ${formattedRewrittenPost}
                               >
                                 <Upload size={12} />
                                 追加
-                              </button>
-                              {/* 更新ボタン（X） */}
-                              <button
-                                onClick={() => {
-                                const fileInput = fileInputRef.current;
-                                if (fileInput) {
-                                  const tempHandler = async (e: Event) => {
-                                    const target = e.target as HTMLInputElement;
-                                    const file = target.files?.[0];
-                                    if (!file) return;
-                                    
-                                    const reader = new FileReader();
-                                    reader.onload = async (event) => {
-                                      const text = event.target?.result as string;
-                                      if (text) {
-                                          await applyCsvData(text, 'replace');
-                                      }
-                                      target.value = '';
-                                      fileInput.removeEventListener('change', tempHandler);
-                                    };
-                                    reader.readAsText(file);
-                                  };
-                                  fileInput.addEventListener('change', tempHandler);
-                                  fileInput.click();
-                                }
-                              }}
-                              disabled={isCsvLoading}
-                              className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                title="CSVデータを更新"
-                              >
-                                <RefreshCcw size={12} />
-                                更新
                               </button>
                               {/* 削除ボタン（X） */}
                               <button
@@ -7868,17 +7841,6 @@ ${formattedRewrittenPost}
                                         </div>
                                       </div>
                                       <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button
-                                          onClick={() => {
-                                            handleUpdateUrl(url || displayUrl);
-                                          }}
-                                          disabled={isBlogImporting}
-                                          className="px-2 py-1 text-[10px] font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                          title="このURLを更新"
-                                        >
-                                          <RefreshCcw size={10} />
-                                          更新
-                                        </button>
                                         <button
                                           onClick={async () => {
                                             // confirmを削除（handleDeleteBlogUrl内で確認するため）
