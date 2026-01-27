@@ -108,6 +108,8 @@ function extractArticleUrls(html: string, baseUrl: string): string[] {
           '/signup',
           '/signin',
           '/admin',
+          'b.hatena.ne.jp',  // はてなブックマーク
+          '/entry/s/',       // はてなブックマークのエントリーURL
         ];
         
         const urlLower = url.toLowerCase();
@@ -418,7 +420,9 @@ export async function POST(request: NextRequest) {
           url.includes('/page/') ||
           url.includes('/wp-admin') ||
           url.includes('/wp-content') ||
-          url.includes('/wp-includes')) {
+          url.includes('/wp-includes') ||
+          url.includes('b.hatena.ne.jp') ||  // はてなブックマーク
+          url.includes('/entry/s/')) {        // はてなブックマークのエントリーURL
         continue;
       }
       

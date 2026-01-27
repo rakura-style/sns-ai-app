@@ -34,7 +34,8 @@ function extractEntryUrls(html: string, baseUrl: string): string[] {
       // baseUrlで始まるURLのみを対象
       if (url && url.startsWith(normalizedBaseUrl) && !urlSet.has(url)) {
         // エントリー記事のURLかどうかを判定（/entry/を含む）
-        if (url.includes('/entry/')) {
+        // はてなブックマークを除外
+        if (url.includes('/entry/') && !url.includes('b.hatena.ne.jp') && !url.includes('/entry/s/')) {
           urls.push(url);
           urlSet.add(url);
         }
@@ -65,8 +66,9 @@ function extractEntryUrls(html: string, baseUrl: string): string[] {
         
         // /entry/を含むURLを対象
         if (url && url.includes('/entry/') && !urlSet.has(url)) {
-          // カテゴリーやタグページを除外
-          if (!url.includes('/category/') && !url.includes('/tag/') && !url.includes('/archive/')) {
+          // カテゴリーやタグページ、はてなブックマークを除外
+          if (!url.includes('/category/') && !url.includes('/tag/') && !url.includes('/archive/') && 
+              !url.includes('b.hatena.ne.jp') && !url.includes('/entry/s/')) {
             urls.push(url);
             urlSet.add(url);
           }
@@ -97,7 +99,8 @@ function extractEntryUrls(html: string, baseUrl: string): string[] {
           url = url.slice(0, -1);
         }
         
-        if (url && url.includes('/entry/') && !urlSet.has(url)) {
+        if (url && url.includes('/entry/') && !urlSet.has(url) && 
+            !url.includes('b.hatena.ne.jp') && !url.includes('/entry/s/')) {
           urls.push(url);
           urlSet.add(url);
         }
@@ -135,8 +138,9 @@ function extractEntryUrls(html: string, baseUrl: string): string[] {
           url = url.slice(0, -1);
         }
         
-        // カテゴリーやタグページ、アーカイブ自体を除外
-        if (url.includes('/category/') || url.includes('/tag/') || url.includes('/archive/')) {
+        // カテゴリーやタグページ、アーカイブ自体、はてなブックマークを除外
+        if (url.includes('/category/') || url.includes('/tag/') || url.includes('/archive/') ||
+            url.includes('b.hatena.ne.jp') || url.includes('/entry/s/')) {
           continue;
         }
         
