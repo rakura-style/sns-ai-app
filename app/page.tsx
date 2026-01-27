@@ -3105,21 +3105,16 @@ export default function SNSGeneratorApp() {
     }
     console.log('[handleImportSelectedUrls] URL追加後 - updatedBlogUrls:', updatedBlogUrls.length);
     
-    // 一覧ページURL（/entryなど）の場合は、先に記事URLを収集
+    // 一覧ページURLの場合は、先に記事URLを収集
     const processedUrls: string[] = [];
     for (const url of urls) {
-      // はてなブログの記事URLパターン（/entry/YYYY/MM/DD/ または /entry/数字のみ）を検出
-      const isHatenaArticle = /\/entry\/\d{4}\/\d{2}\/\d{2}/.test(url) || 
-                              /\/entry\/\d{8,}/.test(url);
-      
-      // 一覧ページURLかどうかを判定（サイトマップURLでなく、記事URLでもない場合）
-      // はてなブログの記事URLは一覧ページとして扱わない
+      // 一覧ページURLかどうかを判定（サイトマップURLでなく、明らかな記事URLでない場合）
+      // ※ はてなブログの `/entry/...` はすべて「記事」として扱うため、ここでは判定に使わない
       const isListPage = !url.endsWith('.xml') && 
                         !url.includes('sitemap') && 
-                        !isHatenaArticle &&
-                        (url.includes('/entry') || url.includes('/blog') || url.includes('/posts') || url.includes('/articles'));
+                        (url.includes('/blog') || url.includes('/posts') || url.includes('/articles'));
       
-      console.log(`[handleImportSelectedUrls] URL判定: ${url}, isHatenaArticle=${isHatenaArticle}, isListPage=${isListPage}`);
+      console.log(`[handleImportSelectedUrls] URL判定: ${url}, isListPage=${isListPage}`);
       
       if (isListPage) {
         // 一覧ページの場合は、サイトマップAPIを使って記事URLを収集
