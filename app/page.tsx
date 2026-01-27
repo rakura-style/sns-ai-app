@@ -6002,34 +6002,68 @@ export default function SNSGeneratorApp() {
       
       // ブログデータからも削除
       if (blogData) {
-        const blogLines = blogData.split('\n');
-        const header = blogLines[0];
-        const dataLines = blogLines.slice(1);
-        
-        const headerValues = parseCsvRow(header);
-        const urlColumnIndex = headerValues.findIndex((h: string) => {
-          const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
-          return normalized === 'url';
-        });
-        
-        if (urlColumnIndex >= 0) {
-          const filteredDataLines = dataLines.filter(line => {
-            if (!line.trim()) return false;
-            const values = parseCsvRow(line);
-            const lineUrl = values[urlColumnIndex]?.replace(/^"|"$/g, '') || '';
-            return !normalizedSetToDelete.has(normalizeUrlForDedup(lineUrl));
-          });
+        // URL一覧が全て削除された場合、blogDataも完全にクリア
+        if (updatedBlogUrls.length === 0) {
+          setBlogData('');
+          setBlogUploadDate(null);
           
-          const updatedBlogData = [header, ...filteredDataLines].join('\n');
-          setBlogData(updatedBlogData);
-          
-          // Firestoreに保存
+          // Firestoreから完全に削除
           await setDoc(doc(db, 'users', user.uid), {
-            blogData: updatedBlogData
+            blogData: null,
+            blogUploadDate: null,
+            blogIsSplit: false,
+            blogChunkCount: null
           }, { merge: true });
           
-          // ローカルストレージにも保存
-          localStorage.setItem(`blogData_${user.uid}`, updatedBlogData);
+          // ローカルストレージからも削除
+          localStorage.removeItem(`blogData_${user.uid}`);
+        } else {
+          const blogLines = blogData.split('\n');
+          const header = blogLines[0];
+          const dataLines = blogLines.slice(1);
+          
+          const headerValues = parseCsvRow(header);
+          const urlColumnIndex = headerValues.findIndex((h: string) => {
+            const normalized = h.toLowerCase().trim().replace(/^"|"$/g, '');
+            return normalized === 'url';
+          });
+          
+          if (urlColumnIndex >= 0) {
+            const filteredDataLines = dataLines.filter(line => {
+              if (!line.trim()) return false;
+              const values = parseCsvRow(line);
+              const lineUrl = values[urlColumnIndex]?.replace(/^"|"$/g, '') || '';
+              return !normalizedSetToDelete.has(normalizeUrlForDedup(lineUrl));
+            });
+            
+            if (filteredDataLines.length === 0) {
+              // 全てのデータが削除された場合、blogDataを完全にクリア
+              setBlogData('');
+              setBlogUploadDate(null);
+              
+              // Firestoreから完全に削除
+              await setDoc(doc(db, 'users', user.uid), {
+                blogData: null,
+                blogUploadDate: null,
+                blogIsSplit: false,
+                blogChunkCount: null
+              }, { merge: true });
+              
+              // ローカルストレージからも削除
+              localStorage.removeItem(`blogData_${user.uid}`);
+            } else {
+              const updatedBlogData = [header, ...filteredDataLines].join('\n');
+              setBlogData(updatedBlogData);
+              
+              // Firestoreに保存
+              await setDoc(doc(db, 'users', user.uid), {
+                blogData: updatedBlogData
+              }, { merge: true });
+              
+              // ローカルストレージにも保存
+              localStorage.setItem(`blogData_${user.uid}`, updatedBlogData);
+            }
+          }
         }
       }
       
@@ -7718,27 +7752,6 @@ ${formattedRewrittenPost}
                                 <Upload size={12} />
                                 追加
                               </button>
-                              {blogUrls && blogUrls.length > 0 && (
-                                <button
-                                  onClick={async () => {
-                                    if (!confirm(`ブログURLを更新しますか？\n\n対象URL数: ${blogUrls.length}件\n（既に取り込み済みのURLも再取得されます）`)) {
-                                      return;
-                                    }
-                                    // 一括更新は1回の取り込み処理として実行し、内部で50件制限のアラートも1回だけ出す
-                                    try {
-                                      await handleImportSelectedUrls(blogUrls, 'append', 'auto');
-                                    } catch (error: any) {
-                                      alert(`更新に失敗しました: ${error.message || '不明なエラー'}`);
-                                    }
-                                  }}
-                                  disabled={isBlogImporting}
-                                  className="px-3 py-1.5 text-xs font-bold text-white bg-[#066099] rounded hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                  title="すべてのURLを更新"
-                                >
-                                  <RefreshCcw size={12} />
-                                  更新
-                                </button>
-                              )}
                               {blogUrls && blogUrls.length > 0 && (
                                 <button
                                   onClick={() => handleBulkDeleteBlogUrls(blogUrls)}
