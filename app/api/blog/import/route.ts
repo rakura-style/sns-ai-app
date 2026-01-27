@@ -233,34 +233,22 @@ function detectBlogType(url: string, html: string): BlogType {
 function extractTitle(html: string, blogType: BlogType = 'auto'): string {
   console.log(`extractTitle: blogType=${blogType}`);
   
-  // はてなブログの場合
+  // はてなブログの場合 - <title>タグから取得
   if (blogType === 'hatena') {
-    // 1. .entry-title-linkクラス（<a>タグ内のテキスト）- 最も一般的
-    const entryTitleLinkMatch = html.match(/<a[^>]*class=["'][^"']*entry-title-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
-    if (entryTitleLinkMatch) {
-      const title = extractTextFromHTML(entryTitleLinkMatch[1]);
-      if (title.trim()) {
-        console.log('extractTitle: .entry-title-link で取得成功');
-        return title.trim();
+    // <title>タグから取得
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch) {
+      let title = extractTextFromHTML(titleMatch[1]);
+      // セパレーター（| や -）より前の部分を取得（ブログ名を除去）
+      const separators = [' | ', ' - ', '｜', '－', '|', '-'];
+      for (const sep of separators) {
+        if (title.includes(sep)) {
+          title = title.split(sep)[0].trim();
+          break;
+        }
       }
-    }
-    
-    // 2. h1.entry-title内のテキスト（リンクを含まない場合）
-    const h1EntryTitleMatch = html.match(/<h1[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i);
-    if (h1EntryTitleMatch) {
-      const title = extractTextFromHTML(h1EntryTitleMatch[1]);
       if (title.trim()) {
-        console.log('extractTitle: h1.entry-title で取得成功');
-        return title.trim();
-      }
-    }
-    
-    // 3. .entry-title クラスを持つ任意の要素
-    const entryTitleMatch = html.match(/<[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
-    if (entryTitleMatch) {
-      const title = extractTextFromHTML(entryTitleMatch[1]);
-      if (title.trim()) {
-        console.log('extractTitle: .entry-title で取得成功');
+        console.log('extractTitle: <title>タグで取得成功');
         return title.trim();
       }
     }
@@ -455,42 +443,18 @@ function extractContent(html: string, blogType: BlogType = 'auto'): string {
   
   let contentHtml = '';
   
-  // はてなブログの場合
+  // はてなブログの場合 - <div class="entry-content hatenablog-entry">から取得
   if (blogType === 'hatena') {
     console.log('extractContent: はてなブログモードで抽出中...');
     
-    // 1. .entry-contentクラス（はてなブログの標準）
-    contentHtml = extractNestedTag(text, 'div', 'entry-content');
-    if (contentHtml) console.log('extractContent: .entry-content で取得成功');
+    // 1. .entry-content.hatenablog-entryクラス（はてなブログの標準）
+    contentHtml = extractNestedTag(text, 'div', 'entry-content hatenablog-entry');
+    if (contentHtml) console.log('extractContent: .entry-content.hatenablog-entry で取得成功');
     
-    // 2. .entry-bodyクラス
+    // 2. フォールバック: .entry-contentクラスのみ
     if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'div', 'entry-body');
-      if (contentHtml) console.log('extractContent: .entry-body で取得成功');
-    }
-    
-    // 3. .hentry クラス（はてなブログの別形式）
-    if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'div', 'hentry');
-      if (contentHtml) console.log('extractContent: .hentry で取得成功');
-    }
-    
-    // 4. section.entry-contentクラス
-    if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'section', 'entry-content');
-      if (contentHtml) console.log('extractContent: section.entry-content で取得成功');
-    }
-    
-    // 5. articleタグ内のコンテンツ
-    if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'article', '');
-      if (contentHtml) console.log('extractContent: article で取得成功');
-    }
-    
-    // 6. #main-innerクラス
-    if (!contentHtml) {
-      contentHtml = extractNestedTag(text, 'div', 'main-inner');
-      if (contentHtml) console.log('extractContent: .main-inner で取得成功');
+      contentHtml = extractNestedTag(text, 'div', 'entry-content');
+      if (contentHtml) console.log('extractContent: .entry-content で取得成功');
     }
     
     if (!contentHtml) {
@@ -1522,6 +1486,7 @@ export async function POST(request: NextRequest) {
       url: string;
       category: string;
       tags: string;
+      error?: string;
     }> = [];
     
     // 記事取得関数（リトライロジック付き、404エラー時に末尾スラッシュの有無を試す）
@@ -1532,6 +1497,7 @@ export async function POST(request: NextRequest) {
       url: string;
       category: string;
       tags: string;
+      error?: string;
     } | null> => {
       // 404エラー時のリトライ用に、末尾スラッシュの有無を試す
       const urlVariants = [
