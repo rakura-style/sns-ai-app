@@ -8482,7 +8482,7 @@ ${formattedRewrittenPost}
                             {isBlogImporting ? (
                               <>
                                 <Loader2 size={16} className="animate-spin" />
-                                取り込み中...
+                                {blogImportProgress || '処理中...'}
                               </>
                             ) : (
                               <>
