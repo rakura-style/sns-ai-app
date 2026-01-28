@@ -8126,7 +8126,7 @@ ${formattedRewrittenPost}
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
-                              <p className="text-xs text-slate-500">サイトマップを自動検索します（/sitemap.xml, /post-sitemap.xml等）</p>
+                              <p className="text-xs text-slate-500">サイトURLに /sitemap.xml や /post-sitemap.xml 等を追加する</p>
                             </div>
                           </label>
                           
@@ -8140,7 +8140,7 @@ ${formattedRewrittenPost}
                               className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                             />
                             <div>
-                              <p className="text-sm font-bold text-slate-800">エントリー一覧のURL（はてなブログ）</p>
+                              <p className="text-sm font-bold text-slate-800">はてなブログのURL</p>
                               <p className="text-xs text-slate-500">入力されたURLに/entry/を追加して検索します</p>
                             </div>
                           </label>
@@ -8156,7 +8156,7 @@ ${formattedRewrittenPost}
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">記事の単独URL</p>
-                              <p className="text-xs text-slate-500">入力されたページのみから取り込みます（WordPressとはてなブログの両方に対応）</p>
+                              <p className="text-xs text-slate-500">入力されたページのみから取り込みます（未検証）</p>
                             </div>
                           </label>
                         </div>
