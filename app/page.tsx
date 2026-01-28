@@ -3039,8 +3039,8 @@ export default function SNSGeneratorApp() {
       setBlogImportProgress('記事を取得中...');
       
       try {
-        // 既に取り込まれているかチェック
-        if (blogUrls.includes(normalizedUrl)) {
+        // 既に取り込まれているかチェック（追加モードの場合のみ）
+        if (blogImportMode === 'append' && blogUrls.includes(normalizedUrl)) {
           if (!confirm('このURLは既に取り込まれています。更新しますか？')) {
             setIsBlogImporting(false);
             setBlogImportProgress('');
@@ -3048,8 +3048,8 @@ export default function SNSGeneratorApp() {
           }
         }
         
-        // 単独URLの場合は自動判定
-        await handleImportSelectedUrls([normalizedUrl], 'append', 'auto');
+        // 単独URLの場合は自動判定、選択されたモードを使用
+        await handleImportSelectedUrls([normalizedUrl], blogImportMode, 'auto');
         setSingleArticleUrl('');
         setBlogImportProgress('取り込み完了');
         setTimeout(() => setBlogImportProgress(''), 2000);
@@ -5998,7 +5998,7 @@ export default function SNSGeneratorApp() {
     
     try {
       setIsBlogImporting(true);
-      setBlogImportProgress('削除中...');
+      setBlogImportProgress('処理中...');
       // ブログURL一覧から削除
       const normalizedSetToDelete = new Set(urlsToDelete.map(u => normalizeUrlForDedup(u)));
       const updatedBlogUrls = blogUrls.filter(url => !normalizedSetToDelete.has(normalizeUrlForDedup(url)));
@@ -6121,7 +6121,7 @@ export default function SNSGeneratorApp() {
     
     try {
       setIsBlogImporting(true);
-      setBlogImportProgress('削除中...');
+      setBlogImportProgress('処理中...');
       // ブログURL一覧から削除
       const normalizedToDelete = normalizeUrlForDedup(urlToDelete);
       const updatedBlogUrls = blogUrls.filter(url => normalizeUrlForDedup(url) !== normalizedToDelete);
@@ -7771,8 +7771,8 @@ ${formattedRewrittenPost}
                                 <Loader2 size={14} className="animate-spin text-[#066099]" />
                               )}
                               ブログ一覧（{blogUrls.length}/50）
-                              {isBlogImporting && (
-                                <span className="text-xs font-normal text-[#066099]">取込み中...</span>
+                              {isBlogImporting && blogImportProgress && (
+                                <span className="text-xs font-normal text-[#066099]">{blogImportProgress}</span>
                               )}
                             </h4>
                             <div className="flex items-center gap-2">
@@ -8250,6 +8250,46 @@ ${formattedRewrittenPost}
                           }}
                         />
                       </div>
+                      
+                      {/* 追加/差替えの選択（記事の単独URLの場合のみ） */}
+                      {(urlImportType === 'article') && (
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">
+                            取り込みモード
+                          </label>
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                              <input
+                                type="radio"
+                                name="urlImportModeModal"
+                                value="append"
+                                checked={blogImportMode === 'append'}
+                                onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
+                                className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                              />
+                              <div>
+                                <p className="text-sm font-bold text-slate-800">追加</p>
+                                <p className="text-xs text-slate-500">既存のデータを残して、新しくデータを追加します</p>
+                              </div>
+                            </label>
+                            
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
+                              <input
+                                type="radio"
+                                name="urlImportModeModal"
+                                value="replace"
+                                checked={blogImportMode === 'replace'}
+                                onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
+                                className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
+                              />
+                              <div>
+                                <p className="text-sm font-bold text-slate-800">差替え</p>
+                                <p className="text-xs text-slate-500">既存のデータはすべて削除して、新しくデータを追加します</p>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+                      )}
                       
                       <div className="flex items-center gap-2 pt-2">
                         <button
