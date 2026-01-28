@@ -256,7 +256,7 @@ const analyzeCsvAndGenerateThemes = async (csvData: string, token: string, userI
   // 結合後のデータが空でないことを確認（空行を除外してチェック）
   const combinedLines = combinedCsv.split('\n').filter(line => line.trim());
   if (!combinedCsv || combinedCsv.trim() === '' || combinedLines.length <= 1) {
-    throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。');
+    throw new Error('提供されたCSVデータはヘッダー行のみで、投稿内容が一切含まれていないため、分析を行うことができません。X投稿もしくはブログをご選択ください');
   }
   
   // パース関数が提供されている場合は、エンゲージメントの高い投稿を優先的に選択し、残りをランダムにサンプリング
