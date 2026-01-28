@@ -1902,7 +1902,9 @@ export default function SNSGeneratorApp() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showPostAnalysis, setShowPostAnalysis] = useState(false);
   const [excludeRTAndReplies, setExcludeRTAndReplies] = useState(true); // デフォルトでRT・返信を除外
-  const [csvImportMode, setCsvImportMode] = useState<'replace' | 'append'>('replace');
+  // Xデータの取込みは常に「追加」のみ（差替えは一括削除→再取込みとする）
+  // ※ 互換性のため state は残すが、常に 'append' として扱う
+  const [csvImportMode] = useState<'replace' | 'append'>('append');
   const [showCsvImportModal, setShowCsvImportModal] = useState(false);
   const [pendingCsvData, setPendingCsvData] = useState<string>('');
   const [isCsvLoading, setIsCsvLoading] = useState(false);
@@ -1924,15 +1926,13 @@ export default function SNSGeneratorApp() {
   const [blogImportProgress, setBlogImportProgress] = useState('');
   const [blogCacheInfo, setBlogCacheInfo] = useState<{ cachedAt: number; fromCache: boolean; isExpired?: boolean } | null>(null);
   const [showSitemapUrlModal, setShowSitemapUrlModal] = useState(false); // サイトマップURL選択モーダル
-  const [blogImportMode, setBlogImportMode] = useState<'append' | 'replace'>('append'); // 追加/上書きモード
-  
+  // ブログデータの取込みも常に「追加」のみ（差替えは一括削除→再取込みとする）
   // 単独記事URL用の状態
   const [singleArticleUrl, setSingleArticleUrl] = useState(''); // 単独記事URL
   const [urlImportType, setUrlImportType] = useState<'sitemap' | 'entry' | 'article'>('sitemap'); // URL取り込みタイプ
   
   // ファイル選択前のモード選択ダイアログ
-  const [showCsvModeSelectModal, setShowCsvModeSelectModal] = useState(false);
-  
+  // 以前のCSVモード選択モーダルは廃止（常に追加のみ）
   // URL入力ダイアログ
   const [showUrlInputModal, setShowUrlInputModal] = useState(false);
   
@@ -2796,7 +2796,7 @@ export default function SNSGeneratorApp() {
               return;
             }
           }
-          await handleImportSelectedUrls([normalizedUrl], 'append', 'wordpress');
+          await handleImportSelectedUrls([normalizedUrl], 'wordpress');
           setSingleArticleUrl('');
           setBlogImportProgress('取り込み完了');
           setTimeout(() => setBlogImportProgress(''), 2000);
@@ -3034,13 +3034,13 @@ export default function SNSGeneratorApp() {
         setIsBlogImporting(false);
       }
     } else if (urlImportType === 'article') {
-      // 単独記事の場合：入力されたページのみから取り込む
+      // 単独記事の場合：入力されたページのみから取り込む（既存データに追加）
       setIsBlogImporting(true);
       setBlogImportProgress('記事を取得中...');
       
       try {
-        // 既に取り込まれているかチェック（追加モードの場合のみ）
-        if (blogImportMode === 'append' && blogUrls.includes(normalizedUrl)) {
+        // 既に取り込まれているかチェック
+        if (blogUrls.includes(normalizedUrl)) {
           if (!confirm('このURLは既に取り込まれています。更新しますか？')) {
             setIsBlogImporting(false);
             setBlogImportProgress('');
@@ -3048,8 +3048,8 @@ export default function SNSGeneratorApp() {
           }
         }
         
-        // 単独URLの場合は自動判定、選択されたモードを使用
-        await handleImportSelectedUrls([normalizedUrl], blogImportMode, 'auto');
+        // 単独URLの場合は自動判定で、常に既存データへ追加
+        await handleImportSelectedUrls([normalizedUrl], 'auto');
         setSingleArticleUrl('');
         setBlogImportProgress('取り込み完了');
         setTimeout(() => setBlogImportProgress(''), 2000);
@@ -3071,7 +3071,8 @@ export default function SNSGeneratorApp() {
   };
 
   // 選択されたURLを取り込む
-  const handleImportSelectedUrls = async (urlsToImport: string[] = [], mode: 'append' | 'replace' = blogImportMode, blogType: 'wordpress' | 'hatena' | 'auto' = 'auto') => {
+  // ブログURLから記事を取り込む（常に既存データへ「追加」する）
+  const handleImportSelectedUrls = async (urlsToImport: string[] = [], blogType: 'wordpress' | 'hatena' | 'auto' = 'auto') => {
     if (!user) return;
     
     let urls = urlsToImport.length > 0 ? urlsToImport : Array.from(selectedUrls);
@@ -3082,9 +3083,9 @@ export default function SNSGeneratorApp() {
       return;
     }
     
-    // 最終的なURLリストを関数スコープで初期化（replaceモードは空から開始）
-    let updatedBlogUrls: string[] = mode === 'replace' ? [] : [...blogUrls];
-    let updatedBlogUrlDates: { [key: string]: string } = mode === 'replace' ? {} : { ...blogUrlDates };
+    // 最終的なURLリストを関数スコープで初期化（常に既存データに追加）
+    let updatedBlogUrls: string[] = [...blogUrls];
+    let updatedBlogUrlDates: { [key: string]: string } = { ...blogUrlDates };
     let saveSucceeded = false; // tryブロック内での保存成功フラグ
     const dateStr = new Date().toLocaleString('ja-JP', {
       year: 'numeric',
@@ -3168,33 +3169,6 @@ export default function SNSGeneratorApp() {
     setBlogImportProgress(`選択された${urls.length}件のURLから記事を取得中...`);
     
     try {
-      // replaceモードの場合、最初に既存のブログデータCSVを完全に削除
-      if (mode === 'replace') {
-        setBlogImportProgress('既存のブログデータを削除中...');
-        
-        // 既存のブログデータを削除
-        setBlogData('');
-        setBlogUploadDate(null);
-        setBlogUrls([]);
-        setBlogUrlDates({});
-        
-        // Firestoreから既存データを削除
-        await setDoc(doc(db, 'users', user.uid), {
-          blogData: null,
-          blogUploadDate: null,
-          blogIsSplit: false,
-          blogChunkCount: null,
-          blogUrls: [],
-          blogUrlDates: {}
-        }, { merge: true });
-        
-        // ローカルストレージからも削除
-        localStorage.removeItem(`blogData_${user.uid}`);
-        
-        console.log('[handleImportSelectedUrls] replaceモード: 既存ブログデータを削除しました');
-        setBlogImportProgress(`選択された${urls.length}件のURLから記事を取得中...`);
-      }
-      
       const allPosts: Array<{
         title: string;
         content: string;
@@ -3206,7 +3180,7 @@ export default function SNSGeneratorApp() {
       
       // 既存のブログデータをパースしてURLのマップを作成（重複チェック用）
       const existingPostsByUrl = new Map<string, any>();
-      if (mode === 'append' && blogData && blogData.trim()) {
+      if (blogData && blogData.trim()) {
         try {
           const existingPosts = parseCsvToPosts(blogData);
           existingPosts.forEach(post => {
@@ -3472,7 +3446,7 @@ export default function SNSGeneratorApp() {
         
         // 既存データと結合したサイズをチェック
         let tempFinalData = tempCsv;
-        if (mode === 'append' && blogData && blogData.trim()) {
+        if (blogData && blogData.trim()) {
           const existingLines = blogData.split('\n');
           const newLines = tempCsv.split('\n');
           if (existingLines.length > 0 && newLines.length > 1) {
@@ -3590,7 +3564,7 @@ export default function SNSGeneratorApp() {
       console.log(`ブログ取り込み: allPosts.length = ${allPosts.length}, 成功した投稿数 = ${allPosts.filter((p: any) => !p.error).length}`);
       console.log(`ブログ取り込み: 新しいCSV行数 = ${csv.split('\n').length}`);
       
-      if (mode === 'append' && blogData && blogData.trim()) {
+      if (blogData && blogData.trim()) {
         const existingLines = blogData.split('\n');
         const newLines = csv.split('\n');
         
@@ -3944,9 +3918,9 @@ export default function SNSGeneratorApp() {
     }
   };
 
-  // 個別URLの更新（再取得）
+  // 個別URLの更新（再取得） - 常に追加モードで再取得
   const handleUpdateUrl = async (url: string) => {
-    await handleImportSelectedUrls([url], 'append', 'auto'); // 追加モードで実行（既存URLを更新）
+    await handleImportSelectedUrls([url], 'auto');
   };
 
   // 旧実装のhandleBlogImport関数は削除（サイトマップ方式に変更）
@@ -4991,13 +4965,9 @@ export default function SNSGeneratorApp() {
     reader.onload = async (e) => {
       const text = e.target?.result as string;
       if (text) {
-        // 既存のデータがある場合はモーダルを表示（従来の動作を維持）
-        if (parsedPosts.length > 0 && !showDataListModal) {
-          setPendingCsvData(text);
-          setShowCsvImportModal(true);
-        } else {
-          // 既存データがない場合は直接書き換え
-          await applyCsvData(text, 'replace');
+        // 既存データの有無に関わらず、常に「追加」で取り込む
+        if (confirm('CSVデータを既存データに追加して取り込みますか？')) {
+          await applyCsvData(text, 'append');
         }
       }
       event.target.value = ''; 
@@ -7660,8 +7630,30 @@ ${formattedRewrittenPost}
                               {/* 追加ボタン（X） */}
                             <button
                               onClick={() => {
-                                  // まずモード選択モーダルを表示
-                                  setShowCsvModeSelectModal(true);
+                                  // 既存データに追加でCSVを取り込む
+                                  const fileInput = fileInputRef.current;
+                                  if (fileInput) {
+                                    const tempHandler = async (e: Event) => {
+                                      const target = e.target as HTMLInputElement;
+                                      const file = target.files?.[0];
+                                      if (!file) return;
+                                      
+                                      const reader = new FileReader();
+                                      reader.onload = async (event) => {
+                                        const text = event.target?.result as string;
+                                        if (text) {
+                                          if (confirm('CSVデータを既存データに追加して取り込みますか？')) {
+                                            await applyCsvData(text, 'append');
+                                          }
+                                        }
+                                        target.value = '';
+                                        fileInput.removeEventListener('change', tempHandler);
+                                      };
+                                      reader.readAsText(file);
+                                    };
+                                    fileInput.addEventListener('change', tempHandler);
+                                    fileInput.click();
+                                  }
                                 }}
                                 disabled={isCsvLoading}
                                 className="px-3 py-1.5 text-xs font-bold text-white bg-[#F99F66] rounded hover:bg-[#F98A40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
@@ -7895,45 +7887,14 @@ ${formattedRewrittenPost}
                       </button>
                     </div>
                     
-                    <div className="space-y-3">
-                      <p className="text-sm text-slate-600">
-                        既存の投稿データ（{parsedPosts.length}件）があります。
-                        <br />
-                        取込み方法を選択してください。
-                      </p>
-                      
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
-                          <input
-                            type="radio"
-                            name="csvMode"
-                            value="replace"
-                            checked={csvImportMode === 'replace'}
-                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">書き換え</p>
-                            <p className="text-xs text-slate-500">既存データを削除して、新しいCSVデータに置き換えます</p>
-                          </div>
-                        </label>
-                        
-                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
-                          <input
-                            type="radio"
-                            name="csvMode"
-                            value="append"
-                            checked={csvImportMode === 'append'}
-                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">追加</p>
-                            <p className="text-xs text-slate-500">既存データに新しいCSVデータを追加します</p>
-                          </div>
-                        </label>
+                      <div className="space-y-3">
+                        <p className="text-sm text-slate-600">
+                          既存の投稿データ（{parsedPosts.length}件）があります。
+                          <br />
+                          新しいCSVデータは、既存データに<strong>追加</strong>されます。
+                          差し替えたい場合は、一度「削除」で全データを消してから再度取り込んでください。
+                        </p>
                       </div>
-                    </div>
 
                     <div className="flex gap-2 pt-2">
                       <button
@@ -7949,7 +7910,8 @@ ${formattedRewrittenPost}
                       <button
                         onClick={() => {
                           if (pendingCsvData) {
-                            applyCsvData(pendingCsvData, csvImportMode);
+                            // モーダル経由の取込みも常に「追加」
+                            applyCsvData(pendingCsvData, 'append');
                           }
                         }}
                         disabled={isCsvLoading}
@@ -7972,120 +7934,7 @@ ${formattedRewrittenPost}
                 </div>
               )}
 
-              {/* CSVモード選択モーダル */}
-              {showCsvModeSelectModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                        <Upload size={20} className="text-[#066099]" />
-                        CSV取込み方法を選択
-                      </h3>
-                      <button
-                        onClick={() => {
-                          setShowCsvModeSelectModal(false);
-                        }}
-                        className="text-slate-400 hover:text-slate-600 transition-colors"
-                      >
-                        <XIcon size={20} />
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <p className="text-sm text-slate-600">
-                        既存の投稿データ（{parsedPosts.length}件）があります。
-                        <br />
-                        取込み方法を選択してください。
-                      </p>
-                      
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
-                          <input
-                            type="radio"
-                            name="csvMode"
-                            value="replace"
-                            checked={csvImportMode === 'replace'}
-                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">書き換え</p>
-                            <p className="text-xs text-slate-500">既存データを削除して、新しいCSVデータに置き換えます</p>
-                          </div>
-                        </label>
-                        
-                        <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer">
-                          <input
-                            type="radio"
-                            name="csvMode"
-                            value="append"
-                            checked={csvImportMode === 'append'}
-                            onChange={(e) => setCsvImportMode(e.target.value as 'replace' | 'append')}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">追加</p>
-                            <p className="text-xs text-slate-500">既存データに新しいCSVデータを追加します</p>
-                          </div>
-                        </label>
-                      </div>
-                      
-                      <div className="flex items-center gap-2 pt-2">
-                        <button
-                          onClick={() => {
-                            // モードを保存してファイル選択ダイアログを開く
-                            const selectedMode = csvImportMode;
-                            setShowCsvModeSelectModal(false);
-                            
-                            const fileInput = fileInputRef.current;
-                            if (fileInput) {
-                              const tempHandler = async (e: Event) => {
-                                const target = e.target as HTMLInputElement;
-                                const file = target.files?.[0];
-                                if (!file) {
-                                  return;
-                                }
-                                
-                                const reader = new FileReader();
-                                reader.onload = async (event) => {
-                                  const text = event.target?.result as string;
-                                  if (text) {
-                                    // 確認ダイアログを表示
-                                    const modeText = selectedMode === 'replace' ? '書き換え' : '追加';
-                                    if (confirm(`CSVデータを${modeText}しますか？`)) {
-                                      const success = await applyCsvData(text, selectedMode);
-                                      if (!success) {
-                                        // エラー時はモード選択モーダルを再度表示
-                                        setShowCsvModeSelectModal(true);
-                                      }
-                                    }
-                                  }
-                                  target.value = '';
-                                  fileInput.removeEventListener('change', tempHandler);
-                                };
-                                reader.readAsText(file);
-                              };
-                              fileInput.addEventListener('change', tempHandler);
-                              fileInput.click();
-                            }
-                          }}
-                          className="flex-1 px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors"
-                        >
-                          決定
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowCsvModeSelectModal(false);
-                          }}
-                          className="flex-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-                        >
-                          キャンセル
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* CSVモード選択モーダルは廃止（常に追加のみ） */}
 
               {/* URL入力モーダル */}
               {showUrlInputModal && (
@@ -8208,45 +8057,7 @@ ${formattedRewrittenPost}
                         />
                       </div>
                       
-                      {/* 追加/差替えの選択（記事の単独URLの場合のみ） */}
-                      {(urlImportType === 'article') && (
-                        <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-2">
-                            取り込みモード
-                          </label>
-                          <div className="space-y-2">
-                            <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
-                              <input
-                                type="radio"
-                                name="urlImportModeModal"
-                                value="append"
-                                checked={blogImportMode === 'append'}
-                                onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
-                                className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                              />
-                              <div>
-                                <p className="text-sm font-bold text-slate-800">追加</p>
-                                <p className="text-xs text-slate-500">既存のデータを残して、新しくデータを追加します</p>
-                              </div>
-                            </label>
-                            
-                            <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
-                              <input
-                                type="radio"
-                                name="urlImportModeModal"
-                                value="replace"
-                                checked={blogImportMode === 'replace'}
-                                onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
-                                className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                              />
-                              <div>
-                                <p className="text-sm font-bold text-slate-800">差替え</p>
-                                <p className="text-xs text-slate-500">既存のデータはすべて削除して、新しくデータを追加します</p>
-                              </div>
-                            </label>
-                          </div>
-                        </div>
-                      )}
+                      {/* 取込みモードは常に「追加」 */}
                       
                       <div className="flex items-center gap-2 pt-2">
                         <button
@@ -8328,40 +8139,13 @@ ${formattedRewrittenPost}
                     </div>
                     
                     <div className="flex-1 overflow-hidden flex flex-col p-6">
-                      {/* 既存URLデータの扱い選択 */}
+                      {/* 既存URLデータについての注意書き（取込みは常に「追加」） */}
                       <div className="mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                        <p className="text-sm font-bold text-slate-800 mb-3">既存URLデータの扱い</p>
-                        <div className="space-y-2">
-                          <label className="flex items-center gap-3 p-2 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
-                            <input
-                              type="radio"
-                              name="blogMode"
-                              value="append"
-                              checked={blogImportMode === 'append'}
-                              onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
-                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                            />
-                            <div>
-                              <p className="text-sm font-bold text-slate-800">既存URLデータを残す</p>
-                              <p className="text-xs text-slate-500">既存のURLデータを保持し、選択したURLのデータを追加します</p>
-                            </div>
-                          </label>
-                          
-                          <label className="flex items-center gap-3 p-2 rounded-lg border border-slate-200 hover:border-[#066099] cursor-pointer bg-white">
-                            <input
-                              type="radio"
-                              name="blogMode"
-                              value="replace"
-                              checked={blogImportMode === 'replace'}
-                              onChange={(e) => setBlogImportMode(e.target.value as 'append' | 'replace')}
-                              className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                            />
-                            <div>
-                              <p className="text-sm font-bold text-slate-800">既存URLデータを削除</p>
-                              <p className="text-xs text-slate-500">既存のURLデータを削除し、選択したURLのデータのみに置き換えます</p>
-                            </div>
-                          </label>
-                        </div>
+                        <p className="text-sm font-bold text-slate-800 mb-1">既存URLデータの扱い</p>
+                        <p className="text-xs text-slate-600">
+                          ここでの取込みは、常に既存のブログデータに「追加」されます。
+                          差し替えたい場合は、一度「削除」ボタンでデータを全て削除してから、再度URLを取り込んでください。
+                        </p>
                       </div>
                       
                       <div className="flex items-center justify-between mb-4">
@@ -8469,9 +8253,9 @@ ${formattedRewrittenPost}
                                 }
                               }
                               setShowSitemapUrlModal(false);
-                              // URLタイプに基づいてblogTypeを決定
+                              // URLタイプに基づいてblogTypeを決定（常に既存データへ追加）
                               const importBlogType = urlImportType === 'sitemap' ? 'wordpress' : urlImportType === 'entry' ? 'hatena' : 'auto';
-                              await handleImportSelectedUrls([], blogImportMode, importBlogType);
+                              await handleImportSelectedUrls([], importBlogType);
                             }}
                             disabled={isBlogImporting || selectedUrls.size === 0}
                             className="px-4 py-2 text-sm font-bold text-white bg-[#066099] rounded-lg hover:bg-[#055080] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
