@@ -6857,20 +6857,6 @@ ${formattedRewrittenPost}
                           <input
                             type="radio"
                             name="analysisDataSource"
-                          value="all"
-                          checked={analysisDataSource === 'all'}
-                          onChange={(e) => {
-                            setAnalysisDataSource('all');
-                            setDataSource('all');
-                          }}
-                            className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
-                          />
-                        <span className="text-xs text-slate-700 font-bold">全データ</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="analysisDataSource"
                           value="x"
                           checked={analysisDataSource === 'x'}
                           onChange={(e) => {
