@@ -78,8 +78,9 @@ export async function POST(req: Request) {
     // 4. 利用制限のチェック (投稿作成の時のみ)
     // ---------------------------------------------------------
     // ※ クライアント側(page.tsx)でも1日100回制限を入れていますが、
-    //    サーバー側では「1日5回制限（無料会員）」というビジネスロジックが優先されます。
-    if (actionType === 'post' && !isSubscribed && usageCount >= 5) {
+    //    サーバー側では「1日2回制限（無料会員）」というビジネスロジックが優先されます。
+    //    usageCount は「その日の本番投稿回数」を表します。
+    if (actionType === 'post' && !isSubscribed && usageCount >= 2) {
       return new NextResponse(
         JSON.stringify({ error: 'Free limit reached' }), 
         { status: 403 }
