@@ -1890,10 +1890,12 @@ export default function SNSGeneratorApp() {
   const [deletedPostIdentifiers, setDeletedPostIdentifiers] = useState<Set<string>>(new Set());
   
   // 分析用のデータソース選択（ラジオボタン用）
-  const [dataSource, setDataSource] = useState<'csv' | 'blog' | 'all'>('csv');
+  // デフォルトはブログ投稿
+  const [dataSource, setDataSource] = useState<'csv' | 'blog' | 'all'>('blog');
   
   // 分析・更新用のデータソース選択（'x' | 'blog' | 'all'）
-  const [analysisDataSource, setAnalysisDataSource] = useState<'x' | 'blog' | 'all'>('all');
+  // デフォルトはブログ投稿（ユーザー設定があれば後で上書き）
+  const [analysisDataSource, setAnalysisDataSource] = useState<'x' | 'blog' | 'all'>('blog');
   
   // マイ投稿分析用の状態（選択されたデータソースから生成）
   const [parsedPosts, setParsedPosts] = useState<any[]>([]);
@@ -3654,11 +3656,11 @@ export default function SNSGeneratorApp() {
       setBlogData(finalBlogData);
       setBlogUploadDate(dateStr);
       
-      // ブログデータを取り込んだ場合、dataSourceを'all'に変更して過去投稿に表示されるようにする
+      // ブログデータを取り込んだ場合、デフォルトでブログ投稿が表示されるようにする
       if (finalBlogData && finalBlogData.trim() && finalBlogData.split('\n').length > 1) {
-        setDataSource('all');
-        setAnalysisDataSource('all');
-        console.log(`ブログ取り込み: dataSourceを'all'に変更しました - 過去投稿一覧に表示されます`);
+        setDataSource('blog');
+        setAnalysisDataSource('blog');
+        console.log(`ブログ取り込み: dataSource/analysisDataSourceを'blog'に変更しました - 過去投稿一覧に表示されます`);
       } else {
         console.warn(`ブログ取り込み: blogDataが空のためdataSourceは変更されません`);
       }
@@ -5410,6 +5412,22 @@ export default function SNSGeneratorApp() {
             setSitemapUrl(data.sitemapUrl);
           }
           
+          // マイ投稿分析用データソース（ユーザーごとのデフォルト）
+          try {
+            const src = (data as any).defaultAnalysisDataSource;
+            if (src === 'x' || src === 'blog') {
+              setAnalysisDataSource(src);
+              setDataSource(src === 'x' ? 'csv' : 'blog');
+            } else {
+              // 未設定または不正値の場合はブログをデフォルトにする
+              setAnalysisDataSource('blog');
+              setDataSource('blog');
+            }
+          } catch (e) {
+            console.warn('defaultAnalysisDataSource の読み込みに失敗しました。blog をデフォルトとして使用します。', e);
+            setAnalysisDataSource('blog');
+            setDataSource('blog');
+          }
           
           // 🔥 修正: サブスク状態をロード
           if (data.isSubscribed) setIsSubscribed(true);
@@ -6852,16 +6870,26 @@ ${formattedRewrittenPost}
                 {activeMode === 'mypost' && (
                   <div className="flex flex-col gap-3">
                       {/* データソース選択（分析・更新用） */}
-                    <div className="flex flex-col sm:flex-row gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto">
+                    <div className="flex flex-col sm:flex-row gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 w-full sm:w-auto items-center justify-center">
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="radio"
                             name="analysisDataSource"
                           value="x"
                           checked={analysisDataSource === 'x'}
-                          onChange={(e) => {
+                          onChange={async () => {
                             setAnalysisDataSource('x');
                             setDataSource('csv');
+                            // ユーザーごとのデフォルトデータソースとして保存
+                            if (user) {
+                              try {
+                                await setDoc(doc(db, 'users', user.uid), {
+                                  defaultAnalysisDataSource: 'x',
+                                }, { merge: true });
+                              } catch (error) {
+                                console.error('defaultAnalysisDataSource(x) の保存に失敗しました:', error);
+                              }
+                            }
                           }}
                             className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                           />
@@ -6873,9 +6901,19 @@ ${formattedRewrittenPost}
                             name="analysisDataSource"
                           value="blog"
                           checked={analysisDataSource === 'blog'}
-                          onChange={(e) => {
+                          onChange={async () => {
                             setAnalysisDataSource('blog');
                             setDataSource('blog');
+                            // ユーザーごとのデフォルトデータソースとして保存
+                            if (user) {
+                              try {
+                                await setDoc(doc(db, 'users', user.uid), {
+                                  defaultAnalysisDataSource: 'blog',
+                                }, { merge: true });
+                              } catch (error) {
+                                console.error('defaultAnalysisDataSource(blog) の保存に失敗しました:', error);
+                              }
+                            }
                           }}
                             className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                           />
@@ -6918,10 +6956,9 @@ ${formattedRewrittenPost}
                               // 分析用のデータソースと表示用のデータソースを同期
                               if (analysisDataSource === 'blog') {
                                 setDataSource('blog');
-                              } else if (analysisDataSource === 'x') {
-                                setDataSource('csv');
                               } else {
-                                setDataSource('all');
+                                // デフォルトはX投稿
+                                setDataSource('csv');
                               }
                             }
                           }}
