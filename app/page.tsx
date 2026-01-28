@@ -8126,7 +8126,7 @@ ${formattedRewrittenPost}
                             />
                             <div>
                               <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
-                              <p className="text-xs text-slate-500">サイトURLに /sitemap.xml や /post-sitemap.xml 等を追加する</p>
+                              <p className="text-xs text-slate-500">URLに /sitemap.xml や /post-sitemap.xml 等を追加してください</p>
                             </div>
                           </label>
                           
