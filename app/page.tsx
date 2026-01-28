@@ -3651,49 +3651,6 @@ export default function SNSGeneratorApp() {
         finalBlogData = csv;
       }
       
-      // ブログとnoteのデータを50件に制限
-      const MAX_BLOG_POSTS = 50;
-      const allBlogPosts = parseCsvToPosts(finalBlogData);
-      console.log(`ブログ取り込み: 制限前の投稿数 = ${allBlogPosts.length}`);
-      
-      if (allBlogPosts.length > MAX_BLOG_POSTS) {
-        console.log(`ブログ投稿が${allBlogPosts.length}件あります。上位${MAX_BLOG_POSTS}件のみを保持します。`);
-        
-        // 日付順でソート（新しい順）
-        const sortedPosts = [...allBlogPosts].sort((a: any, b: any) => {
-          const aDate = a.Date || a.date || a['Posted At'] || '';
-          const bDate = b.Date || b.date || b['Posted At'] || '';
-          if (aDate && bDate) {
-            return new Date(bDate).getTime() - new Date(aDate).getTime();
-          }
-          return 0;
-        });
-        
-        // 上位50件のみを保持
-        const limitedPosts = sortedPosts.slice(0, MAX_BLOG_POSTS);
-        
-        // CSVに再変換
-        finalBlogData = [
-          'Date,Title,Content,Category,Tags,URL',
-          ...limitedPosts.map(post => {
-            const date = post.Date || post.date || '';
-            const title = `"${(post.Title || post.title || '').replace(/"/g, '""')}"`;
-            const content = `"${(post.Content || post.content || '').replace(/"/g, '""')}"`;
-            const category = `"${(post.Category || post.category || '').replace(/"/g, '""')}"`;
-            const tags = `"${(post.Tags || post.tags || '').replace(/"/g, '""')}"`;
-            const url = `"${post.URL || post.url || ''}"`;
-            return `${date},${title},${content},${category},${tags},${url}`;
-          }),
-        ].join('\n');
-        
-        console.log(`ブログ取り込み: 制限後の投稿数 = ${limitedPosts.length}`);
-        
-        // 警告を表示
-        if (allBlogPosts.length > MAX_BLOG_POSTS) {
-          alert(`ブログとnoteの投稿が${allBlogPosts.length}件ありました。\n\n上位${MAX_BLOG_POSTS}件（新しい順）のみを保持し、それより古い${allBlogPosts.length - MAX_BLOG_POSTS}件は自動で削除されました。`);
-        }
-      }
-      
       // データサイズをチェック（Firestoreのドキュメントサイズ制限: 1MB）
       const dataSize = new Blob([finalBlogData]).size;
       if (dataSize > ONE_MB) {
@@ -7453,7 +7410,7 @@ ${formattedRewrittenPost}
                           />
                           <div>
                             <p className="text-sm font-bold text-slate-800">サイトマップのURL（WordPress）</p>
-                            <p className="text-xs text-slate-500">サイトマップを自動検索します（/sitemap.xml, /post-sitemap.xml等）</p>
+                            <p className="text-xs text-slate-500">※サイトURLに /sitemap.xml や /post-sitemap.xml 等を追加してください</p>
                           </div>
                         </label>
                         
@@ -7467,8 +7424,8 @@ ${formattedRewrittenPost}
                             className="w-4 h-4 text-[#066099] border-slate-300 focus:ring-[#066099]"
                           />
                           <div>
-                            <p className="text-sm font-bold text-slate-800">エントリー一覧のURL（はてなブログ）</p>
-                            <p className="text-xs text-slate-500">入力されたURLに/entry/を追加して検索します</p>
+                            <p className="text-sm font-bold text-slate-800">はてなブログのURL</p>
+                            <p className="text-xs text-slate-500">※入力されたURLに/entry/を追加して検索します</p>
                           </div>
                         </label>
                         
@@ -7483,7 +7440,7 @@ ${formattedRewrittenPost}
                           />
                           <div>
                             <p className="text-sm font-bold text-slate-800">記事の単独URL</p>
-                            <p className="text-xs text-slate-500">入力されたページのみから取り込みます（WordPressとはてなブログの両方に対応）</p>
+                            <p className="text-xs text-slate-500">入力されたページのみから取り込みます（未検証です）</p>
                           </div>
                         </label>
                       </div>
@@ -7801,11 +7758,11 @@ ${formattedRewrittenPost}
                             </div>
                           </div>
                           <div className="border border-slate-200 rounded-lg p-4 max-h-96 overflow-y-auto bg-slate-50 relative">
-                            {/* 取込み中のオーバーレイ */}
+                            {/* 処理中のオーバーレイ */}
                             {isBlogImporting && (
                               <div className="absolute inset-0 bg-white/80 z-10 flex flex-col items-center justify-center rounded-lg">
                                 <Loader2 size={32} className="animate-spin text-[#066099] mb-2" />
-                                <p className="text-sm font-medium text-slate-700">取込み中...</p>
+                                <p className="text-sm font-medium text-slate-700">処理中...</p>
                                 {blogImportProgress && (
                                   <p className="text-xs text-slate-500 mt-1 max-w-xs text-center px-4">{blogImportProgress}</p>
                                 )}
